@@ -1,0 +1,17 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "email_high_risk_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "action_urn": "tool.gmail.send_email" },
+      "verdict": "ESCALATE",
+      "reason_code": "EXTERNAL_SEND_REQUIRES_APPROVAL"
+    },
+    {
+      "match": { "action_urn": "tool.composio.salesforce.export_records" },
+      "verdict": "DENY",
+      "reason_code": "BULK_EXPORT_DENY"
+    }
+  ]
+}

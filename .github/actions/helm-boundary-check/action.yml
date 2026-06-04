@@ -1,0 +1,15 @@
+name: HELM Boundary Check
+description: Verify HELM agent integration sample receipts and EvidencePacks.
+inputs:
+  repo:
+    description: Repository root to verify.
+    required: false
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Verify generated samples
+      shell: bash
+      run: |
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/generate_samples.py" --root "${{ inputs.repo }}" --check
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/verify_samples.py" --repo "${{ inputs.repo }}"

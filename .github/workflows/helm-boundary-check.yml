@@ -1,0 +1,37 @@
+name: HELM Boundary Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install TypeScript package dependencies
+        run: npm install
+        working-directory: packages/js/helm-tool-wrapper
+
+      - name: Test TypeScript wrapper
+        run: npm test
+        working-directory: packages/js/helm-tool-wrapper
+
+      - name: Test Python wrapper
+        run: python -m unittest discover packages/python/helm_tool_wrapper/tests
+
+      - name: Verify generated samples
+        uses: ./.github/actions/helm-boundary-check
+        with:
+          repo: .

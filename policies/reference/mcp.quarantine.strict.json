@@ -1,0 +1,17 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "mcp_quarantine_strict_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "mcp_server_state": "unknown" },
+      "verdict": "ESCALATE",
+      "reason_code": "MCP_UNKNOWN_TOOL_QUARANTINE"
+    },
+    {
+      "match": { "schema_pin": "missing" },
+      "verdict": "DENY",
+      "reason_code": "MCP_SCHEMA_PIN_REQUIRED"
+    }
+  ]
+}

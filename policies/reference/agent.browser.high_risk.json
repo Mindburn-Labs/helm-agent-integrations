@@ -1,0 +1,12 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "browser_high_risk_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "action_urn": "tool.browser_use.submit" },
+      "verdict": "ESCALATE",
+      "reason_code": "BROWSER_SUBMIT_ESCALATE"
+    }
+  ]
+}

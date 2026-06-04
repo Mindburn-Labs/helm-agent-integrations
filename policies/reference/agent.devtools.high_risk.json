@@ -1,0 +1,22 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "devtools_high_risk_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "contains": "rm -rf" },
+      "verdict": "DENY",
+      "reason_code": "FORBIDDEN_PATH_DENY"
+    },
+    {
+      "match": { "contains": "DROP TABLE" },
+      "verdict": "DENY",
+      "reason_code": "SQL_DESTRUCTIVE_MUTATION_DENY"
+    },
+    {
+      "match": { "action_urn": "tool.e2b.execute", "network": "external" },
+      "verdict": "DENY",
+      "reason_code": "SANDBOX_NETWORK_EGRESS_DENY"
+    }
+  ]
+}

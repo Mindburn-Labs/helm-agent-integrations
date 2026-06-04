@@ -1,0 +1,12 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "low_risk_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "risk_class": "T0" },
+      "verdict": "ALLOW",
+      "reason_code": "LOW_RISK_ALLOW"
+    }
+  ]
+}
