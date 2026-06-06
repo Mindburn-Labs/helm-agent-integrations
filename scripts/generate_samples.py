@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 FIXED_TIME = "2026-06-05T00:00:00Z"
 
@@ -30,6 +30,7 @@ class Scenario:
     dispatched: bool
     policy: str
     arguments: dict[str, Any]
+    source_urls: tuple[str, ...] = ()
 
 
 SCENARIOS = [
@@ -39,7 +40,7 @@ SCENARIOS = [
         title="Unknown MCP tool is quarantined before dispatch",
         action_urn="tool.mcp.gmail.send_email",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="ESCALATE",
         reason_code="MCP_UNKNOWN_TOOL_QUARANTINE",
         dispatched=False,
@@ -52,7 +53,7 @@ SCENARIOS = [
         title="OpenAI-compatible proxy blocks direct side-effect request",
         action_urn="tool.proxy.shell.execute",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="DENY",
         reason_code="PROXY_SIDE_EFFECT_DENY",
         dispatched=False,
@@ -65,7 +66,7 @@ SCENARIOS = [
         title="Wrapped email send requires human approval",
         action_urn="tool.gmail.send_email",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="ESCALATE",
         reason_code="EXTERNAL_SEND_REQUIRES_APPROVAL",
         dispatched=False,
@@ -78,7 +79,7 @@ SCENARIOS = [
         title="Hermes destructive shell command is denied",
         action_urn="tool.hermes.terminal",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="DENY",
         reason_code="FORBIDDEN_PATH_DENY",
         dispatched=False,
@@ -91,7 +92,7 @@ SCENARIOS = [
         title="OpenClaw email send escalates before external delivery",
         action_urn="tool.openclaw.gmail-send",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="ESCALATE",
         reason_code="OPENCLAW_EXTERNAL_SEND_ESCALATE",
         dispatched=False,
@@ -104,7 +105,7 @@ SCENARIOS = [
         title="LangGraph SQL mutation is denied",
         action_urn="tool.sql.execute",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="DENY",
         reason_code="SQL_DESTRUCTIVE_MUTATION_DENY",
         dispatched=False,
@@ -117,7 +118,7 @@ SCENARIOS = [
         title="Browser checkout submit escalates before form submission",
         action_urn="tool.browser_use.submit",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="ESCALATE",
         reason_code="BROWSER_SUBMIT_ESCALATE",
         dispatched=False,
@@ -130,7 +131,7 @@ SCENARIOS = [
         title="E2B sandbox network egress is denied",
         action_urn="tool.e2b.execute",
         risk_class="T2",
-        effect_class="REVERSIBLE",
+        effect_class="E3",
         verdict="DENY",
         reason_code="SANDBOX_NETWORK_EGRESS_DENY",
         dispatched=False,
@@ -143,12 +144,79 @@ SCENARIOS = [
         title="Composio Salesforce export is denied",
         action_urn="tool.composio.salesforce.export_records",
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
         verdict="DENY",
         reason_code="BULK_EXPORT_DENY",
         dispatched=False,
         policy="policies/agent.email.high_risk.toml",
         arguments={"object": "Lead", "limit": 50000},
+    ),
+    Scenario(
+        scenario_id="tinyfish-search-missing-api-key-deny",
+        framework="tinyfish",
+        title="TinyFish Search denies before dispatch when the API key is missing",
+        action_urn="tool.tinyfish.search.query",
+        risk_class="T2",
+        effect_class="E2",
+        verdict="DENY",
+        reason_code="TINYFISH_MISSING_API_KEY_DENY",
+        dispatched=False,
+        policy="policies/tinyfish.web_capability.toml",
+        arguments={"query": "HELM governed web capability"},
+    ),
+    Scenario(
+        scenario_id="tinyfish-fetch-partial-source-deny",
+        framework="tinyfish",
+        title="TinyFish Fetch partial source errors cannot be promoted as complete evidence",
+        action_urn="tool.tinyfish.fetch.extract",
+        risk_class="T2",
+        effect_class="E2",
+        verdict="DENY",
+        reason_code="TINYFISH_FETCH_PARTIAL_SOURCE_DENY",
+        dispatched=False,
+        policy="policies/tinyfish.web_capability.toml",
+        arguments={
+            "urls": ["https://example.com/source-ok", "https://example.com/source-error"],
+            "format": "markdown",
+            "ttl": 3600,
+        },
+        source_urls=("https://example.com/source-ok", "https://example.com/source-error"),
+    ),
+    Scenario(
+        scenario_id="tinyfish-browser-credential-grant-escalate",
+        framework="tinyfish",
+        title="TinyFish Browser credential session escalates until grant and TTL are approved",
+        action_urn="tool.tinyfish.browser.session",
+        risk_class="T2",
+        effect_class="E3",
+        verdict="ESCALATE",
+        reason_code="TINYFISH_BROWSER_CREDENTIAL_GRANT_ESCALATE",
+        dispatched=False,
+        policy="policies/tinyfish.web_capability.toml",
+        arguments={
+            "url": "https://portal.example/login",
+            "credential_grant_ref": "grant:demo",
+            "ttl_seconds": 900,
+        },
+        source_urls=("https://portal.example/login",),
+    ),
+    Scenario(
+        scenario_id="tinyfish-agent-external-action-escalate",
+        framework="tinyfish",
+        title="TinyFish Agent external action escalates before submit or publish",
+        action_urn="tool.tinyfish.agent.external_action",
+        risk_class="T2",
+        effect_class="E4",
+        verdict="ESCALATE",
+        reason_code="TINYFISH_AGENT_EXTERNAL_ACTION_ESCALATE",
+        dispatched=False,
+        policy="policies/tinyfish.web_capability.toml",
+        arguments={
+            "url": "https://shop.example/checkout",
+            "goal": "Submit the saved cart",
+            "action_intent": "submit",
+        },
+        source_urls=("https://shop.example/checkout",),
     ),
 ]
 
@@ -165,7 +233,15 @@ def sha256(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
+def validate_scenario(scenario: Scenario) -> None:
+    if scenario.effect_class not in {"E0", "E1", "E2", "E3", "E4"}:
+        raise ValueError(f"{scenario.scenario_id}: effect_class must be canonical E0-E4")
+    if scenario.dispatched and scenario.verdict in {"DENY", "ESCALATE", "PENDING"}:
+        raise ValueError(f"{scenario.scenario_id}: blocked verdicts must not dispatch")
+
+
 def receipt_for(scenario: Scenario) -> dict[str, Any]:
+    validate_scenario(scenario)
     receipt = {
         "schema_version": "helm.integration.receipt.sample.v1",
         "scenario_id": scenario.scenario_id,
@@ -190,6 +266,29 @@ def receipt_for(scenario: Scenario) -> dict[str, Any]:
     return receipt
 
 
+def connector_evidence_for(scenario: Scenario, receipt: dict[str, Any]) -> Optional[dict[str, Any]]:
+    if scenario.framework != "tinyfish" or not scenario.source_urls:
+        return None
+
+    proof = {
+        "connector_id": "tinyfish-web-v1",
+        "connector_contract_hash": sha256(canonical_bytes({"connector_id": "tinyfish-web-v1"})),
+        "policy_hash": sha256(canonical_bytes({"policy": scenario.policy})),
+        "request_hash": sha256(canonical_bytes(scenario.arguments)),
+        "source_url_hashes": [sha256(url.encode("utf-8")) for url in scenario.source_urls],
+        "receipt_ref": receipt["receipt_id"],
+        "evidence_pack_ref": f"evidencepack:{scenario.scenario_id}",
+        "fixture_id": scenario.scenario_id,
+        "sample_only": True,
+        "production": False,
+    }
+    if scenario.verdict == "DENY":
+        proof["error_hash"] = sha256(canonical_bytes({"reason_code": scenario.reason_code}))
+    else:
+        proof["response_hash"] = sha256(canonical_bytes({"verdict": scenario.verdict, "reason_code": scenario.reason_code}))
+    return proof
+
+
 def scenario_doc(scenario: Scenario) -> dict[str, Any]:
     return {
         "scenario_id": scenario.scenario_id,
@@ -200,6 +299,7 @@ def scenario_doc(scenario: Scenario) -> dict[str, Any]:
         "expected_verdict": scenario.verdict,
         "must_not_dispatch": not scenario.dispatched,
         "policy": scenario.policy,
+        "sample_only": True,
     }
 
 
@@ -212,6 +312,7 @@ def add_tar_file(tar: tarfile.TarFile, name: str, data: bytes) -> None:
 
 
 def evidence_pack_bytes(scenario: Scenario, receipt: dict[str, Any]) -> bytes:
+    connector_evidence = connector_evidence_for(scenario, receipt)
     decision = {
         "decision_id": receipt["decision_id"],
         "verdict": scenario.verdict,
@@ -231,6 +332,8 @@ def evidence_pack_bytes(scenario: Scenario, receipt: dict[str, Any]) -> bytes:
             b"It is not a customer trust anchor.\n"
         ),
     }
+    if connector_evidence is not None:
+        files["07_ATTESTATIONS/connector_evidence.json"] = pretty_bytes({"records": [connector_evidence]})
     index = {
         "schema_version": "helm.integration.evidencepack.sample.v1",
         "scenario_id": scenario.scenario_id,

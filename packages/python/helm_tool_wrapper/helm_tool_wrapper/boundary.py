@@ -320,8 +320,76 @@ def from_browser_use_action(call: Mapping[str, Any]) -> BoundaryIntent:
         {"url": call.get("url"), "form": call.get("form")},
         {"framework": "browser-use", "url": call.get("url"), **_record(call.get("metadata"))},
         risk_class="T2",
-        effect_class="IRREVERSIBLE",
+        effect_class="E4",
     )
+
+
+def _tinyfish_metadata(endpoint_family: str, metadata: Any = None) -> Mapping[str, Any]:
+    return {
+        "framework": "tinyfish",
+        "connector_id": "tinyfish-web-v1",
+        "endpoint_family": endpoint_family,
+        **_record(metadata),
+    }
+
+
+def from_tinyfish_search(call: Mapping[str, Any]) -> BoundaryIntent:
+    return _intent(
+        "tool.tinyfish.search.query",
+        dict(call),
+        _tinyfish_metadata("search", call.get("metadata")),
+        risk_class="T2",
+        effect_class="E2",
+    )
+
+
+def from_tinyfish_fetch(call: Mapping[str, Any]) -> BoundaryIntent:
+    return _intent(
+        "tool.tinyfish.fetch.extract",
+        dict(call),
+        _tinyfish_metadata("fetch", call.get("metadata")),
+        risk_class="T2",
+        effect_class="E2",
+    )
+
+
+def from_tinyfish_browser_session(call: Mapping[str, Any]) -> BoundaryIntent:
+    return _intent(
+        "tool.tinyfish.browser.session",
+        dict(call),
+        _tinyfish_metadata("browser", call.get("metadata")),
+        risk_class="T2",
+        effect_class="E3",
+    )
+
+
+def from_tinyfish_agent_run(call: Mapping[str, Any]) -> BoundaryIntent:
+    action_intent = str(call.get("action_intent") or "").lower()
+    external_intent = action_intent in {"submit", "purchase", "send", "publish"}
+    external_action = bool(call.get("external_action")) or external_intent
+    action_urn = "tool.tinyfish.agent.external_action" if external_action else "tool.tinyfish.agent.run"
+    effect_class = "E4" if external_action else "E3"
+    return _intent(
+        action_urn,
+        dict(call),
+        _tinyfish_metadata(
+            "agent",
+            {
+                "action_intent": call.get("action_intent"),
+                "external_action": call.get("external_action"),
+                **_record(call.get("metadata")),
+            },
+        ),
+        risk_class="T2",
+        effect_class=effect_class,
+    )
+
+
+# Camel-case aliases match the TypeScript helper names used in docs.
+fromTinyFishSearch = from_tinyfish_search
+fromTinyFishFetch = from_tinyfish_fetch
+fromTinyFishBrowserSession = from_tinyfish_browser_session
+fromTinyFishAgentRun = from_tinyfish_agent_run
 
 
 def from_e2b_execution(call: Mapping[str, Any]) -> BoundaryIntent:
@@ -335,7 +403,7 @@ def from_e2b_execution(call: Mapping[str, Any]) -> BoundaryIntent:
             **_record(call.get("metadata")),
         },
         risk_class="T2",
-        effect_class="REVERSIBLE",
+        effect_class="E3",
     )
 
 

@@ -16,7 +16,7 @@ const sendEmail = withHelmBoundary({
   principal: "demo-agent",
   actionUrn: "tool.gmail.send_email",
   riskClass: "T2",
-  effectClass: "IRREVERSIBLE",
+  effectClass: "E4",
   tool: async (input: { to: string; subject: string }) => {
     return { provider_id: "msg_123", ...input };
   },
@@ -27,3 +27,24 @@ const result = await sendEmail({ to: "ops@example.com", subject: "Review" });
 
 This package does not define HELM verdict semantics. It only calls the kernel
 boundary and follows the returned verdict.
+
+TinyFish helpers normalize Search, Fetch, Browser, and Agent proposals before
+the same HELM preflight:
+
+```ts
+import { fromTinyFishAgentRun, preflightAction } from "@mindburn/helm-tool-wrapper";
+
+const intent = fromTinyFishAgentRun({
+  url: "https://shop.example/checkout",
+  goal: "Submit the saved cart",
+  action_intent: "submit",
+});
+
+const result = await preflightAction({
+  actionUrn: intent.actionUrn,
+  input: intent.input,
+  riskClass: intent.riskClass,
+  effectClass: intent.effectClass,
+  metadata: intent.metadata,
+});
+```

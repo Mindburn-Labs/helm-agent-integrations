@@ -21,7 +21,7 @@ This repo currently ships:
 - TypeScript `withHelmBoundary(...)` wrapper around `POST /api/v1/evaluate`
 - Python `with_helm_boundary(...)` wrapper around `POST /api/v1/evaluate`
 - framework intent normalizers for Hermes, OpenClaw, Mastra, Browser Use, E2B,
-  and Composio
+  Composio, and TinyFish governed web capability
 - universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
   tool wrappers
 - Hermes and OpenClaw example integration bundles
@@ -52,7 +52,7 @@ const sendEmail = withHelmBoundary({
   principal: "demo-agent",
   actionUrn: "tool.gmail.send_email",
   riskClass: "T2",
-  effectClass: "IRREVERSIBLE",
+  effectClass: "E4",
   tool: async (input: { to: string; subject: string; body: string }) => {
     return { provider_id: "msg_123", ...input };
   },
@@ -79,7 +79,7 @@ from helm_tool_wrapper import with_helm_boundary
     principal="demo-agent",
     action_urn="tool.sql.execute",
     risk_class="T2",
-    effect_class="IRREVERSIBLE",
+    effect_class="E4",
 )
 def execute_sql(query: str):
     return {"rows": 1, "query": query}
@@ -101,6 +101,10 @@ receipts/samples/                    generated sample receipt JSON
 evidencepacks/samples/               generated sample EvidencePack archives
 docs/campaign/                       maintainer-ready issue and PR copy
 ```
+
+TinyFish-style web capability examples live under `integrations/tinyfish/`.
+They are HELM-governed external web capability fixtures, not TinyFish
+certification or partnership claims.
 
 ## Generate And Verify Samples
 

@@ -3,6 +3,10 @@ import test from "node:test";
 import {
   fromBrowserUseAction,
   fromComposioAction,
+  fromTinyFishAgentRun,
+  fromTinyFishBrowserSession,
+  fromTinyFishFetch,
+  fromTinyFishSearch,
   preflightAction,
   withHelmBoundary,
   type FetchLike,
@@ -119,7 +123,7 @@ test("new framework helpers normalize Browser Use and Composio calls", () => {
   });
   assert.equal(browser.actionUrn, "tool.browser_use.submit");
   assert.equal(browser.riskClass, "T2");
-  assert.equal(browser.effectClass, "IRREVERSIBLE");
+  assert.equal(browser.effectClass, "E4");
 
   const composio = fromComposioAction({
     app: "salesforce",
@@ -128,4 +132,35 @@ test("new framework helpers normalize Browser Use and Composio calls", () => {
   });
   assert.equal(composio.actionUrn, "tool.composio.salesforce.export_records");
   assert.deepEqual(composio.input, { object: "Lead" });
+});
+
+test("TinyFish helpers emit canonical effect classes and endpoint metadata", () => {
+  const search = fromTinyFishSearch({ query: "HELM governed web capability" });
+  assert.equal(search.actionUrn, "tool.tinyfish.search.query");
+  assert.equal(search.effectClass, "E2");
+  assert.equal(search.metadata?.connector_id, "tinyfish-web-v1");
+  assert.equal(search.metadata?.endpoint_family, "search");
+
+  const fetch = fromTinyFishFetch({ urls: ["https://example.com"], ttl: 3600 });
+  assert.equal(fetch.actionUrn, "tool.tinyfish.fetch.extract");
+  assert.equal(fetch.effectClass, "E2");
+  assert.equal(fetch.metadata?.endpoint_family, "fetch");
+
+  const browser = fromTinyFishBrowserSession({
+    url: "https://portal.example",
+    credential_grant_ref: "grant:demo",
+    ttl_seconds: 900,
+  });
+  assert.equal(browser.actionUrn, "tool.tinyfish.browser.session");
+  assert.equal(browser.effectClass, "E3");
+  assert.equal(browser.metadata?.endpoint_family, "browser");
+
+  const agent = fromTinyFishAgentRun({
+    url: "https://shop.example/checkout",
+    goal: "Submit the saved cart",
+    action_intent: "submit",
+  });
+  assert.equal(agent.actionUrn, "tool.tinyfish.agent.external_action");
+  assert.equal(agent.effectClass, "E4");
+  assert.equal(agent.metadata?.endpoint_family, "agent");
 });

@@ -10,6 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from helm_tool_wrapper import (
     from_browser_use_action,
     from_composio_action,
+    from_tinyfish_agent_run,
+    from_tinyfish_browser_session,
+    from_tinyfish_fetch,
+    from_tinyfish_search,
     preflight_action,
     with_helm_boundary,
 )
@@ -78,11 +82,45 @@ class BoundaryWrapperTests(unittest.TestCase):
         browser = from_browser_use_action({"action": "submit", "url": "https://shop.example/checkout"})
         self.assertEqual(browser.action_urn, "tool.browser_use.submit")
         self.assertEqual(browser.risk_class, "T2")
-        self.assertEqual(browser.effect_class, "IRREVERSIBLE")
+        self.assertEqual(browser.effect_class, "E4")
 
         composio = from_composio_action({"app": "salesforce", "action": "export_records", "payload": {"object": "Lead"}})
         self.assertEqual(composio.action_urn, "tool.composio.salesforce.export_records")
         self.assertEqual(composio.input, {"object": "Lead"})
+
+    def test_tinyfish_helpers(self) -> None:
+        search = from_tinyfish_search({"query": "HELM governed web capability"})
+        self.assertEqual(search.action_urn, "tool.tinyfish.search.query")
+        self.assertEqual(search.effect_class, "E2")
+        self.assertEqual(search.metadata["connector_id"], "tinyfish-web-v1")
+        self.assertEqual(search.metadata["endpoint_family"], "search")
+
+        fetch = from_tinyfish_fetch({"urls": ["https://example.com"], "ttl": 3600})
+        self.assertEqual(fetch.action_urn, "tool.tinyfish.fetch.extract")
+        self.assertEqual(fetch.effect_class, "E2")
+        self.assertEqual(fetch.metadata["endpoint_family"], "fetch")
+
+        browser = from_tinyfish_browser_session(
+            {
+                "url": "https://portal.example",
+                "credential_grant_ref": "grant:demo",
+                "ttl_seconds": 900,
+            }
+        )
+        self.assertEqual(browser.action_urn, "tool.tinyfish.browser.session")
+        self.assertEqual(browser.effect_class, "E3")
+        self.assertEqual(browser.metadata["endpoint_family"], "browser")
+
+        agent = from_tinyfish_agent_run(
+            {
+                "url": "https://shop.example/checkout",
+                "goal": "Submit the saved cart",
+                "action_intent": "submit",
+            }
+        )
+        self.assertEqual(agent.action_urn, "tool.tinyfish.agent.external_action")
+        self.assertEqual(agent.effect_class, "E4")
+        self.assertEqual(agent.metadata["endpoint_family"], "agent")
 
 
 if __name__ == "__main__":

@@ -25,3 +25,12 @@ port = 7715
 store = "sqlite"
 path = "./data/launch_receipts.db"
 ```
+
+## Included Profiles
+
+- `default.low_risk.toml`
+- `agent.browser.high_risk.toml`
+- `agent.devtools.high_risk.toml`
+- `agent.email.high_risk.toml`
+- `mcp.quarantine.strict.toml`
+- `tinyfish.web_capability.toml`
