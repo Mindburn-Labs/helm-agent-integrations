@@ -1,0 +1,27 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "tinyfish_governed_web_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "action_urn": "tool.tinyfish.search.query", "credential_ref": null },
+      "verdict": "DENY",
+      "reason_code": "TINYFISH_MISSING_API_KEY_DENY"
+    },
+    {
+      "match": { "action_urn": "tool.tinyfish.fetch.extract", "partial_source_errors": true },
+      "verdict": "DENY",
+      "reason_code": "TINYFISH_FETCH_PARTIAL_SOURCE_DENY"
+    },
+    {
+      "match": { "action_urn": "tool.tinyfish.browser.session", "credential_grant_ref": "*" },
+      "verdict": "ESCALATE",
+      "reason_code": "TINYFISH_BROWSER_CREDENTIAL_GRANT_ESCALATE"
+    },
+    {
+      "match": { "action_urn": "tool.tinyfish.agent.external_action" },
+      "verdict": "ESCALATE",
+      "reason_code": "TINYFISH_AGENT_EXTERNAL_ACTION_ESCALATE"
+    }
+  ]
+}

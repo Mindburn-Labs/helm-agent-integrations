@@ -279,6 +279,42 @@ export interface BoundaryIntent<Input = unknown> {
   metadata?: Record<string, unknown>;
 }
 
+export interface TinyFishSearchRequest {
+  query: string;
+  location?: string;
+  language?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TinyFishFetchRequest {
+  urls: string[];
+  format?: "markdown" | "html" | "json" | string;
+  links?: boolean;
+  image_links?: boolean;
+  ttl?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TinyFishBrowserSessionRequest {
+  url?: string;
+  session_id?: string;
+  cdp_url?: string;
+  credential_grant_ref?: string;
+  ttl_seconds?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TinyFishAgentRunRequest {
+  url: string;
+  goal: string;
+  output_schema?: Record<string, unknown>;
+  use_vault?: boolean;
+  credential_item_ids?: string[];
+  action_intent?: string;
+  external_action?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 function intent<Input>(
   actionUrn: string,
   input: Input,
@@ -293,6 +329,27 @@ function intent<Input>(
     effectClass: defaults.effectClass,
     metadata: { ...metadata, ...defaults.metadata },
   };
+}
+
+function tinyFishMetadata(endpointFamily: string, metadata?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    framework: "tinyfish",
+    connector_id: "tinyfish-web-v1",
+    endpoint_family: endpointFamily,
+    ...metadata,
+  };
+}
+
+function tinyFishAgentEffect(call: TinyFishAgentRunRequest): { actionUrn: string; effectClass: string } {
+  const intentValue = call.action_intent?.toLowerCase();
+  const externalIntent = intentValue === "submit"
+    || intentValue === "purchase"
+    || intentValue === "send"
+    || intentValue === "publish";
+  if (call.external_action || externalIntent) {
+    return { actionUrn: "tool.tinyfish.agent.external_action", effectClass: "E4" };
+  }
+  return { actionUrn: "tool.tinyfish.agent.run", effectClass: "E3" };
 }
 
 export function fromHermesToolCall(call: {
@@ -359,7 +416,42 @@ export function fromBrowserUseAction(call: {
     ...call.metadata,
   }, {
     riskClass: "T2",
-    effectClass: "IRREVERSIBLE",
+    effectClass: "E4",
+  });
+}
+
+export function fromTinyFishSearch(call: TinyFishSearchRequest): BoundaryIntent<TinyFishSearchRequest> {
+  return intent("tool.tinyfish.search.query", call, tinyFishMetadata("search", call.metadata), {
+    riskClass: "T2",
+    effectClass: "E2",
+  });
+}
+
+export function fromTinyFishFetch(call: TinyFishFetchRequest): BoundaryIntent<TinyFishFetchRequest> {
+  return intent("tool.tinyfish.fetch.extract", call, tinyFishMetadata("fetch", call.metadata), {
+    riskClass: "T2",
+    effectClass: "E2",
+  });
+}
+
+export function fromTinyFishBrowserSession(
+  call: TinyFishBrowserSessionRequest,
+): BoundaryIntent<TinyFishBrowserSessionRequest> {
+  return intent("tool.tinyfish.browser.session", call, tinyFishMetadata("browser", call.metadata), {
+    riskClass: "T2",
+    effectClass: "E3",
+  });
+}
+
+export function fromTinyFishAgentRun(call: TinyFishAgentRunRequest): BoundaryIntent<TinyFishAgentRunRequest> {
+  const agent = tinyFishAgentEffect(call);
+  return intent(agent.actionUrn, call, tinyFishMetadata("agent", {
+    action_intent: call.action_intent,
+    external_action: call.external_action,
+    ...call.metadata,
+  }), {
+    riskClass: "T2",
+    effectClass: agent.effectClass,
   });
 }
 
@@ -377,7 +469,7 @@ export function fromE2BExecution(call: {
     ...call.metadata,
   }, {
     riskClass: "T2",
-    effectClass: "REVERSIBLE",
+    effectClass: "E3",
   });
 }
 
