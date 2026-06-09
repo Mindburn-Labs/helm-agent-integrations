@@ -25,6 +25,22 @@ make build
 The maintained kernel demo asserts that unknown servers, unknown tools, and
 missing schema pins return `DENY` or `ESCALATE` before dispatch.
 
+For the receipt-backed competitive proof pack, run the kernel command:
+
+```bash
+./bin/helm-ai-kernel mcp proof \
+  --scenario all \
+  --out /tmp/helm-mcp-proof \
+  --run-id public-mcp-proof \
+  --at 2026-06-09T00:00:00Z \
+  --json
+```
+
+The sanitized transcript checked in beside this README is
+`mcp-proof-transcript.json`. It records only public proof fields: scenario id,
+verdict, reason, dispatch state, receipt reference, and offline verifier
+summary.
+
 ## Integration Scenario
 
 Generated sample:
