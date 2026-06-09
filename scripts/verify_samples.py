@@ -96,12 +96,33 @@ def verify_evidencepacks(root: Path) -> list[str]:
     return errors
 
 
+def verify_mcp_proof_transcripts(root: Path) -> list[str]:
+    errors: list[str] = []
+    for path in sorted((root / "demos" / "mcp-boundary").glob("*proof*.json")):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if doc.get("schema_version") != "helm.mcp.proof.public-transcript/v1":
+            continue
+        if doc.get("no_dispatch") is not True:
+            errors.append(f"{path}: proof transcript must declare no_dispatch=true")
+        scenarios = doc.get("scenarios", [])
+        if not scenarios:
+            errors.append(f"{path}: proof transcript must include scenarios")
+            continue
+        for idx, scenario in enumerate(scenarios):
+            verdict = scenario.get("verdict")
+            if verdict in {"DENY", "ESCALATE", "PENDING"} and scenario.get("dispatched") is not False:
+                errors.append(f"{path}: blocked scenario {idx} may not be dispatched")
+            if not scenario.get("receipt_ref"):
+                errors.append(f"{path}: scenario {idx} missing receipt_ref")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=Path(__file__).resolve().parents[1], type=Path)
     args = parser.parse_args()
     root = args.repo.resolve()
-    errors = verify_receipts(root) + verify_evidencepacks(root)
+    errors = verify_receipts(root) + verify_evidencepacks(root) + verify_mcp_proof_transcripts(root)
     if errors:
         for error in errors:
             print(error)
