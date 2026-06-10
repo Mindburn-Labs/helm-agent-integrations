@@ -34,3 +34,17 @@ path = "./data/launch_receipts.db"
 - `agent.email.high_risk.toml`
 - `mcp.quarantine.strict.toml`
 - `tinyfish.web_capability.toml`
+
+## Integrity
+
+`SHA256SUMS.txt` pins the digest of every policy TOML and reference pack JSON
+in this directory. `make verify-samples` (also run in CI by the HELM Boundary
+Check workflow) parses each TOML, resolves its `reference_pack`, validates the
+reference rules against canonical ALLOW/DENY/ESCALATE verdicts, and fails on
+any digest mismatch. After intentionally editing a policy, regenerate the
+manifest:
+
+```bash
+cd policies && { for f in *.toml; do shasum -a 256 "$f"; done; \
+  for f in reference/*.json; do shasum -a 256 "$f"; done; } > SHA256SUMS.txt
+```
