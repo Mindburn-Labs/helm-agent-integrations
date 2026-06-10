@@ -455,6 +455,28 @@ export function fromTinyFishAgentRun(call: TinyFishAgentRunRequest): BoundaryInt
   });
 }
 
+export type E2BNetworkCapability = "external" | "isolated";
+
+/**
+ * Normalize raw E2B network capability metadata into a stable enum.
+ *
+ * E2B sandboxes have internet access enabled by default, so anything that is
+ * not an explicit opt-out normalizes to "external" (fail closed).
+ */
+export function normalizeE2BNetwork(value: unknown): E2BNetworkCapability {
+  if (value === false) {
+    return "isolated";
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "none" || normalized === "isolated" || normalized === "offline"
+      || normalized === "disabled" || normalized === "false") {
+      return "isolated";
+    }
+  }
+  return "external";
+}
+
 export function fromE2BExecution(call: {
   command?: string;
   code?: string;
@@ -462,14 +484,15 @@ export function fromE2BExecution(call: {
   network?: unknown;
   metadata?: Record<string, unknown>;
 }): BoundaryIntent {
+  const network = normalizeE2BNetwork(call.network);
   return intent("tool.e2b.execute", call, {
     framework: "e2b",
     language: call.language,
-    network: call.network,
+    network,
     ...call.metadata,
   }, {
     riskClass: "T2",
-    effectClass: "E3",
+    effectClass: network === "external" ? "E4" : "E3",
   });
 }
 

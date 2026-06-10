@@ -8,8 +8,12 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/tinyfish.web_capability.toml",
+  "policy_facts": {
+    "action_urn": "tool.tinyfish.fetch.extract",
+    "partial_source_errors": true
+  },
   "reason_code": "TINYFISH_FETCH_PARTIAL_SOURCE_DENY",
-  "receipt_hash": "sha256:21af3f5ac37049b03d22c676b689070c32e7592c67e8ee039dc18af0c802d4d6",
+  "receipt_hash": "sha256:874bf2cb76971fdf4f67d0044756bcad4fe97f5c1bd5e5bd30e0b89416ed6b00",
   "receipt_id": "receipt:tinyfish-fetch-partial-source-deny",
   "risk_class": "T2",
   "sample_only": true,

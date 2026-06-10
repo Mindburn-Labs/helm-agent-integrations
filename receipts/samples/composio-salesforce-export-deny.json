@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/agent.email.high_risk.toml",
+  "policy_facts": {
+    "action_urn": "tool.composio.salesforce.export_records"
+  },
   "reason_code": "BULK_EXPORT_DENY",
-  "receipt_hash": "sha256:8e04bef5109f2e216436563ddabcb4f748a085c73477073dd6d1f368c0637432",
+  "receipt_hash": "sha256:a7ac472c175ff46e92005e7f17faa9de1d57c4153a4d0b90b284c7687a02d67a",
   "receipt_id": "receipt:composio-salesforce-export-deny",
   "risk_class": "T2",
   "sample_only": true,

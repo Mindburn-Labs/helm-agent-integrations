@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/agent.devtools.high_risk.toml",
+  "policy_facts": {
+    "contains": "DROP TABLE"
+  },
   "reason_code": "SQL_DESTRUCTIVE_MUTATION_DENY",
-  "receipt_hash": "sha256:7775b2e0651ce13155e29e31966cc9cbc8ac0536bd1d69b18553bbe1813bddb6",
+  "receipt_hash": "sha256:010619e8e02e4bad97195e0126f1906a665622d50a0c7ad7931c802ec1e9f4b4",
   "receipt_id": "receipt:langgraph-drop-table-deny",
   "risk_class": "T2",
   "sample_only": true,

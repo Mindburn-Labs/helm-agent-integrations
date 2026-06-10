@@ -20,6 +20,7 @@ from .boundary import (
     from_tinyfish_browser_session,
     from_tinyfish_fetch,
     from_tinyfish_search,
+    normalize_e2b_network,
     preflight_action,
     with_helm_boundary,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "from_tinyfish_browser_session",
     "from_tinyfish_fetch",
     "from_tinyfish_search",
+    "normalize_e2b_network",
     "preflight_action",
     "with_helm_boundary",
 ]

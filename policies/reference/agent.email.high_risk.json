@@ -12,6 +12,11 @@
       "match": { "action_urn": "tool.composio.salesforce.export_records" },
       "verdict": "DENY",
       "reason_code": "BULK_EXPORT_DENY"
+    },
+    {
+      "match": { "action_urn": "tool.openclaw.gmail-send" },
+      "verdict": "ESCALATE",
+      "reason_code": "OPENCLAW_EXTERNAL_SEND_ESCALATE"
     }
   ]
 }

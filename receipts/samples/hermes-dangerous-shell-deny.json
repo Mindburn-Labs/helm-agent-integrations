@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/agent.devtools.high_risk.toml",
+  "policy_facts": {
+    "contains": "rm -rf"
+  },
   "reason_code": "FORBIDDEN_PATH_DENY",
-  "receipt_hash": "sha256:9f81accb015c28b7d70defebecdf47b9e0363e02cfdbee484840297e88b29d01",
+  "receipt_hash": "sha256:21f6f2ca90060dcfe1a01b11a618af3e94eea83edef4bb395b20b9c408b137d4",
   "receipt_id": "receipt:hermes-dangerous-shell-deny",
   "risk_class": "T2",
   "sample_only": true,

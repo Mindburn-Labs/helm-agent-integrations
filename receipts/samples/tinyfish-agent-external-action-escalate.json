@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/tinyfish.web_capability.toml",
+  "policy_facts": {
+    "action_urn": "tool.tinyfish.agent.external_action"
+  },
   "reason_code": "TINYFISH_AGENT_EXTERNAL_ACTION_ESCALATE",
-  "receipt_hash": "sha256:40b3b49a2c4b77df63c0dbcb81f1842c1bf822b9342623a2f301f84eca49a164",
+  "receipt_hash": "sha256:41fdfa179142d2dda79d1438b2fe4824668bc90325a55f8a86d08504e3cc825f",
   "receipt_id": "receipt:tinyfish-agent-external-action-escalate",
   "risk_class": "T2",
   "sample_only": true,

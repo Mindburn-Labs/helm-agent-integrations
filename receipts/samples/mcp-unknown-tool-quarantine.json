@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/mcp.quarantine.strict.toml",
+  "policy_facts": {
+    "mcp_server_state": "unknown"
+  },
   "reason_code": "MCP_UNKNOWN_TOOL_QUARANTINE",
-  "receipt_hash": "sha256:45f54ad88a15f46fee603749f6af4857edcc3476638c05294fdce42064dfbff0",
+  "receipt_hash": "sha256:dbbcc2687d60e9fd921240c876b26ebab53505ad9d737d9657202c79a5b63a16",
   "receipt_id": "receipt:mcp-unknown-tool-quarantine",
   "risk_class": "T2",
   "sample_only": true,
