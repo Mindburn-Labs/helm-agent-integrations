@@ -17,6 +17,11 @@
       "match": { "action_urn": "tool.e2b.execute", "network": "external" },
       "verdict": "DENY",
       "reason_code": "SANDBOX_NETWORK_EGRESS_DENY"
+    },
+    {
+      "match": { "action_urn": "tool.proxy.shell.execute" },
+      "verdict": "DENY",
+      "reason_code": "PROXY_SIDE_EFFECT_DENY"
     }
   ]
 }

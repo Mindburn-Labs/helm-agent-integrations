@@ -392,18 +392,38 @@ fromTinyFishBrowserSession = from_tinyfish_browser_session
 fromTinyFishAgentRun = from_tinyfish_agent_run
 
 
+def normalize_e2b_network(value: Any) -> str:
+    """Normalize raw E2B network capability metadata into a stable enum.
+
+    E2B sandboxes have internet access enabled by default, so anything that is
+    not an explicit opt-out normalizes to "external" (fail closed).
+    """
+    if value is False:
+        return "isolated"
+    if isinstance(value, str) and value.strip().lower() in {
+        "none",
+        "isolated",
+        "offline",
+        "disabled",
+        "false",
+    }:
+        return "isolated"
+    return "external"
+
+
 def from_e2b_execution(call: Mapping[str, Any]) -> BoundaryIntent:
+    network = normalize_e2b_network(call.get("network"))
     return _intent(
         "tool.e2b.execute",
         dict(call),
         {
             "framework": "e2b",
             "language": call.get("language"),
-            "network": call.get("network"),
+            "network": network,
             **_record(call.get("metadata")),
         },
         risk_class="T2",
-        effect_class="E3",
+        effect_class="E4" if network == "external" else "E3",
     )
 
 

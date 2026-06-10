@@ -3,10 +3,12 @@ import test from "node:test";
 import {
   fromBrowserUseAction,
   fromComposioAction,
+  fromE2BExecution,
   fromTinyFishAgentRun,
   fromTinyFishBrowserSession,
   fromTinyFishFetch,
   fromTinyFishSearch,
+  normalizeE2BNetwork,
   preflightAction,
   withHelmBoundary,
   type FetchLike,
@@ -163,4 +165,24 @@ test("TinyFish helpers emit canonical effect classes and endpoint metadata", () 
   assert.equal(agent.actionUrn, "tool.tinyfish.agent.external_action");
   assert.equal(agent.effectClass, "E4");
   assert.equal(agent.metadata?.endpoint_family, "agent");
+});
+
+test("E2B helper normalizes network capability and fails closed", () => {
+  const external = fromE2BExecution({ language: "python", code: "print(1)", network: true });
+  assert.equal(external.actionUrn, "tool.e2b.execute");
+  assert.equal(external.metadata?.network, "external");
+  assert.equal(external.effectClass, "E4");
+
+  // Missing network capability must not be treated as isolated.
+  const unknown = fromE2BExecution({ language: "python", code: "print(1)" });
+  assert.equal(unknown.metadata?.network, "external");
+  assert.equal(unknown.effectClass, "E4");
+
+  const isolated = fromE2BExecution({ language: "python", code: "print(1)", network: "none" });
+  assert.equal(isolated.metadata?.network, "isolated");
+  assert.equal(isolated.effectClass, "E3");
+
+  assert.equal(normalizeE2BNetwork(false), "isolated");
+  assert.equal(normalizeE2BNetwork("external"), "external");
+  assert.equal(normalizeE2BNetwork({ internet_access: true }), "external");
 });

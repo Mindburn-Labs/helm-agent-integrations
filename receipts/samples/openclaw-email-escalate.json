@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/agent.email.high_risk.toml",
+  "policy_facts": {
+    "action_urn": "tool.openclaw.gmail-send"
+  },
   "reason_code": "OPENCLAW_EXTERNAL_SEND_ESCALATE",
-  "receipt_hash": "sha256:801d3bb03b7565c8bd0af4905c31a826fdc77797bf8b49f5fd03e9bf71b0ce80",
+  "receipt_hash": "sha256:d3a911d68fd5b7526074710c03895691b75f88b7f926b20d58762372d504d6f7",
   "receipt_id": "receipt:openclaw-email-escalate",
   "risk_class": "T2",
   "sample_only": true,

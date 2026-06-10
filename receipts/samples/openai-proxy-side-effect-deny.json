@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/agent.devtools.high_risk.toml",
+  "policy_facts": {
+    "action_urn": "tool.proxy.shell.execute"
+  },
   "reason_code": "PROXY_SIDE_EFFECT_DENY",
-  "receipt_hash": "sha256:3b262f3f7fb7fe09d086c833be12d8d85606f935344d3ce6362f1c35938b8e26",
+  "receipt_hash": "sha256:c52e62e343bba5dcde2259bd2e08d904dff95b4da474a30850c2d144d1be6ee7",
   "receipt_id": "receipt:openai-proxy-side-effect-deny",
   "risk_class": "T2",
   "sample_only": true,

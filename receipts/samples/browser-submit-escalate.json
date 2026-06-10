@@ -8,8 +8,11 @@
   "issued_at": "2026-06-05T00:00:00Z",
   "kernel_source_truth": "helm-ai-kernel",
   "policy": "policies/agent.browser.high_risk.toml",
+  "policy_facts": {
+    "action_urn": "tool.browser_use.submit"
+  },
   "reason_code": "BROWSER_SUBMIT_ESCALATE",
-  "receipt_hash": "sha256:53a4b1bd6dac5cf73e8a9a61d65fc8fb64473b3497632529d359a82cfd593f3d",
+  "receipt_hash": "sha256:23fddfeaaa5e61339fd81a05c73f3b7041cccd14959b9e4f6b09b0c3e19d2977",
   "receipt_id": "receipt:browser-submit-escalate",
   "risk_class": "T2",
   "sample_only": true,

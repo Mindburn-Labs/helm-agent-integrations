@@ -10,10 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from helm_tool_wrapper import (
     from_browser_use_action,
     from_composio_action,
+    from_e2b_execution,
     from_tinyfish_agent_run,
     from_tinyfish_browser_session,
     from_tinyfish_fetch,
     from_tinyfish_search,
+    normalize_e2b_network,
     preflight_action,
     with_helm_boundary,
 )
@@ -121,6 +123,25 @@ class BoundaryWrapperTests(unittest.TestCase):
         self.assertEqual(agent.action_urn, "tool.tinyfish.agent.external_action")
         self.assertEqual(agent.effect_class, "E4")
         self.assertEqual(agent.metadata["endpoint_family"], "agent")
+
+    def test_e2b_helper_normalizes_network_and_fails_closed(self) -> None:
+        external = from_e2b_execution({"language": "python", "code": "print(1)", "network": True})
+        self.assertEqual(external.action_urn, "tool.e2b.execute")
+        self.assertEqual(external.metadata["network"], "external")
+        self.assertEqual(external.effect_class, "E4")
+
+        # Missing network capability must not be treated as isolated.
+        unknown = from_e2b_execution({"language": "python", "code": "print(1)"})
+        self.assertEqual(unknown.metadata["network"], "external")
+        self.assertEqual(unknown.effect_class, "E4")
+
+        isolated = from_e2b_execution({"language": "python", "code": "print(1)", "network": "none"})
+        self.assertEqual(isolated.metadata["network"], "isolated")
+        self.assertEqual(isolated.effect_class, "E3")
+
+        self.assertEqual(normalize_e2b_network(False), "isolated")
+        self.assertEqual(normalize_e2b_network("external"), "external")
+        self.assertEqual(normalize_e2b_network({"internet_access": True}), "external")
 
 
 if __name__ == "__main__":
