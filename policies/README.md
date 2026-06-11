@@ -33,7 +33,47 @@ path = "./data/launch_receipts.db"
 - `agent.devtools.high_risk.toml`
 - `agent.email.high_risk.toml`
 - `mcp.quarantine.strict.toml`
+- `policy.shell.safe-by-default.toml`
+- `policy.db.readonly.toml`
+- `policy.cicd.approval-required.toml`
+- `policy.cloud.mutations.toml`
+- `policy.mcp.multi-tool.sandbox.toml`
+- `policy.mobile.resource-limits.toml`
 - `tinyfish.web_capability.toml`
+
+## Policy-Pack Assembly Guide
+
+Build policy packs by MCP server type and keep each pack narrow enough that a
+reviewer can see the intended authority boundary:
+
+- Shell: allow read-only commands such as `pwd`, `ls`, `cat`, `grep`, and
+  `find`; deny destructive commands, privilege escalation, secret reads,
+  pipe-to-shell installers, and writes outside the declared workspace.
+- DB: allow only `SELECT` and `EXPLAIN`; deny DDL, DML, transaction mutation,
+  export, extension loading, and administrative commands.
+- CI/CD: escalate workflow dispatch, deploy, release, environment, runner, and
+  secret changes. Attach the approval owner and artifact digest in production
+  policy material.
+- Cloud: deny mutations by default and allow only explicit operation names.
+  Keep read-only inventory and mutation whitelists in separate rules.
+- Stripe and payments: escalate charge, refund, transfer, payout, subscription,
+  price, and customer-data mutations; deny unbounded exports and missing spend
+  caps.
+- GitHub and Git: allow read-only repository inspection; escalate pushes, branch
+  protection changes, release creation, workflow edits, token/secret changes,
+  and issue or PR state mutation when required by the workflow.
+- Kubernetes: allow read-only discovery; escalate or deny `apply`, `delete`,
+  `exec`, `port-forward`, secret reads, RBAC changes, and production namespace
+  mutations.
+- Browser and Playwright: log URL, action intent, selector or semantic target,
+  and form-submit/admin-change intent. Escalate critical administrative actions.
+- Mobile and Termux: include CPU, battery, network, storage, background-task,
+  and UX interruption facts. Escalate high-resource work on mobile hardware.
+
+Each pack should include a TOML profile, a matching
+`policies/reference/*.json` rule file, generated sample receipts, and sample
+EvidencePacks. These references are demo fixtures; production enforcement and
+verification remain owned by `helm-ai-kernel`.
 
 ## Integrity
 

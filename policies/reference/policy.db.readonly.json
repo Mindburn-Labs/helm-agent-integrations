@@ -1,0 +1,22 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_db_readonly_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "sql_statement_class": "select" },
+      "verdict": "ALLOW",
+      "reason_code": "DB_READONLY_SELECT_ALLOW"
+    },
+    {
+      "match": { "sql_statement_class": "explain" },
+      "verdict": "ALLOW",
+      "reason_code": "DB_READONLY_EXPLAIN_ALLOW"
+    },
+    {
+      "match": { "sql_statement_class": "mutation" },
+      "verdict": "DENY",
+      "reason_code": "DB_MUTATION_DENY"
+    }
+  ]
+}

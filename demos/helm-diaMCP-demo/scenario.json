@@ -1,0 +1,36 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-diaMCP-demo",
+  "title": "diaMCP filesystem write escalates before dispatch",
+  "upstream": {
+    "name": "chartrambiz/diaMCP",
+    "url": "https://github.com/chartrambiz/diaMCP",
+    "ref": "e73651388fe4ecfaef54d4a1082bd9066f3d0fff",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.mcp.multi-tool.sandbox.toml",
+  "sample_receipt": "receipts/samples/diamcp-filesystem-write-escalate.json",
+  "sample_evidencepack": "evidencepacks/samples/diamcp-filesystem-write-escalate.tar",
+  "expected": {
+    "verdict": "ESCALATE",
+    "reason_code": "FILESYSTEM_WRITE_ESCALATE",
+    "dispatched": false,
+    "policy": "policies/policy.mcp.multi-tool.sandbox.toml"
+  },
+  "safe_harness": {
+    "requires": [
+      {
+        "command": "docker",
+        "skip_message": "Install Docker to run the optional diaMCP container smoke."
+      }
+    ],
+    "actions": [
+      {
+        "name": "diamcp.filesystem.write protected file",
+        "expected_verdict": "ESCALATE",
+        "reason_code": "FILESYSTEM_WRITE_ESCALATE",
+        "dispatched": false
+      }
+    ]
+  }
+}

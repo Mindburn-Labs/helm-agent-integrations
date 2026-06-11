@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-shell-mcp-demo",
+  "title": "Shell MCP destructive command denied before dispatch",
+  "upstream": {
+    "name": "blazickjp/shell-mcp-server",
+    "url": "https://github.com/blazickjp/shell-mcp-server",
+    "ref": "309537a344fd48325644876dcb552bb39eb7a6fc",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.shell.safe-by-default.toml",
+  "sample_receipt": "receipts/samples/shell-mcp-destructive-command-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/shell-mcp-destructive-command-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "SHELL_DESTRUCTIVE_COMMAND_DENY",
+    "dispatched": false,
+    "policy": "policies/policy.shell.safe-by-default.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "shell.execute rm -rf ./workspace",
+        "expected_verdict": "DENY",
+        "reason_code": "SHELL_DESTRUCTIVE_COMMAND_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}

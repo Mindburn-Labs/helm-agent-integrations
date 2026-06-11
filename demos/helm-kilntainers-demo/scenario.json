@@ -1,0 +1,36 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-kilntainers-demo",
+  "title": "Kilntainers sandbox plus HELM exec firewall denies destructive intent",
+  "upstream": {
+    "name": "Kiln-AI/Kilntainers",
+    "url": "https://github.com/Kiln-AI/Kilntainers",
+    "ref": "79e26f5b93ee664435150038b4ee31f01b4e7ec0",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.shell.safe-by-default.toml",
+  "sample_receipt": "receipts/samples/kilntainers-stacked-exec-firewall-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/kilntainers-stacked-exec-firewall-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "KILNTAINERS_EXEC_FIREWALL_DENY",
+    "dispatched": false,
+    "policy": "policies/policy.shell.safe-by-default.toml"
+  },
+  "safe_harness": {
+    "requires": [
+      {
+        "command": "docker",
+        "skip_message": "Install Docker or adapt the demo to Podman to run the optional sandbox smoke."
+      }
+    ],
+    "actions": [
+      {
+        "name": "kilntainers.exec rm -rf /workspace",
+        "expected_verdict": "DENY",
+        "reason_code": "KILNTAINERS_EXEC_FIREWALL_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-container-mcp-demo",
+  "title": "Container MCP code execution mutation denied before dispatch",
+  "upstream": {
+    "name": "54rt1n/container-mcp",
+    "url": "https://github.com/54rt1n/container-mcp",
+    "ref": "50acc5e1fae9c3d4ce0328f87f843ba37a3c9759",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.mcp.multi-tool.sandbox.toml",
+  "sample_receipt": "receipts/samples/container-mcp-code-exec-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/container-mcp-code-exec-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "CODE_EXEC_MUTATION_DENY",
+    "dispatched": false,
+    "policy": "policies/policy.mcp.multi-tool.sandbox.toml"
+  },
+  "safe_harness": {
+    "requires": [
+      {
+        "command": "podman",
+        "skip_message": "Install Podman to run the optional container-mcp smoke."
+      }
+    ],
+    "actions": [
+      {
+        "name": "container_mcp.code_exec writes outside workspace",
+        "expected_verdict": "DENY",
+        "reason_code": "CODE_EXEC_MUTATION_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}

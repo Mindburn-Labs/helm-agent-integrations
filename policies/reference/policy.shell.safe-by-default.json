@@ -1,0 +1,37 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_shell_safe_by_default_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "command_class": "read_only" },
+      "verdict": "ALLOW",
+      "reason_code": "SHELL_READ_ONLY_ALLOW"
+    },
+    {
+      "match": { "command_class": "destructive" },
+      "verdict": "DENY",
+      "reason_code": "SHELL_DESTRUCTIVE_COMMAND_DENY"
+    },
+    {
+      "match": { "shell_boundary": "unrestricted_host_shell", "runtime_boundary": "missing_vm" },
+      "verdict": "DENY",
+      "reason_code": "PANDORA_UNRESTRICTED_HOST_SHELL_DENY"
+    },
+    {
+      "match": { "isolation_stack": "container+exec_firewall", "command_class": "destructive" },
+      "verdict": "DENY",
+      "reason_code": "KILNTAINERS_EXEC_FIREWALL_DENY"
+    },
+    {
+      "match": { "shellfirm_verdict": "block" },
+      "verdict": "DENY",
+      "reason_code": "SHELLFIRM_BLOCK_HELM_DENY"
+    },
+    {
+      "match": { "contains": "curl | sh" },
+      "verdict": "DENY",
+      "reason_code": "PIPE_TO_SHELL_INSTALLER_DENY"
+    }
+  ]
+}

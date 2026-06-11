@@ -1,0 +1,17 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_mobile_resource_limits_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "mobile_platform": "termux", "resource_class": "high" },
+      "verdict": "ESCALATE",
+      "reason_code": "TERMUX_RESOURCE_LIMIT_ESCALATE"
+    },
+    {
+      "match": { "mobile_platform": "termux", "resource_class": "low" },
+      "verdict": "ALLOW",
+      "reason_code": "TERMUX_LOW_RESOURCE_ALLOW"
+    }
+  ]
+}

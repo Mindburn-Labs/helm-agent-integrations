@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-claude-shellfirm-demo",
+  "title": "shellfirm block signal is finalized by HELM deny receipt",
+  "upstream": {
+    "name": "kaplanelad/shellfirm",
+    "url": "https://github.com/kaplanelad/shellfirm",
+    "ref": "7ebf869770c197bf5591bdcf4003f6373af6c211",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.shell.safe-by-default.toml",
+  "sample_receipt": "receipts/samples/claude-shellfirm-final-boundary-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/claude-shellfirm-final-boundary-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "SHELLFIRM_BLOCK_HELM_DENY",
+    "dispatched": false,
+    "policy": "policies/policy.shell.safe-by-default.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "claude.bash command with shellfirm block",
+        "expected_verdict": "DENY",
+        "reason_code": "SHELLFIRM_BLOCK_HELM_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}
