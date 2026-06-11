@@ -1,0 +1,11 @@
+name = "helm.agent.integrations.policy.mobile.resource_limits"
+profile = "policy_mobile_resource_limits_demo"
+reference_pack = "./policies/reference/policy.mobile.resource-limits.json"
+
+[server]
+bind = "127.0.0.1"
+port = 7715
+
+[receipts]
+store = "sqlite"
+path = "./data/helm-agent-integrations-mobile.db"

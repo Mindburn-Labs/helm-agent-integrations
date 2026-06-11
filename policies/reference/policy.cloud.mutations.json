@@ -1,0 +1,17 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_cloud_mutations_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "cloud_operation": "ec2.describe_instances" },
+      "verdict": "ALLOW",
+      "reason_code": "CLOUD_READONLY_WHITELIST_ALLOW"
+    },
+    {
+      "match": { "cloud_mutation": "not_whitelisted" },
+      "verdict": "DENY",
+      "reason_code": "CLOUD_MUTATION_NOT_WHITELISTED"
+    }
+  ]
+}

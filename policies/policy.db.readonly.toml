@@ -1,0 +1,11 @@
+name = "helm.agent.integrations.policy.db.readonly"
+profile = "policy_db_readonly_demo"
+reference_pack = "./policies/reference/policy.db.readonly.json"
+
+[server]
+bind = "127.0.0.1"
+port = 7715
+
+[receipts]
+store = "sqlite"
+path = "./data/helm-agent-integrations-db.db"

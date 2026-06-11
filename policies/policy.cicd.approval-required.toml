@@ -1,0 +1,11 @@
+name = "helm.agent.integrations.policy.cicd.approval_required"
+profile = "policy_cicd_approval_required_demo"
+reference_pack = "./policies/reference/policy.cicd.approval-required.json"
+
+[server]
+bind = "127.0.0.1"
+port = 7715
+
+[receipts]
+store = "sqlite"
+path = "./data/helm-agent-integrations-cicd.db"

@@ -1,0 +1,22 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_cicd_approval_required_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "cicd_action": "workflow_dispatch" },
+      "verdict": "ESCALATE",
+      "reason_code": "CICD_APPROVAL_REQUIRED"
+    },
+    {
+      "match": { "cicd_action": "deploy" },
+      "verdict": "ESCALATE",
+      "reason_code": "CICD_DEPLOY_APPROVAL_REQUIRED"
+    },
+    {
+      "match": { "cicd_action": "secret_write" },
+      "verdict": "ESCALATE",
+      "reason_code": "CICD_SECRET_APPROVAL_REQUIRED"
+    }
+  ]
+}

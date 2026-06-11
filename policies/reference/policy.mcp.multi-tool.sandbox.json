@@ -1,0 +1,27 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_mcp_multi_tool_sandbox_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "tool_family": "filesystem.write" },
+      "verdict": "ESCALATE",
+      "reason_code": "FILESYSTEM_WRITE_ESCALATE"
+    },
+    {
+      "match": { "tool_family": "shell", "command_class": "destructive" },
+      "verdict": "DENY",
+      "reason_code": "MULTI_TOOL_SHELL_DESTRUCTIVE_DENY"
+    },
+    {
+      "match": { "tool_family": "git", "git_operation": "push" },
+      "verdict": "ESCALATE",
+      "reason_code": "GIT_PUSH_APPROVAL_REQUIRED"
+    },
+    {
+      "match": { "tool_family": "code_exec", "code_effect": "mutation" },
+      "verdict": "DENY",
+      "reason_code": "CODE_EXEC_MUTATION_DENY"
+    }
+  ]
+}

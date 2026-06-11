@@ -1,0 +1,11 @@
+name = "helm.agent.integrations.policy.shell.safe_by_default"
+profile = "policy_shell_safe_by_default_demo"
+reference_pack = "./policies/reference/policy.shell.safe-by-default.json"
+
+[server]
+bind = "127.0.0.1"
+port = 7715
+
+[receipts]
+store = "sqlite"
+path = "./data/helm-agent-integrations-shell.db"

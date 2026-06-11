@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-openai-agents-demo",
+  "title": "OpenAI Agents mutating cloud tool call is denied before dispatch",
+  "upstream": {
+    "name": "openai/openai-agents-python",
+    "url": "https://github.com/openai/openai-agents-python",
+    "ref": "d8068d96a97dc3b42294a8c832072b16a5cb7f23",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.cloud.mutations.toml",
+  "sample_receipt": "receipts/samples/openai-agents-mutating-tool-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/openai-agents-mutating-tool-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "CLOUD_MUTATION_NOT_WHITELISTED",
+    "dispatched": false,
+    "policy": "policies/policy.cloud.mutations.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "openai_agents.tool_call cloud.delete_bucket",
+        "expected_verdict": "DENY",
+        "reason_code": "CLOUD_MUTATION_NOT_WHITELISTED",
+        "dispatched": false
+      }
+    ]
+  }
+}

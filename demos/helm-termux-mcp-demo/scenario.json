@@ -1,0 +1,36 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-termux-mcp-demo",
+  "title": "Termux MCP high-resource mobile job escalates before dispatch",
+  "upstream": {
+    "name": "xlisp/termux-mcp-server",
+    "url": "https://github.com/xlisp/termux-mcp-server",
+    "ref": "fc96806e135b3f82b46bf114734efa529ce6dcbf",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.mobile.resource-limits.toml",
+  "sample_receipt": "receipts/samples/termux-resource-limit-escalate.json",
+  "sample_evidencepack": "evidencepacks/samples/termux-resource-limit-escalate.tar",
+  "expected": {
+    "verdict": "ESCALATE",
+    "reason_code": "TERMUX_RESOURCE_LIMIT_ESCALATE",
+    "dispatched": false,
+    "policy": "policies/policy.mobile.resource-limits.toml"
+  },
+  "safe_harness": {
+    "requires": [
+      {
+        "command": "adb",
+        "skip_message": "Install Android platform tools to run the optional emulator/device smoke."
+      }
+    ],
+    "actions": [
+      {
+        "name": "termux.background_task high cpu and battery cost",
+        "expected_verdict": "ESCALATE",
+        "reason_code": "TERMUX_RESOURCE_LIMIT_ESCALATE",
+        "dispatched": false
+      }
+    ]
+  }
+}

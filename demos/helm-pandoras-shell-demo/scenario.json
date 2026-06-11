@@ -1,0 +1,36 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-pandoras-shell-demo",
+  "title": "Pandora host shell intent denied outside an approved VM boundary",
+  "upstream": {
+    "name": "Zelaron/Pandoras-Shell",
+    "url": "https://github.com/Zelaron/Pandoras-Shell",
+    "ref": "27b60059f7cb75ad03c0dc27c8790520c614e15b",
+    "checked_at": "2026-06-11"
+  },
+  "policy": "policies/policy.shell.safe-by-default.toml",
+  "sample_receipt": "receipts/samples/pandoras-shell-vm-boundary-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/pandoras-shell-vm-boundary-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "PANDORA_UNRESTRICTED_HOST_SHELL_DENY",
+    "dispatched": false,
+    "policy": "policies/policy.shell.safe-by-default.toml"
+  },
+  "safe_harness": {
+    "requires": [
+      {
+        "command": "limactl",
+        "skip_message": "Install Lima to run the optional VM smoke; this fixture never executes Pandora on the host."
+      }
+    ],
+    "actions": [
+      {
+        "name": "pandora.shell unrestricted host exec",
+        "expected_verdict": "DENY",
+        "reason_code": "PANDORA_UNRESTRICTED_HOST_SHELL_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}

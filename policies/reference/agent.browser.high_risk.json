@@ -7,6 +7,11 @@
       "match": { "action_urn": "tool.browser_use.submit" },
       "verdict": "ESCALATE",
       "reason_code": "BROWSER_SUBMIT_ESCALATE"
+    },
+    {
+      "match": { "action_urn": "tool.playwright.click", "action_intent": "admin_mutation" },
+      "verdict": "ESCALATE",
+      "reason_code": "PLAYWRIGHT_ADMIN_ACTION_ESCALATE"
     }
   ]
 }

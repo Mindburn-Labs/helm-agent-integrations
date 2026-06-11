@@ -24,8 +24,10 @@ This repo currently ships:
   Composio, and TinyFish governed web capability
 - universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
   tool wrappers
+- high-risk MCP and shell demo fixtures for shell, VM, container, mobile,
+  browser-admin, Claude Code hook, and OpenAI Agents tool-call surfaces
 - Hermes and OpenClaw example integration bundles
-- sample policies for common agent-side-effect classes
+- sample policies and policy-pack templates for common agent-side-effect classes
 - generated sample receipts and EvidencePack archives
 - maintainer issue/PR copy for upstream example submissions
 - CI checks that rebuild and verify the generated samples
