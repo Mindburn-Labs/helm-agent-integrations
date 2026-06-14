@@ -14,6 +14,13 @@ This repository does not define HELM conformance. `helm-ai-kernel` remains the
 source of truth for verdicts, receipts, MCP quarantine, OpenAI-compatible proxy
 behavior, and EvidencePack verification.
 
+## RLM Demo Boundary
+
+RLM examples may appear here only as optional demos that route proposed side
+effects through HELM wrappers. Demo artifacts, generated samples, and RLM
+handoffs are not official RLM certification, HELM conformance, connector
+certification, or production trust anchors.
+
 ## First Slice
 
 This repo currently ships:

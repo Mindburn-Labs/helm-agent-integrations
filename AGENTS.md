@@ -16,6 +16,9 @@ or EvidencePack verification rules. Those remain owned by
 - Demos must show at least one non-dispatching path: `DENY` or `ESCALATE`.
 - Public copy should say "HELM-compatible example" or "optional HELM boundary",
   not "official integration" unless the upstream project accepts it.
+- RLM demos are example-only and must stay behind HELM wrappers. Do not claim
+  official RLM certification, HELM conformance, or production trust from demo
+  artifacts.
 
 ## Validation
 
