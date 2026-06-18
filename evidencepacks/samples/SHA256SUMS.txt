@@ -1,3 +1,4 @@
+0063457d71fc8df80bdf33e7912307f8836aeeeb1f4b5f04a3c7e42ceef39462  mcp-playwright-admin-action-escalate.tar
 0bc0e08b40cd175f033c76908a2bfffe993767b027d1e2bc31afd649dfc3a9ac  hermes-dangerous-shell-deny.tar
 22ae5fcadfec28b496f28a1482992271dcbadda992c31c12b79ff86b84a7a9b5  shell-mcp-destructive-command-deny.tar
 3a9e5c8cb19c3a891e55a24013d4a8a2beda5dbe8e80848570c99f5a1a8ba05e  tinyfish-browser-credential-grant-escalate.tar
@@ -5,7 +6,6 @@
 45396c8c78059202766e6c6536b79a4206d3d16f414b19d5c27944586c564099  tinyfish-search-missing-api-key-deny.tar
 4fa62751a79c49aa344b761113f2c8f8345d972442ff22c97d91047635ecd0f2  langgraph-drop-table-deny.tar
 667b0f5ef0221650c4300c22a073a929a02ce73d6d3a2bb1e031664124ad3e3b  container-mcp-code-exec-deny.tar
-7426645e32cd338e54c07a0c6b8809db78d35dd0948be879605d62bfb3c600ec  mcp-playwright-admin-action-escalate.tar
 760ea1369fb4a98bc284f6a041c36191237642f8fac121b2d604883e65b8d2f8  openai-agents-mutating-tool-deny.tar
 7ac05d3c5fe2a70f5bd09efa3ce5d68deeceb1aa3a5434496c3eb64e41ba6967  browser-submit-escalate.tar
 7fc1a9adde45c98b309c04f058cbf52c897424af114f79d1af096858422399b1  diamcp-filesystem-write-escalate.tar
