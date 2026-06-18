@@ -4,6 +4,11 @@ This demo models Playwright MCP around a critical administrative web interface.
 The fixture records URL and action intent in the sample EvidencePack and
 escalates an admin mutation before browser dispatch.
 
+The sample EvidencePack also includes a `99_EXT/helm-formal-proof/` extension
+with a `BUDGET_EXHAUSTED` proof result. That status maps to escalation with no
+side effect dispatched; it is a replayable demo fixture, not a formal
+conformance claim.
+
 This is an integration fixture, not HELM conformance or upstream
 certification.
 
