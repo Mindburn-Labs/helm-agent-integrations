@@ -36,6 +36,7 @@ This repo currently ships:
 - Hermes and OpenClaw example integration bundles
 - sample policies and policy-pack templates for common agent-side-effect classes
 - generated sample receipts and EvidencePack archives
+- a sample-only `99_EXT/helm-formal-proof/` EvidencePack extension fixture
 - maintainer issue/PR copy for upstream example submissions
 - CI checks that rebuild and verify the generated samples
 
@@ -126,8 +127,11 @@ python3 scripts/generate_samples.py --check
 python3 scripts/verify_samples.py
 ```
 
-The samples are deterministic local proof fixtures for demos. They are not
-customer trust anchors and do not replace native `helm-ai-kernel verify`.
+The samples are deterministic local proof fixtures for demos. Formal-proof
+entries, when present, live under `99_EXT/helm-formal-proof/` and are declared
+in `00_INDEX.json`. They are not customer trust anchors and do not replace
+native `helm-ai-kernel verify`; `helm-ai-kernel` remains source truth for proof
+contracts and conformance.
 
 ## Validation
 
