@@ -1,0 +1,16 @@
+repo_type: integration-examples
+owners:
+  team: architecture-platform
+commands:
+  setup: make validate
+  lint: make samples
+  test: make test-python
+  build: make package
+risk:
+  external_writes: false
+  secrets_required: false
+  protected_paths:
+    - samples/**
+    - policies/**
+agent_entrypoints:
+  default_task: make validate
