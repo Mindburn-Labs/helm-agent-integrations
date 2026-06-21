@@ -1,0 +1,13 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: helm-agent-integrations
+  description: HELM-compatible example integrations and deterministic sample harnesses.
+  annotations:
+    mindburn.org/project-tier: examples
+    mindburn.org/data-class: public
+spec:
+  type: library
+  lifecycle: production
+  owner: group:architecture-platform
+  system: helm-integrations
