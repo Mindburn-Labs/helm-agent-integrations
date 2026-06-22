@@ -6,7 +6,7 @@
     "name": "openai/codex",
     "url": "https://github.com/openai/codex",
     "ref": "5f129a4703ceaf843e1cb6996bbf4a4f21225198",
-    "checked_at": "2026-06-23"
+    "checked_at": "2026-06-22"
   },
   "policy": "policies/policy.loop.governance.toml",
   "sample_receipt": "receipts/samples/codex-cloud-task-build-test-fix-allow.json",
@@ -24,6 +24,12 @@
         "name": "codex cloud task build-test-fix",
         "expected_verdict": "ALLOW",
         "reason_code": "CODEX_BUILD_TEST_FIX_ALLOW",
+        "dispatched": false
+      },
+      {
+        "name": "codex cloud task protected path mutation",
+        "expected_verdict": "DENY",
+        "reason_code": "CODEX_PROTECTED_PATH_DENY",
         "dispatched": false
       }
     ]

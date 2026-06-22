@@ -6,7 +6,7 @@
     "name": "anthropics/claude-code",
     "url": "https://github.com/anthropics/claude-code",
     "ref": "12281998d8c85813c4b5952ed9367784aae37d31",
-    "checked_at": "2026-06-23"
+    "checked_at": "2026-06-22"
   },
   "policy": "policies/policy.loop.governance.toml",
   "sample_receipt": "receipts/samples/claude-code-loop-operate-deny.json",

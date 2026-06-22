@@ -6,7 +6,7 @@
     "name": "actions/github-script",
     "url": "https://github.com/actions/github-script",
     "ref": "3a2844b7e9c422d3c10d287c895573f7108da1b3",
-    "checked_at": "2026-06-23"
+    "checked_at": "2026-06-22"
   },
   "policy": "policies/policy.loop.governance.toml",
   "sample_receipt": "receipts/samples/github-pr-bot-overnight-triage-allow.json",
@@ -24,6 +24,12 @@
         "name": "github pr bot overnight triage",
         "expected_verdict": "ALLOW",
         "reason_code": "GITHUB_PR_TRIAGE_REPORT_ALLOW",
+        "dispatched": false
+      },
+      {
+        "name": "github pr bot mutating update",
+        "expected_verdict": "ESCALATE",
+        "reason_code": "GITHUB_PR_MUTATION_ESCALATE",
         "dispatched": false
       }
     ]

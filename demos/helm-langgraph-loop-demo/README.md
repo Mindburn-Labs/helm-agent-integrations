@@ -10,7 +10,7 @@ conformance.
 ## Upstream
 
 - Repository: https://github.com/langchain-ai/langgraph
-- Pinned ref checked on 2026-06-23:
+- Pinned ref checked on 2026-06-22:
   `711b31550286585b3793857b2a99c8dafd98b785`
 
 ## Scenario

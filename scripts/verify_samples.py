@@ -292,6 +292,26 @@ def verify_mcp_proof_transcripts(root: Path) -> list[str]:
     return errors
 
 
+def verify_demo_scenarios(root: Path) -> list[str]:
+    errors: list[str] = []
+    for path in sorted((root / "demos").glob("*/scenario.json")):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        actions = doc.get("safe_harness", {}).get("actions", [])
+        if not actions:
+            errors.append(f"{path}: safe_harness.actions is required")
+            continue
+        has_blocked = False
+        for idx, action in enumerate(actions):
+            verdict = action.get("expected_verdict")
+            if verdict in {"DENY", "ESCALATE"}:
+                has_blocked = True
+                if action.get("dispatched") is not False:
+                    errors.append(f"{path}: blocked action {idx} may not be dispatched")
+        if not has_blocked:
+            errors.append(f"{path}: safe_harness must include a DENY or ESCALATE action")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=Path(__file__).resolve().parents[1], type=Path)
@@ -301,6 +321,7 @@ def main() -> int:
         verify_receipts(root)
         + verify_evidencepacks(root)
         + verify_mcp_proof_transcripts(root)
+        + verify_demo_scenarios(root)
         + verify_policies(root)
     )
     if errors:

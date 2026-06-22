@@ -10,7 +10,7 @@ conformance.
 ## Upstream
 
 - Repository: https://github.com/openai/codex
-- Pinned ref checked on 2026-06-23:
+- Pinned ref checked on 2026-06-22:
   `5f129a4703ceaf843e1cb6996bbf4a4f21225198`
 
 ## Scenario
@@ -18,6 +18,7 @@ conformance.
 | Intent | Expected verdict | Reason | Dispatch |
 | --- | --- | --- | --- |
 | Complete a build-test-fix loop as a reviewable patch | `ALLOW` | `CODEX_BUILD_TEST_FIX_ALLOW` | `false` |
+| Attempt a protected-path mutation outside reviewable patch scope | `DENY` | `CODEX_PROTECTED_PATH_DENY` | `false` |
 
 ## Run
 

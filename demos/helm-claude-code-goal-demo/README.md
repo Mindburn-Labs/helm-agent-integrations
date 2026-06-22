@@ -10,7 +10,7 @@ conformance.
 ## Upstream
 
 - Repository: https://github.com/anthropics/claude-code
-- Pinned ref checked on 2026-06-23:
+- Pinned ref checked on 2026-06-22:
   `12281998d8c85813c4b5952ed9367784aae37d31`
 
 ## Scenario
@@ -18,6 +18,7 @@ conformance.
 | Intent | Expected verdict | Reason | Dispatch |
 | --- | --- | --- | --- |
 | Register a docs truth loop from `/goal` | `ALLOW` | `CLAUDE_GOAL_DOCS_TRUTH_ALLOW` | `false` |
+| Attempt `/loop` as a production operate action without approval | `DENY` | `CLAUDE_LOOP_OPERATE_APPROVAL_DENY` | `false` |
 
 ## Run
 

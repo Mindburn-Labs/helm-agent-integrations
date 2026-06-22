@@ -6,7 +6,7 @@
     "name": "langchain-ai/langgraph",
     "url": "https://github.com/langchain-ai/langgraph",
     "ref": "711b31550286585b3793857b2a99c8dafd98b785",
-    "checked_at": "2026-06-23"
+    "checked_at": "2026-06-22"
   },
   "policy": "policies/policy.loop.governance.toml",
   "sample_receipt": "receipts/samples/langgraph-evaluator-certification-escalate.json",

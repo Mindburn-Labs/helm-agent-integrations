@@ -10,7 +10,7 @@ conformance.
 ## Upstream
 
 - Repository: https://github.com/actions/github-script
-- Pinned ref checked on 2026-06-23:
+- Pinned ref checked on 2026-06-22:
   `3a2844b7e9c422d3c10d287c895573f7108da1b3`
 
 ## Scenario
@@ -18,6 +18,7 @@ conformance.
 | Intent | Expected verdict | Reason | Dispatch |
 | --- | --- | --- | --- |
 | Emit overnight PR triage without mutating PRs | `ALLOW` | `GITHUB_PR_TRIAGE_REPORT_ALLOW` | `false` |
+| Attempt to mutate PR labels or comments without reviewer approval | `ESCALATE` | `GITHUB_PR_MUTATION_ESCALATE` | `false` |
 
 ## Run
 
