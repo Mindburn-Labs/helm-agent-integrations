@@ -17,6 +17,22 @@ FORMAL_PROOF_STATUSES = {"PROVED", "REFUTED", "UNKNOWN", "BUDGET_EXHAUSTED", "TO
 FORMAL_PROOF_DIR = "99_EXT/helm-formal-proof/"
 FORMAL_PROOF_RESULT_PATH = FORMAL_PROOF_DIR + "proof_result.json"
 FORMAL_VERIFICATION_SCOPE_PATH = FORMAL_PROOF_DIR + "verification_scope.json"
+LOOP_REQUIRED_FIELDS = {
+    "agent_run_receipt_version",
+    "loop_class",
+    "goal",
+    "stop_condition",
+    "max_iterations",
+    "iteration_count",
+    "progress_state",
+    "budget_exhausted",
+    "verifier_refs",
+    "evidence_refs",
+    "approval_refs",
+    "memory_effects",
+    "denied_effects",
+    "recurring_effects",
+}
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -46,6 +62,31 @@ def verify_receipts(root: Path) -> list[str]:
         policy_ref = doc.get("policy")
         if policy_ref and not (root / policy_ref).is_file():
             errors.append(f"{path}: policy {policy_ref!r} does not resolve to a file")
+        loop = doc.get("loop")
+        if loop is not None:
+            missing = sorted(LOOP_REQUIRED_FIELDS - set(loop))
+            if missing:
+                errors.append(f"{path}: loop metadata missing {', '.join(missing)}")
+            if loop.get("agent_run_receipt_version") != "agent_run_receipt.v2":
+                errors.append(f"{path}: loop metadata must use agent_run_receipt.v2")
+            if loop.get("loop_class") == "operate" and not loop.get("approval_refs") and doc.get("verdict") != "DENY":
+                errors.append(f"{path}: operate loop without approval evidence must be denied")
+            if loop.get("memory_effects", {}).get("accepted_without_review") is True:
+                errors.append(f"{path}: loop memory effects must not be accepted without review")
+            try:
+                iteration_count = int(loop.get("iteration_count", 0))
+                max_iterations = int(loop.get("max_iterations", 0))
+            except (TypeError, ValueError):
+                errors.append(f"{path}: loop iteration_count and max_iterations must be integers")
+            else:
+                if iteration_count > max_iterations:
+                    errors.append(f"{path}: loop iteration_count exceeds max_iterations")
+            if not loop.get("stop_condition"):
+                errors.append(f"{path}: loop stop_condition is required")
+            if not loop.get("verifier_refs"):
+                errors.append(f"{path}: loop verifier_refs are required")
+            if not loop.get("evidence_refs"):
+                errors.append(f"{path}: loop evidence_refs are required")
     return errors
 
 
@@ -251,6 +292,26 @@ def verify_mcp_proof_transcripts(root: Path) -> list[str]:
     return errors
 
 
+def verify_demo_scenarios(root: Path) -> list[str]:
+    errors: list[str] = []
+    for path in sorted((root / "demos").glob("*/scenario.json")):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        actions = doc.get("safe_harness", {}).get("actions", [])
+        if not actions:
+            errors.append(f"{path}: safe_harness.actions is required")
+            continue
+        has_blocked = False
+        for idx, action in enumerate(actions):
+            verdict = action.get("expected_verdict")
+            if verdict in {"DENY", "ESCALATE"}:
+                has_blocked = True
+                if action.get("dispatched") is not False:
+                    errors.append(f"{path}: blocked action {idx} may not be dispatched")
+        if not has_blocked:
+            errors.append(f"{path}: safe_harness must include a DENY or ESCALATE action")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=Path(__file__).resolve().parents[1], type=Path)
@@ -260,6 +321,7 @@ def main() -> int:
         verify_receipts(root)
         + verify_evidencepacks(root)
         + verify_mcp_proof_transcripts(root)
+        + verify_demo_scenarios(root)
         + verify_policies(root)
     )
     if errors:

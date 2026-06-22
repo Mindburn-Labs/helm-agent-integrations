@@ -1,0 +1,37 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-claude-code-goal-demo",
+  "title": "Claude Code /goal registers a docs truth loop",
+  "upstream": {
+    "name": "anthropics/claude-code",
+    "url": "https://github.com/anthropics/claude-code",
+    "ref": "12281998d8c85813c4b5952ed9367784aae37d31",
+    "checked_at": "2026-06-22"
+  },
+  "policy": "policies/policy.loop.governance.toml",
+  "sample_receipt": "receipts/samples/claude-code-goal-docs-truth-allow.json",
+  "sample_evidencepack": "evidencepacks/samples/claude-code-goal-docs-truth-allow.tar",
+  "expected": {
+    "verdict": "ALLOW",
+    "reason_code": "CLAUDE_GOAL_DOCS_TRUTH_ALLOW",
+    "dispatched": false,
+    "policy": "policies/policy.loop.governance.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "claude_code /goal docs truth",
+        "expected_verdict": "ALLOW",
+        "reason_code": "CLAUDE_GOAL_DOCS_TRUTH_ALLOW",
+        "dispatched": false
+      },
+      {
+        "name": "claude_code /loop production operate",
+        "expected_verdict": "DENY",
+        "reason_code": "CLAUDE_LOOP_OPERATE_APPROVAL_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}

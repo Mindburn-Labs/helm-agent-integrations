@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-langgraph-loop-demo",
+  "title": "LangGraph evaluator optimizer pauses connector certification",
+  "upstream": {
+    "name": "langchain-ai/langgraph",
+    "url": "https://github.com/langchain-ai/langgraph",
+    "ref": "711b31550286585b3793857b2a99c8dafd98b785",
+    "checked_at": "2026-06-22"
+  },
+  "policy": "policies/policy.loop.governance.toml",
+  "sample_receipt": "receipts/samples/langgraph-evaluator-certification-escalate.json",
+  "sample_evidencepack": "evidencepacks/samples/langgraph-evaluator-certification-escalate.tar",
+  "expected": {
+    "verdict": "ESCALATE",
+    "reason_code": "LANGGRAPH_CONNECTOR_CERTIFICATION_ESCALATE",
+    "dispatched": false,
+    "policy": "policies/policy.loop.governance.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "langgraph evaluator optimizer connector certification",
+        "expected_verdict": "ESCALATE",
+        "reason_code": "LANGGRAPH_CONNECTOR_CERTIFICATION_ESCALATE",
+        "dispatched": false
+      }
+    ]
+  }
+}
