@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-github-pr-bot-demo",
+  "title": "GitHub PR bot emits an overnight triage loop report",
+  "upstream": {
+    "name": "actions/github-script",
+    "url": "https://github.com/actions/github-script",
+    "ref": "3a2844b7e9c422d3c10d287c895573f7108da1b3",
+    "checked_at": "2026-06-23"
+  },
+  "policy": "policies/policy.loop.governance.toml",
+  "sample_receipt": "receipts/samples/github-pr-bot-overnight-triage-allow.json",
+  "sample_evidencepack": "evidencepacks/samples/github-pr-bot-overnight-triage-allow.tar",
+  "expected": {
+    "verdict": "ALLOW",
+    "reason_code": "GITHUB_PR_TRIAGE_REPORT_ALLOW",
+    "dispatched": false,
+    "policy": "policies/policy.loop.governance.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "github pr bot overnight triage",
+        "expected_verdict": "ALLOW",
+        "reason_code": "GITHUB_PR_TRIAGE_REPORT_ALLOW",
+        "dispatched": false
+      }
+    ]
+  }
+}

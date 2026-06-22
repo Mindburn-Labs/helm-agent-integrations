@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-claude-code-loop-demo",
+  "title": "Claude Code /loop operate attempt is denied without approval",
+  "upstream": {
+    "name": "anthropics/claude-code",
+    "url": "https://github.com/anthropics/claude-code",
+    "ref": "12281998d8c85813c4b5952ed9367784aae37d31",
+    "checked_at": "2026-06-23"
+  },
+  "policy": "policies/policy.loop.governance.toml",
+  "sample_receipt": "receipts/samples/claude-code-loop-operate-deny.json",
+  "sample_evidencepack": "evidencepacks/samples/claude-code-loop-operate-deny.tar",
+  "expected": {
+    "verdict": "DENY",
+    "reason_code": "CLAUDE_LOOP_OPERATE_APPROVAL_DENY",
+    "dispatched": false,
+    "policy": "policies/policy.loop.governance.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "claude_code /loop production operate",
+        "expected_verdict": "DENY",
+        "reason_code": "CLAUDE_LOOP_OPERATE_APPROVAL_DENY",
+        "dispatched": false
+      }
+    ]
+  }
+}

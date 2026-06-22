@@ -17,6 +17,14 @@ _SPEC.loader.exec_module(generate_samples)
 
 
 class SampleGenerationAssertionTests(unittest.TestCase):
+    LOOP_SCENARIOS = {
+        "claude-code-goal-docs-truth-allow",
+        "claude-code-loop-operate-deny",
+        "codex-cloud-task-build-test-fix-allow",
+        "langgraph-evaluator-certification-escalate",
+        "github-pr-bot-overnight-triage-allow",
+    }
+
     def _scenario(self, scenario_id: str):
         for scenario in generate_samples.SCENARIOS:
             if scenario.scenario_id == scenario_id:
@@ -67,6 +75,28 @@ class SampleGenerationAssertionTests(unittest.TestCase):
         self.assertEqual(generate_samples.normalize_e2b_network(False), "isolated")
         self.assertEqual(generate_samples.normalize_e2b_network("none"), "isolated")
         self.assertEqual(generate_samples.normalize_e2b_network("ISOLATED"), "isolated")
+
+    def test_loop_adapter_samples_emit_v2_loop_metadata(self) -> None:
+        for scenario_id in self.LOOP_SCENARIOS:
+            scenario = self._scenario(scenario_id)
+            receipt = generate_samples.receipt_for(scenario)
+            loop = receipt["loop"]
+            self.assertEqual(loop["agent_run_receipt_version"], "agent_run_receipt.v2")
+            self.assertIn(loop["loop_class"], {"observe", "report", "propose", "patch_pr", "operate"})
+            self.assertNotEqual(loop["stop_condition"].strip(), "")
+            self.assertGreaterEqual(loop["max_iterations"], loop["iteration_count"])
+            self.assertIsInstance(loop["verifier_refs"], list)
+            self.assertIsInstance(loop["evidence_refs"], list)
+            self.assertFalse(loop["memory_effects"]["accepted_without_review"])
+
+    def test_operate_loop_without_approval_is_denied(self) -> None:
+        scenario = self._scenario("claude-code-loop-operate-deny")
+        receipt = generate_samples.receipt_for(scenario)
+        self.assertEqual(receipt["verdict"], "DENY")
+        self.assertFalse(receipt["dispatched"])
+        self.assertEqual(receipt["loop"]["loop_class"], "operate")
+        self.assertEqual(receipt["loop"]["approval_refs"], [])
+        self.assertNotEqual(receipt["loop"]["denied_effects"], [])
 
 
 if __name__ == "__main__":

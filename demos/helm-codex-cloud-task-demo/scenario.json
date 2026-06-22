@@ -1,0 +1,31 @@
+{
+  "schema_version": "helm.demo.scenario.v1",
+  "demo_id": "helm-codex-cloud-task-demo",
+  "title": "Codex cloud task completes a build-test-fix loop",
+  "upstream": {
+    "name": "openai/codex",
+    "url": "https://github.com/openai/codex",
+    "ref": "5f129a4703ceaf843e1cb6996bbf4a4f21225198",
+    "checked_at": "2026-06-23"
+  },
+  "policy": "policies/policy.loop.governance.toml",
+  "sample_receipt": "receipts/samples/codex-cloud-task-build-test-fix-allow.json",
+  "sample_evidencepack": "evidencepacks/samples/codex-cloud-task-build-test-fix-allow.tar",
+  "expected": {
+    "verdict": "ALLOW",
+    "reason_code": "CODEX_BUILD_TEST_FIX_ALLOW",
+    "dispatched": false,
+    "policy": "policies/policy.loop.governance.toml"
+  },
+  "safe_harness": {
+    "requires": [],
+    "actions": [
+      {
+        "name": "codex cloud task build-test-fix",
+        "expected_verdict": "ALLOW",
+        "reason_code": "CODEX_BUILD_TEST_FIX_ALLOW",
+        "dispatched": false
+      }
+    ]
+  }
+}

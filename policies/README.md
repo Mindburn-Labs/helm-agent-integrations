@@ -37,6 +37,7 @@ path = "./data/launch_receipts.db"
 - `policy.db.readonly.toml`
 - `policy.cicd.approval-required.toml`
 - `policy.cloud.mutations.toml`
+- `policy.loop.governance.toml`
 - `policy.mcp.multi-tool.sandbox.toml`
 - `policy.mobile.resource-limits.toml`
 - `tinyfish.web_capability.toml`

@@ -33,6 +33,8 @@ This repo currently ships:
   tool wrappers
 - high-risk MCP and shell demo fixtures for shell, VM, container, mobile,
   browser-admin, Claude Code hook, and OpenAI Agents tool-call surfaces
+- sample-only loop adapter fixtures for Claude Code `/goal`, Claude Code
+  `/loop`, Codex cloud task, LangGraph evaluator-optimizer, and GitHub PR bot
 - Hermes and OpenClaw example integration bundles
 - sample policies and policy-pack templates for common agent-side-effect classes
 - generated sample receipts and EvidencePack archives

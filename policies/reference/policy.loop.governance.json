@@ -1,0 +1,32 @@
+{
+  "schema_version": "helm.integration.policy.reference.v1",
+  "profile": "policy_loop_governance_demo",
+  "sample_only": true,
+  "rules": [
+    {
+      "match": { "action_urn": "loop.claude_code.goal", "loop_class": "propose" },
+      "verdict": "ALLOW",
+      "reason_code": "CLAUDE_GOAL_DOCS_TRUTH_ALLOW"
+    },
+    {
+      "match": { "action_urn": "loop.claude_code.loop", "loop_class": "operate", "approval_refs": [] },
+      "verdict": "DENY",
+      "reason_code": "CLAUDE_LOOP_OPERATE_APPROVAL_DENY"
+    },
+    {
+      "match": { "action_urn": "loop.codex.cloud_task", "loop_class": "patch_pr" },
+      "verdict": "ALLOW",
+      "reason_code": "CODEX_BUILD_TEST_FIX_ALLOW"
+    },
+    {
+      "match": { "action_urn": "loop.langgraph.evaluator_optimizer", "loop_class": "propose" },
+      "verdict": "ESCALATE",
+      "reason_code": "LANGGRAPH_CONNECTOR_CERTIFICATION_ESCALATE"
+    },
+    {
+      "match": { "action_urn": "loop.github.pr_bot", "loop_class": "report" },
+      "verdict": "ALLOW",
+      "reason_code": "GITHUB_PR_TRIAGE_REPORT_ALLOW"
+    }
+  ]
+}

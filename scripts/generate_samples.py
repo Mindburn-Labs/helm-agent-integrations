@@ -16,6 +16,22 @@ from typing import Any, Optional
 
 FIXED_TIME = "2026-06-05T00:00:00Z"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+LOOP_REQUIRED_FIELDS = {
+    "agent_run_receipt_version",
+    "loop_class",
+    "goal",
+    "stop_condition",
+    "max_iterations",
+    "iteration_count",
+    "progress_state",
+    "budget_exhausted",
+    "verifier_refs",
+    "evidence_refs",
+    "approval_refs",
+    "memory_effects",
+    "denied_effects",
+    "recurring_effects",
+}
 
 
 def normalize_e2b_network(capability: Any) -> str:
@@ -51,6 +67,7 @@ class Scenario:
     # Runtime-derived facts the reference policy matched on that are not
     # caller arguments (e.g. registry state, partial source errors).
     policy_facts: dict[str, Any] = field(default_factory=dict)
+    loop: Optional[dict[str, Any]] = None
 
 
 SCENARIOS = [
@@ -399,6 +416,228 @@ SCENARIOS = [
         },
         source_urls=("https://shop.example/checkout",),
     ),
+    Scenario(
+        scenario_id="claude-code-goal-docs-truth-allow",
+        framework="claude-code-goal",
+        title="Claude Code /goal registers a docs truth loop",
+        action_urn="loop.claude_code.goal",
+        risk_class="T1",
+        effect_class="E1",
+        verdict="ALLOW",
+        reason_code="CLAUDE_GOAL_DOCS_TRUTH_ALLOW",
+        dispatched=False,
+        policy="policies/policy.loop.governance.toml",
+        arguments={
+            "adapter": "claude_code_goal",
+            "loop_class": "propose",
+            "goal": "Align docs with repo-local validation truth.",
+            "stop_condition": "Docs cite current commands and no product claim is inflated.",
+            "approval_refs": [],
+        },
+        loop={
+            "agent_run_receipt_version": "agent_run_receipt.v2",
+            "loop_class": "propose",
+            "goal": "Align docs with repo-local validation truth.",
+            "stop_condition": "Docs cite current commands and no product claim is inflated.",
+            "max_iterations": 3,
+            "iteration_count": 1,
+            "progress_state": "completed",
+            "budget_exhausted": False,
+            "verifier_refs": ["sample://verifiers/docs-truth"],
+            "evidence_refs": [
+                "sample://agent-run-receipts/claude-code-goal-docs-truth-allow.json",
+                "sample://evidence-packs/claude-code-goal-docs-truth-allow.tar",
+            ],
+            "approval_refs": [],
+            "memory_effects": {
+                "proposed_candidates": ["docs_truth_loop_goal"],
+                "review_required": True,
+                "accepted_without_review": False,
+            },
+            "denied_effects": [],
+            "recurring_effects": {"enabled": False, "next_scheduled_run": None},
+        },
+    ),
+    Scenario(
+        scenario_id="claude-code-loop-operate-deny",
+        framework="claude-code-loop",
+        title="Claude Code /loop operate attempt is denied without approval",
+        action_urn="loop.claude_code.loop",
+        risk_class="T2",
+        effect_class="E4",
+        verdict="DENY",
+        reason_code="CLAUDE_LOOP_OPERATE_APPROVAL_DENY",
+        dispatched=False,
+        policy="policies/policy.loop.governance.toml",
+        arguments={
+            "adapter": "claude_code_loop",
+            "loop_class": "operate",
+            "goal": "Deploy a production change without approval evidence.",
+            "stop_condition": "Verifier blocks the effect and records denied evidence.",
+            "approval_refs": [],
+        },
+        loop={
+            "agent_run_receipt_version": "agent_run_receipt.v2",
+            "loop_class": "operate",
+            "goal": "Deploy a production change without approval evidence.",
+            "stop_condition": "Verifier blocks the effect and records denied evidence.",
+            "max_iterations": 1,
+            "iteration_count": 1,
+            "progress_state": "failed",
+            "budget_exhausted": False,
+            "verifier_refs": ["sample://verifiers/operate-approval"],
+            "evidence_refs": [
+                "sample://agent-run-receipts/claude-code-loop-operate-deny.json",
+                "sample://evidence-packs/claude-code-loop-operate-deny.tar",
+            ],
+            "approval_refs": [],
+            "memory_effects": {
+                "proposed_candidates": ["high_risk_operate_denial"],
+                "review_required": True,
+                "accepted_without_review": False,
+            },
+            "denied_effects": [
+                {
+                    "effect_type": "production_deploy",
+                    "reason_code": "OPERATE_BLOCKED",
+                    "verifier_verdict": "DENY",
+                }
+            ],
+            "recurring_effects": {"enabled": False, "next_scheduled_run": None},
+        },
+    ),
+    Scenario(
+        scenario_id="codex-cloud-task-build-test-fix-allow",
+        framework="codex-cloud-task",
+        title="Codex cloud task completes a build-test-fix loop",
+        action_urn="loop.codex.cloud_task",
+        risk_class="T1",
+        effect_class="E2",
+        verdict="ALLOW",
+        reason_code="CODEX_BUILD_TEST_FIX_ALLOW",
+        dispatched=False,
+        policy="policies/policy.loop.governance.toml",
+        arguments={
+            "adapter": "codex_cloud_task",
+            "loop_class": "patch_pr",
+            "goal": "Repair a failing package test and prepare a bounded patch PR.",
+            "stop_condition": "Targeted tests pass and the patch remains reviewable.",
+            "approval_refs": [],
+        },
+        loop={
+            "agent_run_receipt_version": "agent_run_receipt.v2",
+            "loop_class": "patch_pr",
+            "goal": "Repair a failing package test and prepare a bounded patch PR.",
+            "stop_condition": "Targeted tests pass and the patch remains reviewable.",
+            "max_iterations": 5,
+            "iteration_count": 3,
+            "progress_state": "completed",
+            "budget_exhausted": False,
+            "verifier_refs": ["sample://verifiers/build-test-fix"],
+            "evidence_refs": [
+                "sample://agent-run-receipts/codex-cloud-task-build-test-fix-allow.json",
+                "sample://evidence-packs/codex-cloud-task-build-test-fix-allow.tar",
+            ],
+            "approval_refs": [],
+            "memory_effects": {
+                "proposed_candidates": [],
+                "review_required": False,
+                "accepted_without_review": False,
+            },
+            "denied_effects": [],
+            "recurring_effects": {"enabled": False, "next_scheduled_run": None},
+        },
+    ),
+    Scenario(
+        scenario_id="langgraph-evaluator-certification-escalate",
+        framework="langgraph-evaluator-optimizer",
+        title="LangGraph evaluator optimizer pauses connector certification",
+        action_urn="loop.langgraph.evaluator_optimizer",
+        risk_class="T2",
+        effect_class="E3",
+        verdict="ESCALATE",
+        reason_code="LANGGRAPH_CONNECTOR_CERTIFICATION_ESCALATE",
+        dispatched=False,
+        policy="policies/policy.loop.governance.toml",
+        arguments={
+            "adapter": "langgraph_evaluator_optimizer",
+            "loop_class": "propose",
+            "goal": "Evaluate a sample connector against policy, schema, and receipt requirements.",
+            "stop_condition": "Certification evidence is packaged as a proposed result only.",
+            "approval_refs": ["sample://approvals/connector-certification-human-review.required.json"],
+        },
+        loop={
+            "agent_run_receipt_version": "agent_run_receipt.v2",
+            "loop_class": "propose",
+            "goal": "Evaluate a sample connector against policy, schema, and receipt requirements.",
+            "stop_condition": "Certification evidence is packaged as a proposed result only.",
+            "max_iterations": 6,
+            "iteration_count": 4,
+            "progress_state": "paused",
+            "budget_exhausted": False,
+            "verifier_refs": ["sample://verifiers/connector-certification"],
+            "evidence_refs": [
+                "sample://agent-run-receipts/langgraph-evaluator-certification-escalate.json",
+                "sample://evidence-packs/langgraph-evaluator-certification-escalate.tar",
+            ],
+            "approval_refs": [
+                "sample://approvals/connector-certification-human-review.required.json"
+            ],
+            "memory_effects": {
+                "proposed_candidates": ["connector_certification_gap"],
+                "review_required": True,
+                "accepted_without_review": False,
+            },
+            "denied_effects": [],
+            "recurring_effects": {"enabled": False, "next_scheduled_run": None},
+        },
+    ),
+    Scenario(
+        scenario_id="github-pr-bot-overnight-triage-allow",
+        framework="github-pr-bot",
+        title="GitHub PR bot emits an overnight triage loop report",
+        action_urn="loop.github.pr_bot",
+        risk_class="T1",
+        effect_class="E1",
+        verdict="ALLOW",
+        reason_code="GITHUB_PR_TRIAGE_REPORT_ALLOW",
+        dispatched=False,
+        policy="policies/policy.loop.governance.toml",
+        arguments={
+            "adapter": "github_pr_bot",
+            "loop_class": "report",
+            "goal": "Summarize stale PRs, failing checks, and reviewer-blocked branches.",
+            "stop_condition": "A triage report is emitted without mutating pull requests.",
+            "approval_refs": [],
+        },
+        loop={
+            "agent_run_receipt_version": "agent_run_receipt.v2",
+            "loop_class": "report",
+            "goal": "Summarize stale PRs, failing checks, and reviewer-blocked branches.",
+            "stop_condition": "A triage report is emitted without mutating pull requests.",
+            "max_iterations": 1,
+            "iteration_count": 1,
+            "progress_state": "completed",
+            "budget_exhausted": False,
+            "verifier_refs": ["sample://verifiers/overnight-pr-triage"],
+            "evidence_refs": [
+                "sample://agent-run-receipts/github-pr-bot-overnight-triage-allow.json",
+                "sample://evidence-packs/github-pr-bot-overnight-triage-allow.tar",
+            ],
+            "approval_refs": [],
+            "memory_effects": {
+                "proposed_candidates": ["recurring_branch_blocker_summary"],
+                "review_required": True,
+                "accepted_without_review": False,
+            },
+            "denied_effects": [],
+            "recurring_effects": {
+                "enabled": True,
+                "cadence": "nightly",
+                "next_scheduled_run": "sample://schedules/github-pr-bot-overnight-triage.next.json",
+            },
+        },
+    ),
 ]
 
 
@@ -419,6 +658,17 @@ def validate_scenario(scenario: Scenario) -> None:
         raise ValueError(f"{scenario.scenario_id}: effect_class must be canonical E0-E4")
     if scenario.dispatched and scenario.verdict in {"DENY", "ESCALATE", "PENDING"}:
         raise ValueError(f"{scenario.scenario_id}: blocked verdicts must not dispatch")
+    if scenario.loop is None:
+        return
+    missing = sorted(LOOP_REQUIRED_FIELDS - set(scenario.loop))
+    if missing:
+        raise ValueError(f"{scenario.scenario_id}: loop metadata missing {', '.join(missing)}")
+    if scenario.loop["agent_run_receipt_version"] != "agent_run_receipt.v2":
+        raise ValueError(f"{scenario.scenario_id}: loop receipt metadata must use agent_run_receipt.v2")
+    if scenario.loop["loop_class"] == "operate" and not scenario.loop["approval_refs"] and scenario.verdict != "DENY":
+        raise ValueError(f"{scenario.scenario_id}: operate without approval evidence must be denied")
+    if scenario.loop["memory_effects"].get("accepted_without_review") is True:
+        raise ValueError(f"{scenario.scenario_id}: memory effects must not be accepted without review")
 
 
 def _fact_satisfied(key: str, expected: Any, facts: dict[str, Any]) -> bool:
@@ -494,6 +744,8 @@ def receipt_for(scenario: Scenario) -> dict[str, Any]:
         "kernel_source_truth": "helm-ai-kernel",
         "sample_only": True,
     }
+    if scenario.loop is not None:
+        receipt["loop"] = scenario.loop
     receipt["receipt_hash"] = sha256(canonical_bytes(receipt))
     return receipt
 
@@ -597,6 +849,8 @@ def scenario_doc(scenario: Scenario) -> dict[str, Any]:
     }
     if scenario.formal_proof is not None:
         doc["formal_proof_extension"] = scenario.formal_proof
+    if scenario.loop is not None:
+        doc["loop"] = scenario.loop
     return doc
 
 
