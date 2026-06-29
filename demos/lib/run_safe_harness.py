@@ -10,12 +10,11 @@ from pathlib import Path
 from typing import Any
 
 
-def find_repo_root(path: Path) -> Path:
-    current = path.resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / "scripts" / "verify_samples.py").is_file() and (candidate / "receipts").is_dir():
-            return candidate
-    raise SystemExit(f"could not locate repository root from {path}")
+def validate_repo_root(path: Path) -> Path:
+    root = path.resolve()
+    if (root / "scripts" / "verify_samples.py").is_file() and (root / "receipts").is_dir():
+        return root
+    raise SystemExit(f"invalid --repo: {path}")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -24,6 +23,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--scenario", required=True, type=Path)
     parser.add_argument("--safe", action="store_true")
     args = parser.parse_args()
@@ -33,7 +33,7 @@ def main() -> int:
 
     scenario_path = args.scenario.resolve()
     scenario = load_json(scenario_path)
-    root = find_repo_root(scenario_path)
+    root = validate_repo_root(args.repo)
 
     for requirement in scenario.get("safe_harness", {}).get("requires", []):
         command = requirement["command"]
