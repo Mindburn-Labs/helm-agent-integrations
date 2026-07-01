@@ -12,7 +12,7 @@ receipt metadata.
 import { withHelmBoundary } from "@mindburn/helm-tool-wrapper";
 
 const sendEmail = withHelmBoundary({
-  helmUrl: "http://127.0.0.1:7715",
+  helmUrl: "http://127.0.0.1:7714",
   principal: "demo-agent",
   actionUrn: "tool.gmail.send_email",
   riskClass: "T2",

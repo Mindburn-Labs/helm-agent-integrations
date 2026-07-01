@@ -12,7 +12,7 @@ and receipt metadata.
 from helm_tool_wrapper import with_helm_boundary
 
 @with_helm_boundary(
-    helm_url="http://127.0.0.1:7715",
+    helm_url="http://127.0.0.1:7714",
     principal="demo-agent",
     action_urn="tool.gmail.send_email",
     risk_class="T2",

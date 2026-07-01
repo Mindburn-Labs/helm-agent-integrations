@@ -102,7 +102,7 @@ export class HelmBoundaryTransportError extends Error {
   }
 }
 
-const DEFAULT_HELM_URL = "http://127.0.0.1:7715";
+const DEFAULT_HELM_URL = "http://127.0.0.1:7714";
 const DEFAULT_PRINCIPAL = "helm-agent-integrations";
 
 function normalizeBaseUrl(url: string | undefined): string {

@@ -19,7 +19,7 @@ InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 Transport = Callable[[str, Mapping[str, Any], float], tuple[int, Mapping[str, Any], Mapping[str, str]]]
 
-DEFAULT_HELM_URL = "http://127.0.0.1:7715"
+DEFAULT_HELM_URL = "http://127.0.0.1:7714"
 DEFAULT_PRINCIPAL = "helm-agent-integrations"
 
 

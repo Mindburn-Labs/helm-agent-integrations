@@ -60,8 +60,10 @@ class BoundaryWrapperTests(unittest.TestCase):
 
     def test_preflight_payload_shape(self) -> None:
         captured: dict[str, Any] = {}
+        captured_url = {"value": ""}
 
         def transport(_url: str, payload: Mapping[str, Any], _timeout: float) -> tuple[int, Mapping[str, Any], Mapping[str, str]]:
+            captured_url["value"] = _url
             captured.update(payload)
             return 200, {"verdict": "ESCALATE", "reason": "approval required"}, {}
 
@@ -75,6 +77,7 @@ class BoundaryWrapperTests(unittest.TestCase):
         )
 
         self.assertEqual(result.verdict, "ESCALATE")
+        self.assertEqual(captured_url["value"], "http://127.0.0.1:7714/api/v1/evaluate")
         self.assertEqual(captured["principal"], "agent-1")
         self.assertEqual(captured["action"], "EXECUTE_TOOL")
         self.assertEqual(captured["resource"], "tool.gmail.send_email")
