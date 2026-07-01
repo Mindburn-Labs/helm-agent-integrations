@@ -60,7 +60,7 @@ Use the TypeScript wrapper:
 import { withHelmBoundary } from "@mindburn/helm-tool-wrapper";
 
 const sendEmail = withHelmBoundary({
-  helmUrl: "http://127.0.0.1:7715",
+  helmUrl: "http://127.0.0.1:7714",
   principal: "demo-agent",
   actionUrn: "tool.gmail.send_email",
   riskClass: "T2",
@@ -87,7 +87,7 @@ Use the Python wrapper:
 from helm_tool_wrapper import with_helm_boundary
 
 @with_helm_boundary(
-    helm_url="http://127.0.0.1:7715",
+    helm_url="http://127.0.0.1:7714",
     principal="demo-agent",
     action_urn="tool.sql.execute",
     risk_class="T2",

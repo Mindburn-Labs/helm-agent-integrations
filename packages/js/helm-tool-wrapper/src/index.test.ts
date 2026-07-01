@@ -89,7 +89,9 @@ test("withHelmBoundary does not dispatch on DENY", async () => {
 
 test("preflightAction sends HELM evaluate payload", async () => {
   let posted: unknown;
+  let postedURL = "";
   const fetchImpl: FetchLike = async (_url, init) => {
+    postedURL = _url;
     posted = JSON.parse(init?.body ?? "{}");
     return response({ verdict: "ESCALATE", reason: "approval required" });
   };
@@ -104,6 +106,7 @@ test("preflightAction sends HELM evaluate payload", async () => {
   });
 
   assert.equal(result.decision.verdict, "ESCALATE");
+  assert.equal(postedURL, "http://127.0.0.1:7714/api/v1/evaluate");
   assert.deepEqual(posted, {
     principal: "agent-1",
     action: "EXECUTE_TOOL",

@@ -19,7 +19,7 @@ reference_pack = "..."
 
 [server]
 bind = "127.0.0.1"
-port = 7715
+port = 7714
 
 [receipts]
 store = "sqlite"
