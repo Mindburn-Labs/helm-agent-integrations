@@ -1,0 +1,18 @@
+name: Docs Truth
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  docs-truth:
+    name: docs-truth
+    uses: Mindburn-Labs/dev-orchestration/.github/workflows/docs-truth.yml@34c72eb5e6243c902e77403b21ea65f9f0279316
+    secrets:
+      MINDBURN_ORG_READ_TOKEN: ${{ secrets.MINDBURN_ORG_READ_TOKEN }}
