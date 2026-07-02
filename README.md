@@ -31,6 +31,8 @@ This repo currently ships:
   Composio, and TinyFish governed web capability
 - universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
   tool wrappers
+- routed-action receipt example showing verdict, receipt ref, and EvidencePack
+  verification handoff
 - high-risk MCP and shell demo fixtures for shell, VM, container, mobile,
   browser-admin, Claude Code hook, and OpenAI Agents tool-call surfaces
 - sample-only loop adapter fixtures for Claude Code `/goal`, Claude Code
