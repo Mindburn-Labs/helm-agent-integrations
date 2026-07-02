@@ -22,7 +22,7 @@ const result = await withHelmBoundary({
 })({ to: "ops@example.com", subject: "Review", body: "Draft" });
 
 if (!result.allowed) {
-  console.log(result.verdict, result.decision.reason, result.decision.receipt_ref);
+  console.log(result.verdict, result.decision.reason, result.receipt.ref);
 }
 ```
 
@@ -37,7 +37,7 @@ result = preflight_action(
 )
 
 if not result.allowed:
-    print(result.verdict, result.decision.reason, result.decision.receipt_ref)
+    print(result.verdict, result.decision.reason, result.receipt.ref)
 ```
 
 `DENY` and `ESCALATE` do not dispatch. EvidencePack verification remains owned
