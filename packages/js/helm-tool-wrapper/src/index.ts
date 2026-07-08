@@ -403,6 +403,70 @@ export function fromMastraToolCall(call: {
   });
 }
 
+export function fromCodexToolCall(call: {
+  tool_name?: string;
+  name?: string;
+  recipient_name?: string;
+  arguments?: unknown;
+  parameters?: unknown;
+  input?: unknown;
+  payload?: unknown;
+  principal?: string;
+  risk_class?: string;
+  riskClass?: string;
+  effect_class?: string;
+  effectClass?: string;
+  session_id?: string;
+  thread_id?: string;
+  worktree?: string;
+  metadata?: Record<string, unknown>;
+}): BoundaryIntent {
+  const toolName = call.tool_name ?? call.name ?? call.recipient_name ?? "unknown";
+  return intent(`tool.codex.${toolName}`, call.arguments ?? call.parameters ?? call.input ?? call.payload ?? {}, {
+    framework: "codex",
+    tool_name: toolName,
+    session_id: call.session_id,
+    thread_id: call.thread_id,
+    worktree: call.worktree,
+    ...call.metadata,
+  }, {
+    principal: call.principal,
+    riskClass: call.risk_class ?? call.riskClass ?? "T2",
+    effectClass: call.effect_class ?? call.effectClass ?? "E4",
+  });
+}
+
+export function fromClaudeToolCall(call: {
+  tool_name?: string;
+  name?: string;
+  input?: unknown;
+  arguments?: unknown;
+  id?: string;
+  tool_use_id?: string;
+  principal?: string;
+  risk_class?: string;
+  riskClass?: string;
+  effect_class?: string;
+  effectClass?: string;
+  session_id?: string;
+  transcript_path?: string;
+  metadata?: Record<string, unknown>;
+}): BoundaryIntent {
+  const toolName = call.tool_name ?? call.name ?? "unknown";
+  return intent(`tool.claude.${toolName}`, call.input ?? call.arguments ?? {}, {
+    framework: "claude",
+    tool_name: toolName,
+    tool_use_id: call.tool_use_id ?? call.id,
+    session_id: call.session_id,
+    transcript_path: call.transcript_path,
+    ...call.metadata,
+  }, {
+    principal: call.principal,
+    riskClass: call.risk_class ?? call.riskClass ?? "T2",
+    effectClass: call.effect_class ?? call.effectClass ?? "E4",
+  });
+}
+
 export function fromBrowserUseAction(call: {
   action?: string;
   url?: string;

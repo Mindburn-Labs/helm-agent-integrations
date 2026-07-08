@@ -313,6 +313,44 @@ def from_mastra_tool_call(call: Mapping[str, Any]) -> BoundaryIntent:
     )
 
 
+def from_codex_tool_call(call: Mapping[str, Any]) -> BoundaryIntent:
+    tool_name = str(call.get("tool_name") or call.get("name") or call.get("recipient_name") or "unknown")
+    return _intent(
+        f"tool.codex.{tool_name}",
+        call.get("arguments", call.get("parameters", call.get("input", call.get("payload", {})))),
+        {
+            "framework": "codex",
+            "tool_name": tool_name,
+            "session_id": call.get("session_id"),
+            "thread_id": call.get("thread_id"),
+            "worktree": call.get("worktree"),
+            **_record(call.get("metadata")),
+        },
+        principal=cast(Optional[str], call.get("principal")),
+        risk_class=str(call.get("risk_class") or call.get("riskClass") or "T2"),
+        effect_class=str(call.get("effect_class") or call.get("effectClass") or "E4"),
+    )
+
+
+def from_claude_tool_call(call: Mapping[str, Any]) -> BoundaryIntent:
+    tool_name = str(call.get("tool_name") or call.get("name") or "unknown")
+    return _intent(
+        f"tool.claude.{tool_name}",
+        call.get("input", call.get("arguments", {})),
+        {
+            "framework": "claude",
+            "tool_name": tool_name,
+            "tool_use_id": call.get("tool_use_id") or call.get("id"),
+            "session_id": call.get("session_id"),
+            "transcript_path": call.get("transcript_path"),
+            **_record(call.get("metadata")),
+        },
+        principal=cast(Optional[str], call.get("principal")),
+        risk_class=str(call.get("risk_class") or call.get("riskClass") or "T2"),
+        effect_class=str(call.get("effect_class") or call.get("effectClass") or "E4"),
+    )
+
+
 def from_browser_use_action(call: Mapping[str, Any]) -> BoundaryIntent:
     action = str(call.get("action") or "browser.action")
     return _intent(
@@ -390,6 +428,8 @@ fromTinyFishSearch = from_tinyfish_search
 fromTinyFishFetch = from_tinyfish_fetch
 fromTinyFishBrowserSession = from_tinyfish_browser_session
 fromTinyFishAgentRun = from_tinyfish_agent_run
+fromCodexToolCall = from_codex_tool_call
+fromClaudeToolCall = from_claude_tool_call
 
 
 def normalize_e2b_network(value: Any) -> str:

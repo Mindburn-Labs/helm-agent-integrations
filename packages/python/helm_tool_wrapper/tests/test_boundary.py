@@ -9,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from helm_tool_wrapper import (
     from_browser_use_action,
+    from_claude_tool_call,
     from_composio_action,
+    from_codex_tool_call,
     from_e2b_execution,
     from_tinyfish_agent_run,
     from_tinyfish_browser_session,
@@ -84,6 +86,33 @@ class BoundaryWrapperTests(unittest.TestCase):
         self.assertEqual(captured["context"]["risk_class"], "T2")
 
     def test_framework_helpers(self) -> None:
+        codex = from_codex_tool_call(
+            {
+                "recipient_name": "functions.exec_command",
+                "parameters": {"cmd": "gh pr merge 189 --merge"},
+                "session_id": "codex-session-1",
+                "thread_id": "thread-1",
+            }
+        )
+        self.assertEqual(codex.action_urn, "tool.codex.functions.exec_command")
+        self.assertEqual(codex.input, {"cmd": "gh pr merge 189 --merge"})
+        self.assertEqual(codex.effect_class, "E4")
+        self.assertEqual(codex.metadata["framework"], "codex")
+        self.assertEqual(codex.metadata["thread_id"], "thread-1")
+
+        claude = from_claude_tool_call(
+            {
+                "name": "Bash",
+                "input": {"command": "cat README.md"},
+                "id": "toolu_1",
+                "effect_class": "E2",
+            }
+        )
+        self.assertEqual(claude.action_urn, "tool.claude.Bash")
+        self.assertEqual(claude.input, {"command": "cat README.md"})
+        self.assertEqual(claude.effect_class, "E2")
+        self.assertEqual(claude.metadata["tool_use_id"], "toolu_1")
+
         browser = from_browser_use_action({"action": "submit", "url": "https://shop.example/checkout"})
         self.assertEqual(browser.action_urn, "tool.browser_use.submit")
         self.assertEqual(browser.risk_class, "T2")

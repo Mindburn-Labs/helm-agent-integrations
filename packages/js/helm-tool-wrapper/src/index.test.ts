@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   fromBrowserUseAction,
+  fromClaudeToolCall,
   fromComposioAction,
+  fromCodexToolCall,
   fromE2BExecution,
   fromTinyFishAgentRun,
   fromTinyFishBrowserSession,
@@ -122,6 +124,29 @@ test("preflightAction sends HELM evaluate payload", async () => {
 });
 
 test("new framework helpers normalize Browser Use and Composio calls", () => {
+  const codex = fromCodexToolCall({
+    recipient_name: "functions.exec_command",
+    parameters: { cmd: "gh pr merge 189 --merge" },
+    session_id: "codex-session-1",
+    thread_id: "thread-1",
+  });
+  assert.equal(codex.actionUrn, "tool.codex.functions.exec_command");
+  assert.deepEqual(codex.input, { cmd: "gh pr merge 189 --merge" });
+  assert.equal(codex.effectClass, "E4");
+  assert.equal(codex.metadata?.framework, "codex");
+  assert.equal(codex.metadata?.thread_id, "thread-1");
+
+  const claude = fromClaudeToolCall({
+    name: "Bash",
+    input: { command: "cat README.md" },
+    id: "toolu_1",
+    effect_class: "E2",
+  });
+  assert.equal(claude.actionUrn, "tool.claude.Bash");
+  assert.deepEqual(claude.input, { command: "cat README.md" });
+  assert.equal(claude.effectClass, "E2");
+  assert.equal(claude.metadata?.tool_use_id, "toolu_1");
+
   const browser = fromBrowserUseAction({
     action: "submit",
     url: "https://shop.example/checkout",
