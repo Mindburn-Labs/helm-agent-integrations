@@ -44,6 +44,10 @@ const intent = fromTinyFishFetch({
 const result = await preflightAction({
   actionUrn: intent.actionUrn,
   input: intent.input,
+  apiKey: process.env.HELM_ADMIN_API_KEY ?? "",
+  tenantId: "local-demo",
+  principal: "demo-agent",
+  sessionId: "tinyfish-session-1",
   riskClass: intent.riskClass,
   effectClass: intent.effectClass,
   metadata: intent.metadata,
@@ -53,6 +57,8 @@ const result = await preflightAction({
 Use the Python helpers:
 
 ```python
+import os
+
 from helm_tool_wrapper import from_tinyfish_agent_run, preflight_action
 
 intent = from_tinyfish_agent_run({
@@ -64,6 +70,10 @@ intent = from_tinyfish_agent_run({
 result = preflight_action(
     action_urn=intent.action_urn,
     input=intent.input,
+    api_key=os.environ["HELM_ADMIN_API_KEY"],
+    tenant_id="local-demo",
+    principal="demo-agent",
+    session_id="tinyfish-session-1",
     risk_class=intent.risk_class,
     effect_class=intent.effect_class,
     metadata=intent.metadata,

@@ -6,14 +6,18 @@ HELM AI Kernel boundary before dispatch.
 The wrapper sends a direct preflight request to `POST /api/v1/evaluate`.
 It dispatches the wrapped tool only when the HELM verdict is `ALLOW`. `DENY`,
 `ESCALATE`, and `PENDING` return a non-dispatched result with decision and
-receipt metadata.
+receipt metadata. The current served route requires the admin bearer key plus
+explicit tenant and principal binding headers.
 
 ```ts
 import { withHelmBoundary } from "@mindburn/helm-tool-wrapper";
 
 const sendEmail = withHelmBoundary({
   helmUrl: "http://127.0.0.1:7714",
+  apiKey: process.env.HELM_ADMIN_API_KEY ?? "",
+  tenantId: "local-demo",
   principal: "demo-agent",
+  sessionId: "demo-session-1",
   actionUrn: "tool.gmail.send_email",
   riskClass: "T2",
   effectClass: "E4",
@@ -43,8 +47,21 @@ const intent = fromTinyFishAgentRun({
 const result = await preflightAction({
   actionUrn: intent.actionUrn,
   input: intent.input,
+  apiKey: process.env.HELM_ADMIN_API_KEY ?? "",
+  tenantId: "local-demo",
+  principal: "demo-agent",
+  sessionId: "tinyfish-session-1",
   riskClass: intent.riskClass,
   effectClass: intent.effectClass,
   metadata: intent.metadata,
 });
 ```
+
+Configure `apiKey` from `HELM_ADMIN_API_KEY` for the tenant-scoped evaluate
+route. `serviceToken` is accepted as an explicit configuration key only so the
+wrapper can reject it before transport; `HELM_SERVICE_API_KEY` authenticates
+service-internal Kernel routes, not `/api/v1/evaluate`.
+
+Codex and Claude Code normalizers preserve the real tool arguments (including
+Claude's `tool_input`) and assign the conservative trusted default `T2/E4`.
+Caller-supplied risk/effect downgrades and principal overrides are ignored.
