@@ -69,8 +69,12 @@ export type FetchLike = (
 export interface HelmBoundaryConfig<Input, Output> {
   actionUrn: string;
   tool: ToolHandler<Input, Output>;
+  sessionId: string;
+  tenantId: string;
+  principal: string;
+  apiKey?: string;
+  serviceToken?: string;
   helmUrl?: string;
-  principal?: string;
   riskClass?: string;
   effectClass?: string;
   metadata?: Record<string, unknown>;
@@ -81,8 +85,12 @@ export interface HelmBoundaryConfig<Input, Output> {
 export interface HelmPreflightOptions<Input> {
   actionUrn: string;
   input: Input;
+  sessionId: string;
+  tenantId: string;
+  principal: string;
+  apiKey?: string;
+  serviceToken?: string;
   helmUrl?: string;
-  principal?: string;
   riskClass?: string;
   effectClass?: string;
   metadata?: Record<string, unknown>;
@@ -103,10 +111,64 @@ export class HelmBoundaryTransportError extends Error {
 }
 
 const DEFAULT_HELM_URL = "http://127.0.0.1:7714";
-const DEFAULT_PRINCIPAL = "helm-agent-integrations";
+const TRUSTED_AGENT_RISK_CLASS = "T2";
+const TRUSTED_AGENT_EFFECT_CLASS = "E4";
+const SUPPORTED_RISK_CLASSES = new Set(["T0", "T1", "T2", "T3"]);
+const SUPPORTED_EFFECT_CLASSES = new Set(["E0", "E1", "E2", "E3", "E4"]);
+const UNTRUSTED_AUTHORITY_METADATA = [
+  "principal",
+  "agent_id",
+  "tenant_id",
+  "risk_class",
+  "riskClass",
+  "effect_class",
+  "effectClass",
+] as const;
 
 function normalizeBaseUrl(url: string | undefined): string {
   return (url ?? DEFAULT_HELM_URL).replace(/\/$/, "");
+}
+
+function resolveEvaluateApiKey(apiKey: string | undefined, serviceToken: string | undefined): string {
+  if (serviceToken?.trim()) {
+    throw new HelmBoundaryTransportError(
+      "HELM serviceToken is not authorized for tenant-scoped /api/v1/evaluate; configure apiKey",
+    );
+  }
+  const normalized = apiKey?.trim() ?? "";
+  if (normalized === "") {
+    throw new HelmBoundaryTransportError("HELM apiKey is required for tenant-scoped /api/v1/evaluate");
+  }
+  return normalized;
+}
+
+function requireValue(value: string | undefined, name: string): string {
+  const normalized = value?.trim() ?? "";
+  if (normalized === "") {
+    throw new HelmBoundaryTransportError(`HELM ${name} is required`);
+  }
+  return normalized;
+}
+
+function normalizeClassification(
+  value: string | undefined,
+  fallback: string,
+  supported: Set<string>,
+  name: string,
+): string {
+  const normalized = value?.trim().toUpperCase() || fallback;
+  if (!supported.has(normalized)) {
+    throw new HelmBoundaryTransportError(`Unsupported HELM ${name} ${JSON.stringify(value)}`);
+  }
+  return normalized;
+}
+
+function withoutAuthorityMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  const sanitized = { ...metadata };
+  for (const key of UNTRUSTED_AUTHORITY_METADATA) {
+    delete sanitized[key];
+  }
+  return sanitized;
 }
 
 function canonicalVerdict(verdict: unknown): HelmVerdict {
@@ -120,7 +182,7 @@ function headersToReceipt(headers: { get(name: string): string | null }): HelmRe
   const receiptId = headers.get("x-helm-receipt-id") ?? undefined;
   const decisionId = headers.get("x-helm-decision-id") ?? undefined;
   const reasonCode = headers.get("x-helm-reason-code") ?? undefined;
-  const status = headers.get("x-helm-status") ?? undefined;
+  const status = headers.get("x-helm-verdict") ?? headers.get("x-helm-status") ?? undefined;
   if (!receiptId && !decisionId && !reasonCode && !status) {
     return undefined;
   }
@@ -181,17 +243,39 @@ export async function preflightAction<Input>(
     throw new HelmBoundaryTransportError("No fetch implementation is available");
   }
 
+  const authToken = resolveEvaluateApiKey(options.apiKey, options.serviceToken);
+  const actionUrn = requireValue(options.actionUrn, "actionUrn");
+  const sessionId = requireValue(options.sessionId, "sessionId");
+  const tenantId = requireValue(options.tenantId, "tenantId");
+  const principal = requireValue(options.principal, "principal");
+  const riskClass = normalizeClassification(
+    options.riskClass,
+    TRUSTED_AGENT_RISK_CLASS,
+    SUPPORTED_RISK_CLASSES,
+    "riskClass",
+  );
+  const effectClass = normalizeClassification(
+    options.effectClass,
+    TRUSTED_AGENT_EFFECT_CLASS,
+    SUPPORTED_EFFECT_CLASSES,
+    "effectClass",
+  );
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
   const payload = {
-    principal: options.principal ?? DEFAULT_PRINCIPAL,
+    principal,
     action: "EXECUTE_TOOL",
-    resource: options.actionUrn,
+    resource: actionUrn,
     context: {
-      action_urn: options.actionUrn,
-      risk_class: options.riskClass,
-      effect_class: options.effectClass,
+      tool: actionUrn,
+      args: options.input,
       arguments: options.input,
+      agent_id: principal,
+      effect_level: effectClass,
+      session_id: sessionId,
+      action_urn: actionUrn,
+      risk_class: riskClass,
+      effect_class: effectClass,
       metadata: options.metadata ?? {},
     },
   };
@@ -199,7 +283,12 @@ export async function preflightAction<Input>(
   try {
     const response = await fetchImpl(`${normalizeBaseUrl(options.helmUrl)}/api/v1/evaluate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+        "X-Helm-Tenant-ID": tenantId,
+        "X-Helm-Principal-ID": principal,
+      },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -237,8 +326,12 @@ export function withHelmBoundary<Input, Output>(
     const preflight = await preflightAction({
       actionUrn: config.actionUrn,
       input,
-      helmUrl: config.helmUrl,
+      sessionId: config.sessionId,
+      tenantId: config.tenantId,
       principal: config.principal,
+      apiKey: config.apiKey,
+      serviceToken: config.serviceToken,
+      helmUrl: config.helmUrl,
       riskClass: config.riskClass,
       effectClass: config.effectClass,
       metadata: config.metadata,
@@ -273,6 +366,7 @@ export function withHelmBoundary<Input, Output>(
 export interface BoundaryIntent<Input = unknown> {
   actionUrn: string;
   input: Input;
+  sessionId?: string;
   principal?: string;
   riskClass?: string;
   effectClass?: string;
@@ -324,6 +418,7 @@ function intent<Input>(
   return {
     actionUrn,
     input,
+    sessionId: defaults.sessionId,
     principal: defaults.principal,
     riskClass: defaults.riskClass,
     effectClass: defaults.effectClass,
@@ -400,6 +495,90 @@ export function fromMastraToolCall(call: {
     framework: "mastra",
     run_id: call.runId,
     agent_id: call.agentId,
+  });
+}
+
+export function fromCodexToolCall(call: {
+  tool_name?: string;
+  name?: string;
+  recipient_name?: string;
+  arguments?: unknown;
+  parameters?: unknown;
+  input?: unknown;
+  payload?: unknown;
+  principal?: string;
+  risk_class?: string;
+  riskClass?: string;
+  effect_class?: string;
+  effectClass?: string;
+  session_id?: string;
+  thread_id?: string;
+  worktree?: string;
+  metadata?: Record<string, unknown>;
+}): BoundaryIntent {
+  const toolName = call.tool_name?.trim()
+    || call.name?.trim()
+    || call.recipient_name?.trim()
+    || "unknown";
+  const input = call.arguments !== undefined
+    ? call.arguments
+    : call.parameters !== undefined
+      ? call.parameters
+      : call.input !== undefined
+        ? call.input
+        : call.payload !== undefined
+          ? call.payload
+          : {};
+  return intent(`tool.codex.${toolName}`, input, {
+    ...withoutAuthorityMetadata(call.metadata),
+    framework: "codex",
+    tool_name: toolName,
+    session_id: call.session_id,
+    thread_id: call.thread_id,
+    worktree: call.worktree,
+  }, {
+    sessionId: call.session_id,
+    riskClass: TRUSTED_AGENT_RISK_CLASS,
+    effectClass: TRUSTED_AGENT_EFFECT_CLASS,
+  });
+}
+
+export function fromClaudeToolCall(call: {
+  tool_name?: string;
+  name?: string;
+  tool_input?: unknown;
+  input?: unknown;
+  arguments?: unknown;
+  id?: string;
+  tool_use_id?: string;
+  principal?: string;
+  risk_class?: string;
+  riskClass?: string;
+  effect_class?: string;
+  effectClass?: string;
+  session_id?: string;
+  transcript_path?: string;
+  metadata?: Record<string, unknown>;
+}): BoundaryIntent {
+  const toolName = call.tool_name?.trim() || call.name?.trim() || "unknown";
+  const input = call.tool_input !== undefined
+    ? call.tool_input
+    : call.input !== undefined
+      ? call.input
+      : call.arguments !== undefined
+        ? call.arguments
+        : {};
+  return intent(`tool.claude.${toolName}`, input, {
+    ...withoutAuthorityMetadata(call.metadata),
+    framework: "claude",
+    tool_name: toolName,
+    tool_use_id: call.tool_use_id ?? call.id,
+    session_id: call.session_id,
+    transcript_path: call.transcript_path,
+  }, {
+    sessionId: call.session_id,
+    riskClass: TRUSTED_AGENT_RISK_CLASS,
+    effectClass: TRUSTED_AGENT_EFFECT_CLASS,
   });
 }
 

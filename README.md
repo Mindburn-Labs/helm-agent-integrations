@@ -27,8 +27,8 @@ This repo currently ships:
 
 - TypeScript `withHelmBoundary(...)` wrapper around `POST /api/v1/evaluate`
 - Python `with_helm_boundary(...)` wrapper around `POST /api/v1/evaluate`
-- framework intent normalizers for Hermes, OpenClaw, Mastra, Browser Use, E2B,
-  Composio, and TinyFish governed web capability
+- framework intent normalizers for Hermes, OpenClaw, Mastra, Codex, Claude
+  Code, Browser Use, E2B, Composio, and TinyFish governed web capability
 - universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
   tool wrappers
 - routed-action receipt example showing verdict, receipt ref, and EvidencePack
@@ -52,6 +52,8 @@ Start a local HELM boundary from `helm-ai-kernel`:
 cd ../helm-ai-kernel
 make build
 HELM_ADMIN_API_KEY=local-admin-key \
+HELM_RUNTIME_TENANT_ID=local-demo \
+HELM_RUNTIME_PRINCIPAL_ID=demo-agent \
   ./bin/helm-ai-kernel serve \
   --policy examples/launch/policies/agent_tool_call_boundary.toml
 ```
@@ -63,7 +65,10 @@ import { withHelmBoundary } from "@mindburn/helm-tool-wrapper";
 
 const sendEmail = withHelmBoundary({
   helmUrl: "http://127.0.0.1:7714",
+  apiKey: process.env.HELM_ADMIN_API_KEY ?? "",
+  tenantId: "local-demo",
   principal: "demo-agent",
+  sessionId: "demo-session-1",
   actionUrn: "tool.gmail.send_email",
   riskClass: "T2",
   effectClass: "E4",
@@ -86,11 +91,16 @@ if (!result.allowed) {
 Use the Python wrapper:
 
 ```python
+import os
+
 from helm_tool_wrapper import with_helm_boundary
 
 @with_helm_boundary(
     helm_url="http://127.0.0.1:7714",
+    api_key=os.environ["HELM_ADMIN_API_KEY"],
+    tenant_id="local-demo",
     principal="demo-agent",
+    session_id="demo-session-1",
     action_urn="tool.sql.execute",
     risk_class="T2",
     effect_class="E4",
@@ -102,6 +112,12 @@ result = execute_sql("DROP TABLE customers")
 if not result.allowed:
     print(result.verdict, result.decision.reason)
 ```
+
+The served Kernel evaluate route is tenant-scoped. Both wrappers send the
+admin API key as a bearer credential and bind `tenant_id`/`principal` through
+the required `X-Helm-Tenant-ID` and `X-Helm-Principal-ID` headers. A
+`serviceToken`/`service_token` is rejected on this route because
+`HELM_SERVICE_API_KEY` is reserved for Kernel service-internal endpoints.
 
 ## Repository Layout
 
