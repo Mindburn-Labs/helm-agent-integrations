@@ -676,13 +676,19 @@ async def run_async_result(value: Union[HelmBoundaryResult, Awaitable[HelmBounda
     """Test helper for callers that accept sync or async wrapped functions."""
 
     if inspect.isawaitable(value):
-        return await cast(Awaitable[HelmBoundaryResult], value)
-    return cast(HelmBoundaryResult, value)
+        return await value
+    return value
+
+
+async def _await_result(value: Awaitable[HelmBoundaryResult]) -> HelmBoundaryResult:
+    """Adapt a general awaitable to the coroutine required by ``asyncio.run``."""
+
+    return await value
 
 
 def run_result(value: Union[HelmBoundaryResult, Awaitable[HelmBoundaryResult]]) -> HelmBoundaryResult:
     """Synchronously resolve a wrapper result for examples and tests."""
 
     if inspect.isawaitable(value):
-        return asyncio.run(cast(Awaitable[HelmBoundaryResult], value))
-    return cast(HelmBoundaryResult, value)
+        return asyncio.run(_await_result(value))
+    return value

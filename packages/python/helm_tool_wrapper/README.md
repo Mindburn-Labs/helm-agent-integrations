@@ -67,3 +67,22 @@ authenticates service-internal Kernel routes, not `/api/v1/evaluate`.
 Codex and Claude Code normalizers preserve the real tool arguments (including
 Claude's `tool_input`) and assign the conservative trusted default `T2/E4`.
 Caller-supplied risk/effect downgrades and principal overrides are ignored.
+
+## Twelve runnable framework helper examples
+
+The installed package includes one deterministic example for every framework
+normalizer. It checks normalization and sends each intent through an
+in-process `/api/v1/evaluate` contract double; it also proves a denied
+unknown-tool attempt does not dispatch:
+
+```bash
+python -m helm_tool_wrapper.examples.framework_helpers
+```
+
+The module exposes `framework_helper_examples()`,
+`verify_framework_helper_examples()`, and
+`verify_framework_helper_preflight_contract()`. It covers Hermes, OpenClaw,
+Mastra, Codex, Claude Code, Browser Use, four TinyFish surfaces, E2B, and
+Composio. The examples use representative call payloads and a simulated
+transport only; they do not contact a provider, a live Kernel, or authorize an
+external effect.

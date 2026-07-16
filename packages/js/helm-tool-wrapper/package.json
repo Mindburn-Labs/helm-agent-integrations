@@ -1,18 +1,31 @@
 {
   "name": "@mindburn/helm-tool-wrapper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Thin HELM AI Kernel preflight wrapper for agent framework tool calls",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./examples/framework-helpers": {
+      "types": "./dist/framework_helpers_example.d.ts",
+      "import": "./dist/framework_helpers_example.js"
+    }
+  },
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/framework_helpers_example.js",
+    "dist/framework_helpers_example.d.ts",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "example:framework-helpers": "npm run build && node dist/framework_helpers_example.js"
   },
   "keywords": [
     "helm",

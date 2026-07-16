@@ -1,14 +1,28 @@
-.PHONY: validate test-js test-python samples verify-samples package-js package-python package clean
+.PHONY: validate test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package clean
 
-validate: test-js test-python samples verify-samples
+validate: test-js test-python typecheck-python lint-python examples samples verify-samples
 
 test-js:
-	cd packages/js/helm-tool-wrapper && npm install && npm test
+	cd packages/js/helm-tool-wrapper && npm ci && npm test
 	cd packages/js/helm-channel-bridge && npm install && npm test
 	cd packages/opencode-governance && npm install && npm test
 
 test-python:
 	python3 -m unittest discover packages/python/helm_tool_wrapper/tests
+
+typecheck-python:
+	cd packages/python/helm_tool_wrapper && python3 -m mypy --python-version 3.9 helm_tool_wrapper
+
+lint-python:
+	cd packages/python/helm_tool_wrapper && python3 -m ruff check helm_tool_wrapper && python3 -m ruff format --check helm_tool_wrapper/examples
+
+examples: examples-js examples-python
+
+examples-js:
+	cd packages/js/helm-tool-wrapper && npm run example:framework-helpers
+
+examples-python:
+	cd packages/python/helm_tool_wrapper && python3 -m helm_tool_wrapper.examples.framework_helpers
 
 samples:
 	python3 scripts/generate_samples.py --check
@@ -17,7 +31,7 @@ verify-samples:
 	python3 scripts/verify_samples.py
 
 package-js:
-	cd packages/js/helm-tool-wrapper && npm install && npm pack --dry-run
+	cd packages/js/helm-tool-wrapper && npm ci && npm pack --dry-run
 
 package-python:
 	cd packages/python/helm_tool_wrapper && python3 -m build && python3 -m twine check dist/*

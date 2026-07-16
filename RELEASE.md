@@ -14,20 +14,24 @@ Mindburn Labs publisher identity.
 ## Validate
 
 ```bash
+python3 -m pip install "packages/python/helm_tool_wrapper[dev]"
 make clean
 make validate
 make package
 ```
 
+The Python release tools are exact-pinned in the package's `dev` extra; the
+TypeScript commands use the committed lockfile through `npm ci`.
+
 ## GitHub Release
 
 ```bash
-git tag -a v0.1.0 -m "helm-agent-integrations v0.1.0"
-git push origin v0.1.0
-gh release create v0.1.0 \
-  --title "helm-agent-integrations v0.1.0" \
-  --notes-file /tmp/helm-agent-integrations-v0.1.0-notes.md
+VERSION=vX.Y.Z
+git tag -a "$VERSION" -m "helm-agent-integrations $VERSION"
+git push origin "$VERSION"
+gh release create "$VERSION" \
+  --title "helm-agent-integrations $VERSION" \
+  --notes-file "/tmp/helm-agent-integrations-$VERSION-notes.md"
 ```
 
 Attach package archives only after `make package` passes.
-

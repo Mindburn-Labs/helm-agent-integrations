@@ -30,6 +30,9 @@ This repo currently ships:
 - framework intent normalizers for Hermes, OpenClaw, Mastra, Codex, Claude
   Code, Browser Use, E2B, Daytona, Composio, and TinyFish governed web
   capability
+- twelve package-root runnable normalizer examples (one per framework helper),
+  including an in-process `/api/v1/evaluate` contract double and a default-deny
+  no-dispatch check, executed in CI without provider credentials or side effects
 - universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
   tool wrappers
 - routed-action receipt example showing verdict, receipt ref, and EvidencePack
@@ -133,6 +136,25 @@ evidencepacks/samples/               generated sample EvidencePack archives
 docs/campaign/                       maintainer-ready issue and PR copy
 ```
 
+## Run every framework helper example
+
+The helpers are thin payload normalizers, not provider SDK replacements. Each
+example is deterministic: it verifies the produced intent and its conservative
+risk/effect classification, sends that intent through an in-process
+`/api/v1/evaluate` contract double, and proves a denied unknown-tool attempt
+does not dispatch. It does not contact a provider, a live Kernel, or an
+external system.
+
+```bash
+make examples
+```
+
+The TypeScript package exposes the example at
+`@mindburn/helm-tool-wrapper/examples/framework-helpers`. The Python package
+ships it as `python -m helm_tool_wrapper.examples.framework_helpers`. CI runs
+both source examples plus isolated consumers installed from the packed npm
+tarball and Python wheel on every pull request and `main` push.
+
 TinyFish-style web capability examples live under `integrations/tinyfish/`.
 They are HELM-governed external web capability fixtures, not TinyFish
 certification or partnership claims.
@@ -160,7 +182,8 @@ contracts and conformance.
 make validate
 ```
 
-The validation target runs TypeScript build/tests, Python tests, sample
+The validation target runs TypeScript build/tests, Python tests plus strict
+Python 3.9-targeted type/lint checks, both packaged helper examples, sample
 regeneration checks, and sample integrity checks.
 
 ## Source Truth

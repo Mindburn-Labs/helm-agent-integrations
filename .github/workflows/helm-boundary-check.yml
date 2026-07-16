@@ -14,6 +14,9 @@ jobs:
   validate:
     timeout-minutes: 20
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
     steps:
       - uses: actions/checkout@v5
 
@@ -25,10 +28,10 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install TypeScript package dependencies
-        run: npm install
+        run: npm ci
         working-directory: packages/js/helm-tool-wrapper
 
       - name: Test TypeScript wrapper
@@ -51,8 +54,46 @@ jobs:
         run: npm run typecheck && npm test
         working-directory: packages/opencode-governance
 
+      - name: Install Python wrapper check dependencies
+        run: python -m pip install --disable-pip-version-check ".[dev]"
+        working-directory: packages/python/helm_tool_wrapper
+
       - name: Test Python wrapper
         run: python -m unittest discover packages/python/helm_tool_wrapper/tests
+
+      - name: Type-check and lint Python wrapper
+        run: python -m mypy --python-version 3.9 helm_tool_wrapper && python -m ruff check helm_tool_wrapper && python -m ruff format --check helm_tool_wrapper/examples
+        working-directory: packages/python/helm_tool_wrapper
+
+      - name: Run twelve framework helper examples
+        run: make examples
+
+      - name: Verify helper examples survive package assembly
+        run: |
+          (
+            cd packages/js/helm-tool-wrapper
+            package_dir="$PWD"
+            npm pack --json > /tmp/helm-tool-wrapper-npm-pack.json
+            node -e 'const fs = require("node:fs"); const pack = JSON.parse(fs.readFileSync("/tmp/helm-tool-wrapper-npm-pack.json", "utf8")); const files = new Set(pack[0].files.map((file) => file.path)); for (const path of ["dist/framework_helpers_example.js", "dist/framework_helpers_example.d.ts"]) { if (!files.has(path)) throw new Error("missing " + path + " from npm package"); }'
+            tarball="$(node -e 'const fs = require("node:fs"); const pack = JSON.parse(fs.readFileSync("/tmp/helm-tool-wrapper-npm-pack.json", "utf8")); process.stdout.write(pack[0].filename)')"
+            consumer_dir="$(mktemp -d)"
+            trap 'rm -rf "$consumer_dir"' EXIT
+            cd "$consumer_dir"
+            npm init --yes >/dev/null
+            npm install --ignore-scripts --no-audit --no-fund "$package_dir/$tarball"
+            node --input-type=module -e 'import assert from "node:assert/strict"; import { frameworkHelperExamples, verifyFrameworkHelperExamples, verifyFrameworkHelperPreflightContract } from "@mindburn/helm-tool-wrapper/examples/framework-helpers"; assert.equal(frameworkHelperExamples().length, 12); assert.equal(verifyFrameworkHelperExamples().length, 12); assert.equal((await verifyFrameworkHelperPreflightContract()).length, 12);'
+          )
+          (
+            cd packages/python/helm_tool_wrapper
+            python -m build --wheel
+            python -c 'import glob, zipfile; wheels = glob.glob("dist/*.whl"); assert len(wheels) == 1, f"expected one wheel, got {wheels}"; names = set(zipfile.ZipFile(wheels[0]).namelist()); required = {"helm_tool_wrapper/examples/__init__.py", "helm_tool_wrapper/examples/framework_helpers.py"}; missing = required - names; assert not missing, f"missing {missing} from wheel"'
+            wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+            consumer_dir="$(mktemp -d)"
+            trap 'rm -rf "$consumer_dir"' EXIT
+            python -m venv "$consumer_dir/venv"
+            "$consumer_dir/venv/bin/python" -m pip install --no-index --no-deps "$PWD/$wheel"
+            "$consumer_dir/venv/bin/python" -m helm_tool_wrapper.examples.framework_helpers
+          )
 
       - name: Verify generated samples
         uses: ./.github/actions/helm-boundary-check
