@@ -23,6 +23,8 @@
   examples.
 - Pinned the helper release tooling and switched JavaScript checks to `npm ci`
   for repeatable CI installs.
+- Restored generated-sample verification on Python 3.9 with an explicit
+  `tomli` compatibility dependency.
 
 ## 0.1.0 - 2026-06-05
 
