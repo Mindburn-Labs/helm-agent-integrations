@@ -1,6 +1,13 @@
-.PHONY: validate test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package clean
+.PHONY: setup lint test validate test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package build clean
 
-validate: test-js test-python typecheck-python lint-python examples samples verify-samples
+setup:
+	cd packages/python/helm_tool_wrapper && python3 -m pip install --disable-pip-version-check ".[dev]"
+
+lint: setup typecheck-python lint-python
+
+test: setup test-js test-python examples samples verify-samples
+
+validate: lint test
 
 test-js:
 	cd packages/js/helm-tool-wrapper && npm ci && npm test
@@ -37,6 +44,8 @@ package-python:
 	cd packages/python/helm_tool_wrapper && python3 -m build && python3 -m twine check dist/*
 
 package: package-js package-python
+
+build: setup package
 
 clean:
 	rm -rf packages/js/helm-tool-wrapper/dist
