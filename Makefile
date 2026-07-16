@@ -38,7 +38,7 @@ verify-samples:
 	python3 scripts/verify_samples.py
 
 package-js:
-	cd packages/js/helm-tool-wrapper && npm ci && npm pack --dry-run
+	cd packages/js/helm-tool-wrapper && npm ci && npm run build && npm pack --dry-run
 
 package-python:
 	cd packages/python/helm_tool_wrapper && python3 -m build && python3 -m twine check dist/*

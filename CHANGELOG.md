@@ -25,6 +25,8 @@
   for repeatable CI installs.
 - Restored generated-sample verification on Python 3.9 with an explicit
   `tomli` compatibility dependency.
+- Pinned the build backend and distribution validator compatibility layer for
+  the organization-wide deterministic release gate.
 
 ## 0.1.0 - 2026-06-05
 

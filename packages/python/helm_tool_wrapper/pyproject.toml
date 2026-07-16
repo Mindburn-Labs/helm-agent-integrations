@@ -12,6 +12,7 @@ dependencies = []
 dev = [
   "build==1.4.0",
   "mypy==1.18.1",
+  "packaging==25.0",
   "pytest==8.4.2",
   "ruff==0.13.0",
   "tomli==2.4.1; python_version < '3.11'",
@@ -19,7 +20,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools==80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
