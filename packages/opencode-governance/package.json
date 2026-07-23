@@ -1,0 +1,35 @@
+{
+  "name": "@helm-ai/opencode-governance",
+  "version": "0.1.0",
+  "description": "Fail-closed HELM governance plugin for opencode: kernel verdicts mapped onto permission.ask, boundary evidence taps on tool.execute.before/after",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "keywords": [
+    "helm",
+    "opencode",
+    "governance",
+    "fail-closed",
+    "receipts",
+    "boundary-records"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "packages/opencode-governance"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
+  }
+}

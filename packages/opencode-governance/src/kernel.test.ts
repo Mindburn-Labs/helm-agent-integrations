@@ -1,0 +1,218 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  BinaryKernelClient,
+  HttpKernelClient,
+  outcomeFromResponseBody,
+  withoutAuthorityMetadata,
+  type FetchLike,
+  type SpawnLike,
+} from "./kernel.js";
+
+const REQUEST = {
+  tool: "bash",
+  sessionID: "ses_1",
+  callID: "call_1",
+  args: { command: "ls" },
+} as const;
+
+const HTTP_OPTIONS = {
+  kernelUrl: "http://127.0.0.1:7714",
+  apiKey: "key",
+  tenantId: "tenant",
+  principal: "agent",
+  riskClass: "T2",
+  effectClass: "E4",
+  timeoutMs: 1000,
+};
+
+function fetchReturning(status: number, body: unknown): FetchLike {
+  return async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  });
+}
+
+const fetchThrowing: FetchLike = async () => {
+  throw new Error("connection refused");
+};
+
+describe("outcomeFromResponseBody", () => {
+  it("passes through exact verdicts with metadata", () => {
+    const outcome = outcomeFromResponseBody({
+      decision: { verdict: "ALLOW", decision_id: "d1", reason_code: "R1", receipt_id: "r1" },
+    });
+    assert.deepEqual(outcome, {
+      kind: "verdict",
+      verdict: "ALLOW",
+      decisionId: "d1",
+      reasonCode: "R1",
+      receiptId: "r1",
+      raw: { decision: { verdict: "ALLOW", decision_id: "d1", reason_code: "R1", receipt_id: "r1" } },
+    });
+  });
+
+  it("fails closed on unknown verdict material", () => {
+    const outcome = outcomeFromResponseBody({ verdict: "ALLOW_WITH_CONDITIONS" });
+    assert.equal(outcome.kind, "error");
+    assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_UNKNOWN_VERDICT");
+  });
+
+  it("fails closed on non-object bodies", () => {
+    for (const body of [null, undefined, "ALLOW", 42, ["ALLOW"]]) {
+      const outcome = outcomeFromResponseBody(body);
+      assert.equal(outcome.kind, "error", JSON.stringify(body));
+      assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_MALFORMED_RESPONSE");
+    }
+  });
+});
+
+describe("HttpKernelClient", () => {
+  it("returns the kernel verdict on a well-formed 200", async () => {
+    const client = new HttpKernelClient({
+      ...HTTP_OPTIONS,
+      fetch: fetchReturning(200, { verdict: "ESCALATE", decision_id: "d9" }),
+    });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "verdict");
+    assert.equal((outcome as { verdict: string }).verdict, "ESCALATE");
+  });
+
+  it("fails closed on transport failure", async () => {
+    const client = new HttpKernelClient({ ...HTTP_OPTIONS, fetch: fetchThrowing });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "error");
+    assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_UNAVAILABLE");
+  });
+
+  it("fails closed on non-2xx responses", async () => {
+    const client = new HttpKernelClient({
+      ...HTTP_OPTIONS,
+      fetch: fetchReturning(500, { verdict: "ALLOW" }),
+    });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "error");
+  });
+
+  it("fails closed on a 200 with unknown verdict material", async () => {
+    const client = new HttpKernelClient({
+      ...HTTP_OPTIONS,
+      fetch: fetchReturning(200, { verdict: "MAYBE" }),
+    });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "error");
+    assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_UNKNOWN_VERDICT");
+  });
+
+  it("sends the expected evaluate payload and auth headers", async () => {
+    let seenUrl = "";
+    let seenInit: { headers?: Record<string, string>; body?: string } = {};
+    const fetchSpy: FetchLike = async (url, init) => {
+      seenUrl = url;
+      seenInit = init ?? {};
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ verdict: "ALLOW" }),
+        text: async () => "",
+      };
+    };
+    const client = new HttpKernelClient({ ...HTTP_OPTIONS, fetch: fetchSpy });
+    await client.evaluate({ ...REQUEST, metadata: { principal: "spoof", safe: "kept" } });
+    assert.equal(seenUrl, "http://127.0.0.1:7714/api/v1/evaluate");
+    assert.equal(seenInit.headers?.Authorization, "Bearer key");
+    assert.equal(seenInit.headers?.["X-Helm-Tenant-ID"], "tenant");
+    const payload = JSON.parse(seenInit.body ?? "{}");
+    assert.equal(payload.principal, "agent");
+    assert.equal(payload.resource, "tool.opencode.bash");
+    assert.equal(payload.context.session_id, "ses_1");
+    assert.equal(payload.context.metadata.principal, undefined);
+    assert.equal(payload.context.metadata.safe, "kept");
+    assert.equal(payload.context.metadata.framework, "opencode");
+  });
+});
+
+describe("BinaryKernelClient", () => {
+  const BINARY_OPTIONS = {
+    kernelBinary: "/bin/fake-kernel",
+    kernelBinaryArgs: ["hook", "decide"],
+    tenantId: "tenant",
+    principal: "agent",
+    riskClass: "T2",
+    effectClass: "E4",
+    timeoutMs: 1000,
+  };
+
+  function spawnReturning(code: number, stdout: string): SpawnLike {
+    return async () => ({ code, stdout, stderr: "" });
+  }
+
+  it("honors an exact ALLOW from exit 0 + JSON stdout", async () => {
+    const client = new BinaryKernelClient({
+      ...BINARY_OPTIONS,
+      spawn: spawnReturning(0, JSON.stringify({ verdict: "ALLOW", decision_id: "d1" })),
+    });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "verdict");
+    assert.equal((outcome as { verdict: string }).verdict, "ALLOW");
+  });
+
+  it("refuses to honor ALLOW printed alongside a non-zero exit", async () => {
+    const client = new BinaryKernelClient({
+      ...BINARY_OPTIONS,
+      spawn: spawnReturning(1, JSON.stringify({ verdict: "ALLOW" })),
+    });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "error");
+    assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_UNAVAILABLE");
+  });
+
+  it("honors DENY/ESCALATE printed alongside a non-zero exit (restrictive only)", async () => {
+    const client = new BinaryKernelClient({
+      ...BINARY_OPTIONS,
+      spawn: spawnReturning(2, JSON.stringify({ verdict: "DENY", reason_code: "POLICY" })),
+    });
+    const outcome = await client.evaluate({ ...REQUEST });
+    assert.equal(outcome.kind, "verdict");
+    assert.equal((outcome as { verdict: string }).verdict, "DENY");
+  });
+
+  it("fails closed on empty stdout, invalid JSON, unknown verdicts, and spawn errors", async () => {
+    const cases: Array<{ spawn: SpawnLike; reason: string }> = [
+      { spawn: spawnReturning(0, ""), reason: "KERNEL_MALFORMED_RESPONSE" },
+      { spawn: spawnReturning(1, ""), reason: "KERNEL_UNAVAILABLE" },
+      { spawn: spawnReturning(0, "not json"), reason: "KERNEL_MALFORMED_RESPONSE" },
+      { spawn: spawnReturning(0, JSON.stringify({ verdict: "CHALLENGE" })), reason: "KERNEL_UNKNOWN_VERDICT" },
+      {
+        spawn: async () => {
+          throw new Error("ENOENT");
+        },
+        reason: "KERNEL_UNAVAILABLE",
+      },
+    ];
+    for (const { spawn, reason } of cases) {
+      const client = new BinaryKernelClient({ ...BINARY_OPTIONS, spawn });
+      const outcome = await client.evaluate({ ...REQUEST });
+      assert.equal(outcome.kind, "error", reason);
+      assert.equal((outcome as { reasonCode: string }).reasonCode, reason);
+    }
+  });
+});
+
+describe("withoutAuthorityMetadata", () => {
+  it("strips authority-claiming keys", () => {
+    const sanitized = withoutAuthorityMetadata({
+      principal: "evil",
+      agent_id: "evil",
+      tenant_id: "evil",
+      risk_class: "T0",
+      riskClass: "T0",
+      effect_class: "E0",
+      effectClass: "E0",
+      harmless: true,
+    });
+    assert.deepEqual(sanitized, { harmless: true });
+  });
+});
