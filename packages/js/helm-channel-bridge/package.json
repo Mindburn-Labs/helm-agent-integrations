@@ -1,0 +1,42 @@
+{
+  "name": "@mindburn/helm-channel-bridge",
+  "version": "0.1.0",
+  "description": "HELM-governed channel bridge: human-in-the-loop by phone with Kernel-evaluated turns (Telegram transport)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/bridge.js",
+    "dist/bridge.d.ts",
+    "dist/evaluator.js",
+    "dist/evaluator.d.ts",
+    "dist/telegram.js",
+    "dist/telegram.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "keywords": [
+    "helm",
+    "ai",
+    "agents",
+    "hitl",
+    "telegram",
+    "channel",
+    "receipts"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "packages/js/helm-channel-bridge"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
+  }
+}

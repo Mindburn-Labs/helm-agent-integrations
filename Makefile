@@ -4,6 +4,7 @@ validate: test-js test-python samples verify-samples
 
 test-js:
 	cd packages/js/helm-tool-wrapper && npm install && npm test
+	cd packages/js/helm-channel-bridge && npm install && npm test
 
 test-python:
 	python3 -m unittest discover packages/python/helm_tool_wrapper/tests
