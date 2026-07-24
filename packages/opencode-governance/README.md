@@ -11,8 +11,8 @@
 
 1. **Every tool call requires an exact kernel ALLOW.** `tool.execute.before` evaluates the call against the kernel and throws `HelmGovernanceDeny` *before the tool runs* unless the verdict is exactly `ALLOW`. Throwing in this hook blocks execution — this is opencode's documented `.env`-protection pattern, and the hook is triggered for every tool call in the studied opencode sources (`packages/opencode/src/session/tools.ts`).
 2. **`permission.ask` verdict mapping.** When opencode triggers `permission.ask`, the kernel verdict is mapped onto opencode's status slot: `ALLOW → allow`, `ESCALATE → ask` (a human or approval ceremony decides — HELM never auto-allows), `DENY → deny`.
-3. **Fail closed on everything unknown.** Kernel unreachable, timeout, non-2xx, malformed body, unrecognized verdict string, misconfiguration, or (in strict mode) evidence-sink failure → **deny**, with a locally synthesized reason code (`KERNEL_UNAVAILABLE`, `KERNEL_UNKNOWN_VERDICT`, `KERNEL_MALFORMED_RESPONSE`, `PLUGIN_MISCONFIGURED`, `EVIDENCE_SINK_FAILURE`) that cannot be confused with kernel-signed evidence.
-4. **Boundary evidence taps.** `tool.execute.before` mints an `opencode.boundary.open.v1` record (args SHA-256, verdict, decision id); `tool.execute.after` mints `opencode.boundary.close.v1` (args + output hashes); denied calls mint `opencode.boundary.deny.v1`; permission mappings mint `opencode.permission.decision.v1`. Records are appended as JSONL to the evidence dir, one file per UTC day.
+3. **Fail closed on everything unknown.** Kernel unreachable, timeout, non-2xx, malformed body, unrecognized verdict string, misconfiguration, or (in strict mode) evidence-sink failure → **deny**, with a locally synthesized reason code (`KERNEL_UNAVAILABLE`, `KERNEL_UNKNOWN_VERDICT`, `KERNEL_MALFORMED_RESPONSE`, `PLUGIN_MISCONFIGURED`, `EVIDENCE_SINK_FAILURE`) that cannot be confused with kernel-signed evidence. Verdict parsing is strict: only the exact contract fields (`verdict` or `decision.verdict`) carrying the exact values `ALLOW`/`DENY`/`ESCALATE` are honored — near-misses like `{status:"allow"}`, `"allow"`, or `"ALLOW "` are deny-path errors, never authorization.
+4. **Boundary evidence taps.** `tool.execute.before` mints an `opencode.boundary.open.v1` record (args SHA-256, verdict, decision id); `tool.execute.after` mints `opencode.boundary.close.v1` (args + output hashes, outcome `completed`/`error` from the hook's error metadata); denied calls mint `opencode.boundary.deny.v1`; permission mappings mint `opencode.permission.decision.v1`. Records are appended as JSONL to the evidence dir, one file per UTC day.
 
 ## What it does NOT do
 
@@ -64,13 +64,13 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 | `HELM_EFFECT_CLASS` | `effectClass` | no | `E4` | One of `E0..E4`. |
 | `HELM_TIMEOUT_MS` | `timeoutMs` | no | `5000` | Evaluation timeout; expiry = deny. |
 | `HELM_EVIDENCE_DIR` | `evidenceDir` | no | `~/.helm-ai-kernel/evidence/opencode` | JSONL sink directory. |
-| `HELM_EVIDENCE_STRICT` | `strictEvidence` | no | `1` | `0` downgrades pre-execution sink failures from deny to a stderr warning. Development only. |
+| `HELM_EVIDENCE_STRICT` | `strictEvidence` | no | `1` | `0` relaxes evidence-failure handling to stderr warnings. In strict mode a pre-execution sink failure denies the call, and a post-execution sink failure arms a next-call deny gate. Development only. |
 
 ### Kernel targets
 
 **HTTP mode** — `POST {HELM_KERNEL_URL}/api/v1/evaluate` with `Authorization: Bearer`, `X-Helm-Tenant-ID`, `X-Helm-Principal-ID`, and an `EXECUTE_TOOL` payload whose resource is `tool.opencode.<tool>`. Only an exact `ALLOW`/`DENY`/`ESCALATE` in the response is honored.
 
-**Binary mode** — adapter contract: the binary receives one JSON evaluation request on stdin and prints one JSON object on stdout with a `verdict` field. Exit 0 + exact `ALLOW` is the *only* authorizing path. An `ALLOW` printed alongside a non-zero exit is refused (fail closed); `DENY`/`ESCALATE` printed with a non-zero exit are honored (they only restrict). This mirrors the kernel hook's last-mile posture: signer or receipt failure denies.
+**Binary mode** — adapter contract: the binary receives one JSON evaluation request on stdin and prints one JSON object on stdout with a `verdict` field. Exit 0 + exact `ALLOW` is the *only* authorizing path. An `ALLOW` printed alongside a non-zero exit is refused (fail closed); `DENY`/`ESCALATE` printed with a non-zero exit are honored (they only restrict). A binary that exits before reading the full stdin payload (EPIPE) is treated as a transport failure — truncated requests never authorize. This mirrors the kernel hook's last-mile posture: signer or receipt failure denies.
 
 ## Threat model
 
@@ -79,7 +79,7 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 - Tool calls executing without a kernel decision (unreachable kernel ⇒ deny).
 - Kernel response tampering that mutates verdicts into anything unrecognized (⇒ deny) — note: full signature verification of kernel responses remains the kernel/gateway layer's job, not this plugin's.
 - Agent-controlled metadata spoofing authority (`principal`, `tenant_id`, `risk/effect class` keys are stripped before evaluation).
-- Replay of a permission approval into a different call: verdicts are cached only per `(sessionID, callID)` for 30 s to cover the `permission.ask` → `tool.execute.before` sequence; never across calls, never upgrading a deny.
+- Replay of a permission approval into a different call: non-ALLOW evaluations are cached for 30 s keyed by `(sessionID, callID, SHA-256 of the exact evaluated payload)` — mutated arguments under a reused callID always trigger a fresh kernel evaluation. `ALLOW` outcomes are never cached at all; every authorization is freshly evaluated.
 
 **Not protected against (out of scope)**
 
@@ -90,7 +90,7 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 
 ## Known gaps (audited against opencode @ `62e46412`, 2026-07-23)
 
-- **`permission.ask` is declared but not triggered at the studied commit.** The hook exists in the plugin type surface (`packages/plugin/src/index.ts:261`) and is listed in the hook-surface docs, but no trigger call site was found in the clone (the V2 Effect permission service does not invoke it). This plugin implements the hook for forward compatibility; the enforcement that is live *today* is `tool.execute.before`. Defense in depth: if opencode starts triggering `permission.ask`, both paths consult the same fail-closed evaluation (cached per call).
+- **`permission.ask` is declared but not triggered at the studied commit.** The hook exists in the plugin type surface (`packages/plugin/src/index.ts:261`) and is listed in the hook-surface docs, but no trigger call site was found in the clone (the V2 Effect permission service does not invoke it). This plugin implements the hook for forward compatibility; the enforcement that is live *today* is `tool.execute.before`. Defense in depth: if opencode starts triggering `permission.ask`, both paths consult the same fail-closed evaluation.
 - `tool.execute.after` fires only for tools that actually executed; denied calls produce only the deny record (by design — there is no output to hash).
 - ESCALATE blocks at `tool.execute.before` because opencode's "ask" UX is an in-memory, unsigned human reply; a governed escalation ceremony (signed approval with scope/expiry) is future work, tracked as a proposed sibling task.
 
