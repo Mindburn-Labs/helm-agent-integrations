@@ -137,4 +137,70 @@ describe("resolveConfig", () => {
       /HELM_EVIDENCE_STRICT/,
     );
   });
+
+  it("refuses plaintext http for non-loopback kernel URLs (P1 INSECURE_KERNEL_TRANSPORT)", () => {
+    const insecure = [
+      "http://192.168.1.10:7714",
+      "http://10.0.0.5",
+      "http://kernel.internal",
+      "http://example.com",
+      "ftp://127.0.0.1",
+      "not-a-url",
+    ];
+    for (const url of insecure) {
+      assert.throws(
+        () => resolveConfig({ env: envOf({ ...BASE_ENV, HELM_KERNEL_URL: url }), homeDir: HOME }),
+        GovernanceConfigError,
+        url,
+      );
+    }
+  });
+
+  it("accepts https anywhere and http only on loopback literals", () => {
+    const accepted: Array<[string, string]> = [
+      ["https://kernel.example.com", "https://kernel.example.com"],
+      ["https://10.0.0.5:7714/", "https://10.0.0.5:7714"],
+      ["http://127.0.0.1:7714", "http://127.0.0.1:7714"],
+      ["http://127.0.0.2", "http://127.0.0.2"],
+      ["http://localhost:7714", "http://localhost:7714"],
+      ["http://[::1]:7714", "http://[::1]:7714"],
+    ];
+    for (const [url, expected] of accepted) {
+      const config = resolveConfig({ env: envOf({ ...BASE_ENV, HELM_KERNEL_URL: url }), homeDir: HOME });
+      assert.equal(config.kernelUrl, expected, url);
+    }
+  });
+
+  it("accepts native JSON option types with documented precedence (P2 CONFIG_OPTION_TYPES_IGNORED)", () => {
+    const config = resolveConfig({
+      env: envOf({ ...BASE_ENV, HELM_TIMEOUT_MS: "9000", HELM_EVIDENCE_STRICT: "1" }),
+      options: { strictEvidence: false, timeoutMs: 3000 },
+      homeDir: HOME,
+    });
+    // Native option values must WIN over env (documented precedence), not
+    // silently fall through.
+    assert.equal(config.strictEvidence, false);
+    assert.equal(config.timeoutMs, 3000);
+  });
+
+  it("fails closed on wrong-type option values instead of silently ignoring them", () => {
+    const wrongTypes: Array<Record<string, unknown>> = [
+      { timeoutMs: "abc" },
+      { timeoutMs: true },
+      { timeoutMs: 0 },
+      { strictEvidence: "maybe" },
+      { strictEvidence: 1 },
+      { tenantId: 42 },
+      { principal: ["agent"] },
+      { kernelUrl: { host: "x" } },
+      { kernelBinaryArgs: "hook decide" },
+    ];
+    for (const options of wrongTypes) {
+      assert.throws(
+        () => resolveConfig({ env: BASE_ENV, options, homeDir: HOME }),
+        GovernanceConfigError,
+        JSON.stringify(options),
+      );
+    }
+  });
 });

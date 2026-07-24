@@ -156,6 +156,16 @@ describe("outcomeFromResponseBody", () => {
 });
 
 describe("HttpKernelClient", () => {
+  it("refuses plaintext non-loopback transports at construction (P1 INSECURE_KERNEL_TRANSPORT)", () => {
+    assert.throws(
+      () => new HttpKernelClient({ ...HTTP_OPTIONS, kernelUrl: "http://kernel.internal" }),
+      /plaintext http/,
+    );
+    // Loopback and https remain constructible.
+    assert.ok(new HttpKernelClient({ ...HTTP_OPTIONS, kernelUrl: "http://127.0.0.1:7714" }));
+    assert.ok(new HttpKernelClient({ ...HTTP_OPTIONS, kernelUrl: "https://kernel.example.com" }));
+  });
+
   it("returns the kernel verdict on a well-formed 200", async () => {
     const client = new HttpKernelClient({
       ...HTTP_OPTIONS,

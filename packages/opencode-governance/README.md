@@ -49,11 +49,11 @@ or with options:
 
 ## Configuration
 
-Precedence: plugin options > environment > documented defaults. **Missing required config aborts plugin load** — a governance plugin that cannot reach its authority must not load silently and wave traffic through. There is no disable flag.
+Precedence: plugin options > environment > documented defaults. **Missing required config aborts plugin load** — a governance plugin that cannot reach its authority must not load silently and wave traffic through. There is no disable flag. Plugin options accept native JSON types (boolean `strictEvidence`, numeric `timeoutMs`, string-array `kernelBinaryArgs`); a wrong-typed value is a hard configuration error, never a silent fallback to env/defaults.
 
 | Env var | Option key | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `HELM_KERNEL_URL` | `kernelUrl` | http mode | — | Kernel (or control-plane PEP façade) base URL. |
+| `HELM_KERNEL_URL` | `kernelUrl` | http mode | — | Kernel (or control-plane PEP façade) base URL. **https required; plaintext http is accepted for loopback literals only** (`127.0.0.0/8`, `::1`, `localhost`). |
 | `HELM_API_KEY` | `apiKey` | http mode | — | Bearer token for the tenant-scoped evaluate endpoint. |
 | `HELM_KERNEL_BINARY` | `kernelBinary` | binary mode | — | Path to a local kernel binary. |
 | `HELM_KERNEL_BINARY_ARGS` | `kernelBinaryArgs` | no | `[]` | Argv between binary and payload (binary mode). |
@@ -78,6 +78,7 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 
 - Tool calls executing without a kernel decision (unreachable kernel ⇒ deny).
 - Kernel response tampering that mutates verdicts into anything unrecognized (⇒ deny) — note: full signature verification of kernel responses remains the kernel/gateway layer's job, not this plugin's.
+- Network interception of credentials/verdicts: plaintext http kernel URLs are refused except loopback literals; https is required everywhere else (enforced at config resolution AND at HTTP client construction).
 - Agent-controlled metadata spoofing authority (`principal`, `tenant_id`, `risk/effect class` keys are stripped before evaluation).
 - Replay of a permission approval into a different call: non-ALLOW evaluations are cached for 30 s keyed by `(sessionID, callID, SHA-256 of the exact evaluated payload)` — mutated arguments under a reused callID always trigger a fresh kernel evaluation. `ALLOW` outcomes are never cached at all; every authorization is freshly evaluated. The cache is hard-bounded (256 entries, expired-sweep + oldest-eviction) so agent-driven unique denies cannot exhaust memory.
 - Conflicting authority responses: if a kernel response carries verdict material in both contract fields (`verdict` and `decision.verdict`) and they disagree, the response fails closed as `KERNEL_MALFORMED_RESPONSE` — conflicts are never resolved in the permissive direction.

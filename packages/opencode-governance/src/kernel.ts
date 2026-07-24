@@ -20,6 +20,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { assertSecureKernelUrl } from "./config.js";
 import type { KernelVerdict, LocalDenyReason } from "./verdict.js";
 
 export interface KernelEvaluationRequest {
@@ -214,7 +215,10 @@ export class HttpKernelClient implements KernelClient {
   private readonly options: HttpKernelClientOptions;
 
   constructor(options: HttpKernelClientOptions) {
-    this.options = options;
+    // Defense in depth: even when constructed directly (bypassing config
+    // resolution), plaintext non-loopback transports are refused here —
+    // bearer credentials and verdicts must never traverse them.
+    this.options = { ...options, kernelUrl: assertSecureKernelUrl(options.kernelUrl) };
   }
 
   async evaluate(request: KernelEvaluationRequest): Promise<KernelOutcome> {
