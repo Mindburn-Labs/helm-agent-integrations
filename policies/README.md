@@ -40,6 +40,7 @@ path = "./data/launch_receipts.db"
 - `policy.loop.governance.toml`
 - `policy.mcp.multi-tool.sandbox.toml`
 - `policy.mobile.resource-limits.toml`
+- `policy.kubectl.governed.toml`
 - `tinyfish.web_capability.toml`
 
 ## Policy-Pack Assembly Guide

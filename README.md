@@ -44,6 +44,8 @@ This repo currently ships:
   browser-admin, Claude Code hook, and OpenAI Agents tool-call surfaces
 - sample-only loop adapter fixtures for Claude Code `/goal`, Claude Code
   `/loop`, Codex cloud task, LangGraph evaluator-optimizer, and GitHub PR bot
+- PATH-level kubectl shim demo (`helm-kubectl-ai-guard-demo`) that routes
+  kubectl-ai-proposed cluster operations through the boundary before dispatch
 - Hermes and OpenClaw example integration bundles
 - sample policies and policy-pack templates for common agent-side-effect classes
 - generated sample receipts and EvidencePack archives
