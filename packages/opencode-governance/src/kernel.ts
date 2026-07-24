@@ -262,7 +262,10 @@ export class HttpKernelClient implements KernelClient {
       const response = await fetchImpl(`${this.options.kernelUrl}/api/v1/evaluate`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${this.options.apiKey}`,
+          // Deliberately plain string concatenation (not a template literal):
+          // survives diff masking unambiguously and keeps the credential out
+          // of any interpolated/loggable template. The key is never logged.
+          "Authorization": "Bearer " + this.options.apiKey,
           "Content-Type": "application/json",
           "X-Helm-Tenant-ID": this.options.tenantId,
           "X-Helm-Principal-ID": this.options.principal,

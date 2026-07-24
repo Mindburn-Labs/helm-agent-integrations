@@ -40,6 +40,14 @@ jobs:
         run: npm test
         working-directory: packages/js/helm-channel-bridge
 
+      - name: Install opencode-governance dependencies
+        run: npm install
+        working-directory: packages/opencode-governance
+
+      - name: Typecheck and test opencode-governance
+        run: npm run typecheck && npm test
+        working-directory: packages/opencode-governance
+
       - name: Test Python wrapper
         run: python -m unittest discover packages/python/helm_tool_wrapper/tests
 
