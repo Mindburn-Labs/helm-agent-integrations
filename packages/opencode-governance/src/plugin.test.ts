@@ -230,11 +230,28 @@ describe("tool.execute.before enforcement", () => {
     );
   });
 
-  it("caches the verdict per call across permission.ask and tool.execute.before", async () => {
+  it("re-evaluates when args change under a reused callID (P1 UNBOUND_VERDICT_CACHE)", async () => {
     const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
     const hooks = makeHooks(kernel, new MemoryEvidenceSink());
-    await hooks["permission.ask"]?.(permissionInput(), { status: "ask" });
-    await hooks["tool.execute.before"]?.(TOOL_INPUT, { args: {} });
+    await runBefore(hooks, TOOL_INPUT, { command: "ls" });
+    // Same session + callID, but mutated arguments: must NOT ride the cached verdict.
+    await runBefore(hooks, TOOL_INPUT, { command: "rm -rf /" });
+    assert.equal(kernel.calls, 2);
+  });
+
+  it("never caches ALLOW outcomes (every authorization is freshly evaluated)", async () => {
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink());
+    await runBefore(hooks, TOOL_INPUT, { command: "ls" });
+    await runBefore(hooks, TOOL_INPUT, { command: "ls" });
+    assert.equal(kernel.calls, 2);
+  });
+
+  it("caches non-ALLOW outcomes for the byte-identical payload within the TTL", async () => {
+    const kernel = kernelReturning({ kind: "verdict", verdict: "DENY", reasonCode: "P", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink());
+    await assert.rejects(() => runBefore(hooks, TOOL_INPUT, { command: "rm -rf /" }), HelmGovernanceDeny);
+    await assert.rejects(() => runBefore(hooks, TOOL_INPUT, { command: "rm -rf /" }), HelmGovernanceDeny);
     assert.equal(kernel.calls, 1);
   });
 });
@@ -255,6 +272,61 @@ describe("tool.execute.after evidence tap", () => {
       assert.equal(record.output_hash.length, 64);
       assert.notEqual(record.args_hash, record.output_hash);
     }
+  });
+
+  it("mints outcome 'error' when the hook output carries error markers (P3 CLOSE_RECORD_OUTCOME_HARDCODED)", async () => {
+    const sink = new MemoryEvidenceSink();
+    const hooks = makeHooks(kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} }), sink);
+    for (const metadata of [{ error: "exit 1" }, { isError: true }, { is_error: true }]) {
+      sink.records.length = 0;
+      await hooks["tool.execute.after"]?.(
+        { ...TOOL_INPUT, args: {} },
+        { title: "t", output: "boom", metadata },
+      );
+      const record = sink.records[0];
+      assert.equal(record.record_type, BOUNDARY_CLOSE_RECORD);
+      if (record.record_type === BOUNDARY_CLOSE_RECORD) {
+        assert.equal(record.outcome, "error", JSON.stringify(metadata));
+      }
+    }
+  });
+
+  it("never throws on post-execution sink failure and arms the next-call gate in strict mode (P2 POST_EFFECT_EVIDENCE_THROW)", async () => {
+    const sink = new MemoryEvidenceSink();
+    sink.failure = new Error("disk full");
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, sink);
+    // Post-execution sink failure: resolves without throwing.
+    await hooks["tool.execute.after"]?.(
+      { ...TOOL_INPUT, args: {} },
+      { title: "t", output: "o", metadata: {} },
+    );
+    // Next pre-execution check is gated: deny with EVIDENCE_SINK_FAILURE,
+    // without even consulting the kernel.
+    await assert.rejects(
+      () => runBefore(hooks, { tool: "read", sessionID: "ses_1", callID: "call_2" }, {}),
+      (error: unknown) => {
+        assert.ok(error instanceof HelmGovernanceDeny);
+        assert.equal(error.reasonCode, "EVIDENCE_SINK_FAILURE");
+        assert.equal(error.locallySynthesized, true);
+        return true;
+      },
+    );
+    assert.equal(kernel.calls, 0);
+  });
+
+  it("post-execution sink failure does not arm the gate in non-strict mode", async () => {
+    const sink = new MemoryEvidenceSink();
+    sink.failure = new Error("disk full");
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, sink, { ...CONFIG, strictEvidence: false });
+    await hooks["tool.execute.after"]?.(
+      { ...TOOL_INPUT, args: {} },
+      { title: "t", output: "o", metadata: {} },
+    );
+    sink.failure = undefined;
+    await runBefore(hooks, { tool: "read", sessionID: "ses_1", callID: "call_2" }, {});
+    assert.equal(kernel.calls, 1);
   });
 
   it("never calls the kernel on the after path", async () => {

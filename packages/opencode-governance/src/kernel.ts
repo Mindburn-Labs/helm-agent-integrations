@@ -20,8 +20,7 @@
  */
 
 import { execFile } from "node:child_process";
-import type { KernelVerdict, LocalDenyReason, NormalizedVerdict } from "./verdict.js";
-import { normalizeVerdict } from "./verdict.js";
+import type { KernelVerdict, LocalDenyReason } from "./verdict.js";
 
 export interface KernelEvaluationRequest {
   /** opencode tool id (e.g. "bash", "edit"). */
@@ -80,8 +79,8 @@ export function withoutAuthorityMetadata(
   return sanitized;
 }
 
-function readRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readString(...candidates: unknown[]): string | undefined {
@@ -94,24 +93,51 @@ function readString(...candidates: unknown[]): string | undefined {
 }
 
 /**
- * Extract a verdict outcome from a kernel response body. Only exact
- * ALLOW/DENY/ESCALATE strings survive; anything else degrades to an error
- * outcome with KERNEL_UNKNOWN_VERDICT / KERNEL_MALFORMED_RESPONSE.
+ * Extract a verdict outcome from a kernel response body, STRICT contract:
+ * * - Verdict material is accepted ONLY from the exact contract fields:
+ *   top-level `verdict`, or `decision.verdict` where `decision` is a plain
+ *   object. No `status`, `record`, `result`, or other fallbacks — a body
+ *   without a contract verdict field is KERNEL_MALFORMED_RESPONSE.
+ * - The value must be EXACTLY "ALLOW" | "DENY" | "ESCALATE" (case-sensitive,
+ *   no trimming). Near-misses like "allow", "ALLOW ", or
+ *   "ALLOW_WITH_CONDITIONS" are KERNEL_UNKNOWN_VERDICT and can never
+ *   authorize.
  */
 export function outcomeFromResponseBody(body: unknown): KernelOutcome {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isPlainObject(body)) {
     return {
       kind: "error",
       reasonCode: "KERNEL_MALFORMED_RESPONSE",
-      message: "kernel response body is not an object",
+      message: "kernel response body is not a plain object",
       raw: body,
     };
   }
-  const record = readRecord(body);
-  const nested = readRecord(record.decision ?? record.record ?? record.result);
-  const rawVerdict = nested.verdict ?? nested.status ?? record.verdict ?? record.status;
-  const verdict: NormalizedVerdict = normalizeVerdict(rawVerdict);
-  if (verdict === "UNKNOWN") {
+  const nested = isPlainObject(body.decision) ? body.decision : undefined;
+  let rawVerdict: unknown;
+  let source: Record<string, unknown>;
+  if (typeof body.verdict === "string") {
+    rawVerdict = body.verdict;
+    source = body;
+  } else if (nested !== undefined && typeof nested.verdict === "string") {
+    rawVerdict = nested.verdict;
+    source = nested;
+  } else if ("verdict" in body || (nested !== undefined && "verdict" in nested)) {
+    // Contract field present but not a string: wrong value, not wrong shape.
+    return {
+      kind: "error",
+      reasonCode: "KERNEL_UNKNOWN_VERDICT",
+      message: "kernel verdict field is not a string",
+      raw: body,
+    };
+  } else {
+    return {
+      kind: "error",
+      reasonCode: "KERNEL_MALFORMED_RESPONSE",
+      message: "kernel response lacks the contract verdict field (verdict or decision.verdict)",
+      raw: body,
+    };
+  }
+  if (rawVerdict !== "ALLOW" && rawVerdict !== "DENY" && rawVerdict !== "ESCALATE") {
     return {
       kind: "error",
       reasonCode: "KERNEL_UNKNOWN_VERDICT",
@@ -121,10 +147,10 @@ export function outcomeFromResponseBody(body: unknown): KernelOutcome {
   }
   return {
     kind: "verdict",
-    verdict,
-    decisionId: readString(nested.decision_id, record.decision_id, nested.id, record.id),
-    reasonCode: readString(nested.reason_code, record.reason_code),
-    receiptId: readString(nested.receipt_id, record.receipt_id),
+    verdict: rawVerdict,
+    decisionId: readString(source.decision_id, body.decision_id, source.id, body.id),
+    reasonCode: readString(source.reason_code, body.reason_code),
+    receiptId: readString(source.receipt_id, body.receipt_id),
     raw: body,
   };
 }
@@ -255,9 +281,16 @@ export type SpawnLike = (
   options: { input: string; timeoutMs: number },
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-/** Default spawn implementation: execFile with stdin payload and a hard timeout. */
+/**
+ * Default spawn implementation: execFile with stdin payload and a hard
+ * timeout. A fast-failing binary can close stdin before the payload is fully
+ * written (EPIPE); that error is captured on the stdin stream and folded into
+ * the result as a transport failure (code -1) so the caller yields a clean
+ * KERNEL_UNAVAILABLE instead of an unhandled stream error.
+ */
 export const defaultSpawn: SpawnLike = (file, args, options) =>
   new Promise((resolve, reject) => {
+    let stdinError: Error | undefined;
     const child = execFile(
       file,
       args,
@@ -267,16 +300,28 @@ export const defaultSpawn: SpawnLike = (file, args, options) =>
           resolve({ code: -1, stdout: String(stdout), stderr: `timeout after ${options.timeoutMs}ms` });
           return;
         }
-        const code = typeof (error as { code?: number } | null)?.code === "number"
+        let code = typeof (error as { code?: number } | null)?.code === "number"
           ? (error as { code: number }).code
           : error
           ? -1
           : 0;
-        resolve({ code, stdout: String(stdout), stderr: String(stderr) });
+        let stderrText = String(stderr);
+        if (stdinError !== undefined) {
+          // The payload may not have reached the kernel; an exit-0 ALLOW on a
+          // truncated request must never authorize. Treat as transport failure.
+          stderrText = `${stderrText}stdin delivery failed: ${stdinError.message}`.trim();
+          if (code === 0) {
+            code = -1;
+          }
+        }
+        resolve({ code, stdout: String(stdout), stderr: stderrText });
       },
     );
     child.on("error", reject);
     if (child.stdin) {
+      child.stdin.on("error", (streamError: Error) => {
+        stdinError = streamError;
+      });
       child.stdin.write(options.input);
       child.stdin.end();
     }

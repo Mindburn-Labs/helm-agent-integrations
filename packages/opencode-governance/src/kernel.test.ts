@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   BinaryKernelClient,
   HttpKernelClient,
+  defaultSpawn,
   outcomeFromResponseBody,
   withoutAuthorityMetadata,
   type FetchLike,
@@ -65,6 +66,58 @@ describe("outcomeFromResponseBody", () => {
       const outcome = outcomeFromResponseBody(body);
       assert.equal(outcome.kind, "error", JSON.stringify(body));
       assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_MALFORMED_RESPONSE");
+    }
+  });
+
+  it("rejects near-miss payloads that must never authorize (P1 PERMISSIVE_VERDICT_PARSER)", () => {
+    const malformed: unknown[] = [
+      { status: "allow" }, // wrong field
+      { status: "ALLOW" },
+      { record: { verdict: "ALLOW" } }, // dropped fallbacks
+      { result: { verdict: "ALLOW" } },
+      { decision: { status: "allow" } }, // wrong nested field
+      { decision: "ALLOW" }, // decision not a plain object
+      {}, // no verdict field at all
+      { decision: {} },
+    ];
+    for (const body of malformed) {
+      const outcome = outcomeFromResponseBody(body);
+      assert.equal(outcome.kind, "error", JSON.stringify(body));
+      assert.equal(
+        (outcome as { reasonCode: string }).reasonCode,
+        "KERNEL_MALFORMED_RESPONSE",
+        JSON.stringify(body),
+      );
+    }
+    const unknownVerdict: unknown[] = [
+      { verdict: "allow" }, // case near-miss
+      { verdict: "ALLOW " }, // whitespace near-miss
+      { verdict: " ALLOW" },
+      { verdict: "ALLOW_WITH_CONDITIONS" },
+      { verdict: "PERMIT" },
+      { verdict: 1 }, // right field, wrong type
+      { decision: { verdict: "allow" } },
+      { decision: { verdict: null } },
+    ];
+    for (const body of unknownVerdict) {
+      const outcome = outcomeFromResponseBody(body);
+      assert.equal(outcome.kind, "error", JSON.stringify(body));
+      assert.equal(
+        (outcome as { reasonCode: string }).reasonCode,
+        "KERNEL_UNKNOWN_VERDICT",
+        JSON.stringify(body),
+      );
+    }
+    // And the exact contract values still pass, top-level and nested.
+    for (const verdict of ["ALLOW", "DENY", "ESCALATE"] as const) {
+      assert.equal(
+        (outcomeFromResponseBody({ verdict }) as { verdict: string }).verdict,
+        verdict,
+      );
+      assert.equal(
+        (outcomeFromResponseBody({ decision: { verdict } }) as { verdict: string }).verdict,
+        verdict,
+      );
     }
   });
 });
@@ -180,6 +233,8 @@ describe("BinaryKernelClient", () => {
   });
 
   it("fails closed on empty stdout, invalid JSON, unknown verdicts, and spawn errors", async () => {
+    const epipe = new Error("write EPIPE");
+    (epipe as NodeJS.ErrnoException).code = "EPIPE";
     const cases: Array<{ spawn: SpawnLike; reason: string }> = [
       { spawn: spawnReturning(0, ""), reason: "KERNEL_MALFORMED_RESPONSE" },
       { spawn: spawnReturning(1, ""), reason: "KERNEL_UNAVAILABLE" },
@@ -191,6 +246,12 @@ describe("BinaryKernelClient", () => {
         },
         reason: "KERNEL_UNAVAILABLE",
       },
+      {
+        spawn: async () => {
+          throw epipe;
+        },
+        reason: "KERNEL_UNAVAILABLE",
+      },
     ];
     for (const { spawn, reason } of cases) {
       const client = new BinaryKernelClient({ ...BINARY_OPTIONS, spawn });
@@ -198,6 +259,41 @@ describe("BinaryKernelClient", () => {
       assert.equal(outcome.kind, "error", reason);
       assert.equal((outcome as { reasonCode: string }).reasonCode, reason);
     }
+  });
+});
+
+describe("defaultSpawn (P3 SPAWN_STDIN_ERROR_UNHANDLED)", () => {
+  it("resolves cleanly when the binary exits before reading a large stdin payload", async () => {
+    // process.execPath -e 'process.exit(0)' closes stdin immediately; writing
+    // a 1 MiB payload reliably triggers EPIPE on the stdin stream. The spawn
+    // helper must capture it and resolve with a transport-failure result
+    // instead of raising an unhandled stream error.
+    const result = await defaultSpawn(process.execPath, ["-e", "process.exit(0)"], {
+      input: "x".repeat(1024 * 1024),
+      timeoutMs: 10_000,
+    });
+    assert.equal(typeof result.code, "number");
+    assert.notEqual(result.code, 0, "stdin delivery failure must not report exit 0");
+  });
+
+  it("yields KERNEL_UNAVAILABLE through BinaryKernelClient for a fast-failing binary", async () => {
+    const client = new BinaryKernelClient({
+      kernelBinary: process.execPath,
+      kernelBinaryArgs: ["-e", "process.exit(0)"],
+      tenantId: "tenant",
+      principal: "agent",
+      riskClass: "T2",
+      effectClass: "E4",
+      timeoutMs: 10_000,
+      spawn: defaultSpawn,
+    });
+    const outcome = await client.evaluate({
+      tool: "bash",
+      sessionID: "ses_1",
+      args: { command: "x".repeat(100_000) },
+    });
+    assert.equal(outcome.kind, "error");
+    assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_UNAVAILABLE");
   });
 });
 

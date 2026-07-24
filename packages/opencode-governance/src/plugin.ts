@@ -12,11 +12,14 @@
  *    call, and a thrown error blocks execution — the documented ".env
  *    protection" pattern). Every tool call requires an exact kernel ALLOW;
  *    anything else throws HelmGovernanceDeny BEFORE the tool runs.
- * 3. `tool.execute.after` — evidence tap only; never mutates output.
+ * 3. `tool.execute.after` — evidence tap only; never mutates output and
+ *    never throws (the effect already happened). Sink failures here are
+ *    reported and, in strict mode, arm a next-call deny gate.
  *
- * Verdicts are cached per (sessionID, callID) for a short TTL so the
- * permission.ask -> tool.execute.before sequence costs one kernel evaluation.
- * The cache NEVER caches across different calls and never upgrades a deny.
+ * Verdict caching: non-ALLOW evaluations are cached for a short TTL keyed by
+ * (sessionID, callID, hash of the EXACT evaluated payload) so mutated args
+ * under a reused callID can never ride a stale verdict. ALLOW outcomes are
+ * never cached — every authorization is freshly evaluated.
  */
 
 import type { GovernanceConfig } from "./config.js";
@@ -100,6 +103,33 @@ function resolveOutcome(outcome: KernelOutcome): ResolvedEvaluation {
   };
 }
 
+/**
+ * Best-effort execution-outcome detection for close records. opencode's
+ * tool.execute.after output carries {title, output, metadata}; tool failures
+ * surface as error markers in metadata when the runtime provides them
+ * (error / isError / is_error). Absence of markers means "completed" — the
+ * hash of the actual output is always recorded either way.
+ */
+export function detectExecutionOutcome(output: {
+  title: string;
+  output: string;
+  metadata: unknown;
+}): "completed" | "error" {
+  if (typeof output.metadata === "object" && output.metadata !== null) {
+    const metadata = output.metadata as Record<string, unknown>;
+    if (
+      metadata.error !== undefined && metadata.error !== null && metadata.error !== false
+      && metadata.error !== ""
+    ) {
+      return "error";
+    }
+    if (metadata.isError === true || metadata.is_error === true) {
+      return "error";
+    }
+  }
+  return "completed";
+}
+
 export interface GovernanceDeps {
   config: GovernanceConfig;
   kernel: KernelClient;
@@ -122,6 +152,14 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
   const now = deps.now ?? (() => new Date());
   const stderr = deps.stderr ?? ((line: string) => console.error(line));
   const verdictCache = new Map<string, CachedVerdict>();
+  /**
+   * Post-execution evidence gate. A sink failure on tool.execute.after must
+   * never throw into the tool path (the effect already happened — throwing
+   * would invite retries and duplicate side effects). Instead the failure is
+   * reported via stderr and, in strict mode, arms this gate so the NEXT
+   * pre-execution check denies with EVIDENCE_SINK_FAILURE until restart.
+   */
+  let evidenceGate: string | undefined;
 
   function baseRecord(sessionID: string, callID?: string) {
     return {
@@ -136,16 +174,27 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
   }
 
   async function evaluate(request: KernelEvaluationRequest): Promise<ResolvedEvaluation> {
-    const key = request.callID === undefined ? undefined : `${request.sessionID}:${request.callID}`;
-    if (key !== undefined) {
-      const cached = verdictCache.get(key);
-      if (cached !== undefined && cached.expiresAt > now().getTime()) {
+    // The cache key binds the EXACT evaluated payload (tool + args +
+    // permission material): mutated arguments under a reused callID can never
+    // ride a stale verdict. ALLOW outcomes are never cached at all — every
+    // authorization is freshly evaluated (fail closed against trajectory and
+    // doom-loop policies that a cached ALLOW would bypass).
+    const payloadHash = hashBoundaryValue({
+      tool: request.tool,
+      args: request.args,
+      permission: request.permission,
+      patterns: request.patterns,
+    });
+    const key = `${request.sessionID}:${request.callID ?? ""}:${payloadHash}`;
+    const cached = verdictCache.get(key);
+    if (cached !== undefined) {
+      if (cached.expiresAt > now().getTime()) {
         return cached.evaluation;
       }
       verdictCache.delete(key);
     }
     const evaluation = resolveOutcome(await kernel.evaluate(request));
-    if (key !== undefined) {
+    if (evaluation.verdict !== "ALLOW") {
       verdictCache.set(key, {
         evaluation,
         expiresAt: now().getTime() + VERDICT_CACHE_TTL_MS,
@@ -219,6 +268,16 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
     input: { tool: string; sessionID: string; callID: string },
     output: { args: unknown },
   ): Promise<void> {
+    // Next-call gate: a previous post-execution evidence failure blocks all
+    // further execution in strict mode until the plugin is reloaded.
+    if (evidenceGate !== undefined) {
+      throw new HelmGovernanceDeny(
+        `${PLUGIN_ID}: evidence pipeline degraded (${evidenceGate}); denying until reload`,
+        "UNKNOWN",
+        "EVIDENCE_SINK_FAILURE",
+        { locallySynthesized: true },
+      );
+    }
     const evaluation = await evaluate({
       tool: input.tool,
       sessionID: input.sessionID,
@@ -283,9 +342,23 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
       tool: input.tool,
       args_hash: hashBoundaryValue(input.args),
       output_hash: hashBoundaryValue({ title: output.title, output: output.output }),
-      outcome: "completed",
+      outcome: detectExecutionOutcome(output),
     };
-    await appendEvidence(record, "tool.execute.after");
+    // Post-execution: NEVER throw into the tool path. The effect already
+    // happened; a throw would surface as a tool failure and invite retries
+    // with duplicate side effects. Sink failures are reported and (strict
+    // mode) arm the next-call evidence gate instead.
+    try {
+      await sink.append(record);
+    } catch (error) {
+      const message = `evidence sink failure in tool.execute.after: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      stderr(`${PLUGIN_ID}: ${message}`);
+      if (config.strictEvidence) {
+        evidenceGate = message;
+      }
+    }
   }
 
   return {
