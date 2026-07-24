@@ -306,23 +306,25 @@ describe("BinaryKernelClient", () => {
 });
 
 describe("defaultSpawn (P3 SPAWN_STDIN_ERROR_UNHANDLED)", () => {
-  it("resolves cleanly when the binary exits before reading a large stdin payload", async () => {
-    // process.execPath -e 'process.exit(0)' closes stdin immediately; writing
-    // a 1 MiB payload reliably triggers EPIPE on the stdin stream. The spawn
-    // helper must capture it and resolve with a transport-failure result
-    // instead of raising an unhandled stream error.
-    const result = await defaultSpawn(process.execPath, ["-e", "process.exit(0)"], {
+  // Deterministic stdin teardown: the binary destroys its stdin immediately
+  // and only then exits 0, so writing a large payload always fails with
+  // EPIPE — on every platform, not just where process-exit races win.
+  const STDIN_DESTROY_SCRIPT = "process.stdin.destroy(); setTimeout(() => process.exit(0), 200)";
+
+  it("resolves cleanly when the binary closes stdin before the payload is delivered", async () => {
+    const result = await defaultSpawn(process.execPath, ["-e", STDIN_DESTROY_SCRIPT], {
       input: "x".repeat(1024 * 1024),
       timeoutMs: 10_000,
     });
     assert.equal(typeof result.code, "number");
     assert.notEqual(result.code, 0, "stdin delivery failure must not report exit 0");
+    assert.match(result.stderr, /stdin delivery failed/);
   });
 
   it("yields KERNEL_UNAVAILABLE through BinaryKernelClient for a fast-failing binary", async () => {
     const client = new BinaryKernelClient({
       kernelBinary: process.execPath,
-      kernelBinaryArgs: ["-e", "process.exit(0)"],
+      kernelBinaryArgs: ["-e", STDIN_DESTROY_SCRIPT],
       tenantId: "tenant",
       principal: "agent",
       riskClass: "T2",
