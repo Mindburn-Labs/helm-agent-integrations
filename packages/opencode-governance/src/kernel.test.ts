@@ -335,7 +335,9 @@ describe("defaultSpawn (P3 SPAWN_STDIN_ERROR_UNHANDLED)", () => {
     const outcome = await client.evaluate({
       tool: "bash",
       sessionID: "ses_1",
-      args: { command: "x".repeat(100_000) },
+      // Must exceed the OS pipe buffer (1 MiB on Linux) so the write can
+      // never complete before the child destroys stdin.
+      args: { command: "x".repeat(2 * 1024 * 1024) },
     });
     assert.equal(outcome.kind, "error");
     assert.equal((outcome as { reasonCode: string }).reasonCode, "KERNEL_UNAVAILABLE");
