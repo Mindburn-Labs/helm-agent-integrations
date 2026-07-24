@@ -20,9 +20,32 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { NormalizedVerdict } from "./verdict.js";
 
-/** Deterministic JSON stringify: object keys sorted recursively. */
+/**
+ * Deterministic JSON stringify: object keys sorted recursively.
+ *
+ * Typing honesty (P2 CANONICALIZE_BUILD_FAILURE): under strict TS lib defs,
+ * `JSON.stringify` returns `string | undefined` — top-level `undefined`,
+ * functions, and symbols serialize to `undefined`, not a string. Silently
+ * casting that away would let unserializable boundary material produce a
+ * garbage hash input, so it is a hard, typed error instead (fail closed).
+ */
+export class EvidenceSerializationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EvidenceSerializationError";
+  }
+}
+
 export function canonicalize(value: unknown): string {
-  return JSON.stringify(sortKeys(value));
+  const serialized: string | undefined = JSON.stringify(sortKeys(value));
+  if (serialized === undefined) {
+    throw new EvidenceSerializationError(
+      `boundary material is not JSON-serializable (got ${
+        value === undefined ? "undefined" : typeof value
+      }); refusing to hash unserializable evidence`,
+    );
+  }
+  return serialized;
 }
 
 function sortKeys(value: unknown): unknown {

@@ -90,6 +90,17 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 - Other plugins rewriting verdicts via the same hook surface.
 - Evidence-file tampering after write; the JSONL sink is a tap, not a transparency log. Verification happens when records are ingested and projected by HELM.
 
+## Verification status
+
+**Verified by tests** (`npm test`, 67 tests, no network/kernel required):
+
+- Verdict mapping matrix and fail-closed behavior on every kernel failure class.
+- Strict verdict parsing incl. near-miss and conflicting-field payloads.
+- Loader/dispatch contract (`src/opencode-contract.test.ts`): the built module is loaded through a faithful replication of opencode's `readV1Plugin` default-export contract and `applyPlugin` instantiation (`server(input, options)`), and hooks are dispatched through a `Plugin.trigger`-equivalent loop with opencode's error-propagation semantics — a kernel DENY rejects in `tool.execute.before`, which is exactly the failure opencode's `session/tools.ts` observes as a blocked tool call; ALLOW passes and mints evidence through the full path.
+- Boundary evidence records, cache bounding, transport rules, config typing.
+
+**NOT verified:** behavior inside a real opencode process (opencode version drift, interplay with other plugins, TUI/config surfaces), and the `permission.ask` hook path in production (no trigger site at the studied commit — see Known gaps). The handwritten contract types in `src/opencode-types.ts` mirror `@opencode-ai/plugin` structurally; if opencode changes the hook contract, update the mirror and the contract test.
+
 ## Known gaps (audited against opencode @ `62e46412`, 2026-07-23)
 
 - **`permission.ask` is declared but not triggered at the studied commit.** The hook exists in the plugin type surface (`packages/plugin/src/index.ts:261`) and is listed in the hook-surface docs, but no trigger call site was found in the clone (the V2 Effect permission service does not invoke it). This plugin implements the hook for forward compatibility; the enforcement that is live *today* is `tool.execute.before`. Defense in depth: if opencode starts triggering `permission.ask`, both paths consult the same fail-closed evaluation.

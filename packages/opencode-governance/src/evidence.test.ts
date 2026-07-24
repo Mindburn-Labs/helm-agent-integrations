@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
   BOUNDARY_OPEN_RECORD,
+  EvidenceSerializationError,
   JsonlEvidenceSink,
   MemoryEvidenceSink,
   canonicalize,
@@ -31,6 +32,18 @@ describe("canonicalize", () => {
       hashBoundaryValue({ command: "rm -rf /" }),
     );
     assert.equal(sha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  });
+
+  it("fails closed on unserializable boundary material (P2 CANONICALIZE_BUILD_FAILURE)", () => {
+    // JSON.stringify returns undefined (not a string) for these; that must be
+    // a typed error, never a cast into a garbage hash input.
+    assert.throws(() => canonicalize(undefined), EvidenceSerializationError);
+    assert.throws(() => canonicalize(() => {}), EvidenceSerializationError);
+    assert.throws(() => canonicalize(Symbol("x")), EvidenceSerializationError);
+    assert.throws(() => hashBoundaryValue(undefined), EvidenceSerializationError);
+    // Nested undefined is fine: JSON.stringify handles object members.
+    assert.equal(canonicalize({ a: undefined, b: 1 }), '{"b":1}');
+    assert.equal(canonicalize(null), "null");
   });
 });
 
