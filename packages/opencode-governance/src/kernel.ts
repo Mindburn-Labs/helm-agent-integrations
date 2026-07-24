@@ -102,6 +102,10 @@ function readString(...candidates: unknown[]): string | undefined {
  *   no trimming). Near-misses like "allow", "ALLOW ", or
  *   "ALLOW_WITH_CONDITIONS" are KERNEL_UNKNOWN_VERDICT and can never
  *   authorize.
+ * - If BOTH contract fields carry verdict material, they must agree.
+ *   A conflict (e.g. top-level ALLOW over decision.verdict DENY) is an
+ *   ambiguous authority response and fails closed as
+ *   KERNEL_MALFORMED_RESPONSE — never resolved in the permissive direction.
  */
 export function outcomeFromResponseBody(body: unknown): KernelOutcome {
   if (!isPlainObject(body)) {
@@ -113,15 +117,35 @@ export function outcomeFromResponseBody(body: unknown): KernelOutcome {
     };
   }
   const nested = isPlainObject(body.decision) ? body.decision : undefined;
+  const topHas = "verdict" in body;
+  const nestedHas = nested !== undefined && "verdict" in nested;
+  const topRaw = topHas ? body.verdict : undefined;
+  const nestedRaw = nestedHas ? nested.verdict : undefined;
+  const topIsString = typeof topRaw === "string";
+  const nestedIsString = typeof nestedRaw === "string";
+
+  if (
+    (topIsString && nestedIsString && topRaw !== nestedRaw)
+    || (topIsString && nestedHas && !nestedIsString)
+    || (nestedIsString && topHas && !topIsString)
+  ) {
+    return {
+      kind: "error",
+      reasonCode: "KERNEL_MALFORMED_RESPONSE",
+      message: "conflicting verdict material between verdict and decision.verdict; refusing to resolve (fail closed)",
+      raw: body,
+    };
+  }
+
   let rawVerdict: unknown;
   let source: Record<string, unknown>;
-  if (typeof body.verdict === "string") {
-    rawVerdict = body.verdict;
+  if (typeof topRaw === "string") {
+    rawVerdict = topRaw;
     source = body;
-  } else if (nested !== undefined && typeof nested.verdict === "string") {
-    rawVerdict = nested.verdict;
+  } else if (nested !== undefined && typeof nestedRaw === "string") {
+    rawVerdict = nestedRaw;
     source = nested;
-  } else if ("verdict" in body || (nested !== undefined && "verdict" in nested)) {
+  } else if (topHas || nestedHas) {
     // Contract field present but not a string: wrong value, not wrong shape.
     return {
       kind: "error",

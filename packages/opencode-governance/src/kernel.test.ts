@@ -120,6 +120,39 @@ describe("outcomeFromResponseBody", () => {
       );
     }
   });
+
+  it("rejects conflicting verdict material between contract fields (P1 CONFLICTING_VERDICT_ACCEPTED)", () => {
+    const conflicts: unknown[] = [
+      { verdict: "ALLOW", decision: { verdict: "DENY" } },
+      { verdict: "DENY", decision: { verdict: "ALLOW" } },
+      { verdict: "ALLOW", decision: { verdict: "ESCALATE" } },
+      { verdict: "ALLOW", decision: { verdict: 42 } },
+      { verdict: 42, decision: { verdict: "ALLOW" } },
+    ];
+    for (const body of conflicts) {
+      const outcome = outcomeFromResponseBody(body);
+      assert.equal(outcome.kind, "error", JSON.stringify(body));
+      assert.equal(
+        (outcome as { reasonCode: string }).reasonCode,
+        "KERNEL_MALFORMED_RESPONSE",
+        JSON.stringify(body),
+      );
+    }
+    // Consistent duplicates are fine, and a decision object without a
+    // verdict key does not conflict with the top-level contract field.
+    assert.equal(
+      (outcomeFromResponseBody({ verdict: "ALLOW", decision: { verdict: "ALLOW" } }) as {
+        verdict: string;
+      }).verdict,
+      "ALLOW",
+    );
+    assert.equal(
+      (outcomeFromResponseBody({ verdict: "ALLOW", decision: { decision_id: "d1" } }) as {
+        verdict: string;
+      }).verdict,
+      "ALLOW",
+    );
+  });
 });
 
 describe("HttpKernelClient", () => {

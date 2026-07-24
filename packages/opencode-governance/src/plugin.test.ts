@@ -13,7 +13,7 @@ import {
 } from "./evidence.js";
 import type { KernelClient, KernelOutcome } from "./kernel.js";
 import type { OpencodeHooks, OpencodePermission } from "./opencode-types.js";
-import { HelmGovernanceDeny, createGovernanceHooks } from "./plugin.js";
+import { HelmGovernanceDeny, VERDICT_CACHE_MAX_ENTRIES, createGovernanceHooks } from "./plugin.js";
 
 const CONFIG: GovernanceConfig = {
   mode: "http",
@@ -253,6 +253,29 @@ describe("tool.execute.before enforcement", () => {
     await assert.rejects(() => runBefore(hooks, TOOL_INPUT, { command: "rm -rf /" }), HelmGovernanceDeny);
     await assert.rejects(() => runBefore(hooks, TOOL_INPUT, { command: "rm -rf /" }), HelmGovernanceDeny);
     assert.equal(kernel.calls, 1);
+  });
+
+  it("bounds the verdict cache so unique denies cannot exhaust memory (P2 UNBOUNDED_VERDICT_CACHE)", async () => {
+    const kernel = kernelReturning({ kind: "verdict", verdict: "DENY", reasonCode: "P", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink());
+    const overflow = 50;
+    // Fill the cache past its hard cap with unique denied calls.
+    for (let index = 0; index < VERDICT_CACHE_MAX_ENTRIES + overflow; index += 1) {
+      await assert.rejects(
+        () =>
+          runBefore(hooks, { tool: "bash", sessionID: "ses_1", callID: `call_${index}` }, {
+            command: `cmd ${index}`,
+          }),
+        HelmGovernanceDeny,
+      );
+    }
+    assert.equal(kernel.calls, VERDICT_CACHE_MAX_ENTRIES + overflow);
+    // The first entry was evicted by the cap: repeating it re-evaluates.
+    await assert.rejects(
+      () => runBefore(hooks, { tool: "bash", sessionID: "ses_1", callID: "call_0" }, { command: "cmd 0" }),
+      HelmGovernanceDeny,
+    );
+    assert.equal(kernel.calls, VERDICT_CACHE_MAX_ENTRIES + overflow + 1);
   });
 });
 

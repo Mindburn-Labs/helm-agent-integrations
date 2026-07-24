@@ -19,7 +19,9 @@
  * Verdict caching: non-ALLOW evaluations are cached for a short TTL keyed by
  * (sessionID, callID, hash of the EXACT evaluated payload) so mutated args
  * under a reused callID can never ride a stale verdict. ALLOW outcomes are
- * never cached — every authorization is freshly evaluated.
+ * never cached — every authorization is freshly evaluated. The cache is hard
+ * bounded (VERDICT_CACHE_MAX_ENTRIES) so agent-driven unique denies cannot
+ * exhaust memory.
  */
 
 import type { GovernanceConfig } from "./config.js";
@@ -52,6 +54,13 @@ export const PLUGIN_ID = "@helm-ai/opencode-governance";
 export const PLUGIN_VERSION = "0.1.0";
 
 const VERDICT_CACHE_TTL_MS = 30_000;
+/**
+ * Hard bound on cached non-ALLOW evaluations. Without it, an agent firing
+ * unique denied calls could grow the map indefinitely (memory exhaustion).
+ * On insert, expired entries are swept first; if still full, the oldest
+ * entries are evicted (Map iteration order = insertion order).
+ */
+export const VERDICT_CACHE_MAX_ENTRIES = 256;
 
 /** Error thrown from tool.execute.before to block a non-allowed tool call. */
 export class HelmGovernanceDeny extends Error {
@@ -195,9 +204,25 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
     }
     const evaluation = resolveOutcome(await kernel.evaluate(request));
     if (evaluation.verdict !== "ALLOW") {
+      // Bounded cache: sweep expired entries, then evict oldest until under
+      // the hard cap (P2 UNBOUNDED_VERDICT_CACHE — agent-driven unique
+      // denies must not grow memory without bound).
+      const nowMs = now().getTime();
+      for (const [cachedKey, entry] of verdictCache) {
+        if (entry.expiresAt <= nowMs) {
+          verdictCache.delete(cachedKey);
+        }
+      }
+      while (verdictCache.size >= VERDICT_CACHE_MAX_ENTRIES) {
+        const oldest = verdictCache.keys().next();
+        if (oldest.done === true) {
+          break;
+        }
+        verdictCache.delete(oldest.value);
+      }
       verdictCache.set(key, {
         evaluation,
-        expiresAt: now().getTime() + VERDICT_CACHE_TTL_MS,
+        expiresAt: nowMs + VERDICT_CACHE_TTL_MS,
       });
     }
     return evaluation;
