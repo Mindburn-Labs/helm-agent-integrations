@@ -1,0 +1,36 @@
+{
+  "name": "@mindburn/helm-acp-connector",
+  "version": "0.1.0",
+  "description": "HELM-governed ACP (Agent Client Protocol) connector for embedded coding engines (Claude Code, Codex) — kernel-verdict permissions, allowlisted fs handlers, verified engine provisioning",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "keywords": [
+    "helm",
+    "ai",
+    "agents",
+    "acp",
+    "coding-agents",
+    "permissions",
+    "receipts"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "packages/js/acp-connector"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
+  }
+}
