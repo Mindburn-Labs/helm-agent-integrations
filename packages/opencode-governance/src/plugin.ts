@@ -36,7 +36,9 @@ import {
   BOUNDARY_OPEN_RECORD,
   JsonlEvidenceSink,
   PERMISSION_DECISION_RECORD,
+  canonicalize,
   hashBoundaryValue,
+  sha256Hex,
 } from "./evidence.js";
 import type { KernelClient, KernelEvaluationRequest, KernelOutcome } from "./kernel.js";
 import { BinaryKernelClient, HttpKernelClient } from "./kernel.js";
@@ -137,6 +139,26 @@ export function detectExecutionOutcome(output: {
     }
   }
   return "completed";
+}
+
+/**
+ * Recursively freeze an args object (cycle-safe). Applied to tool arguments
+ * AFTER authorization so that later plugins in opencode's sequential hook
+ * chain — which receive the SAME mutable args object — cannot mutate
+ * arguments the kernel has already evaluated (P1
+ * POST_AUTH_ARGUMENT_MUTATION). A mutation attempt on a frozen object throws
+ * in ESM strict mode, failing that plugin's hook and blocking the call
+ * (fail closed).
+ */
+export function deepFreezeArgs(value: unknown, seen: Set<object> = new Set()): void {
+  if (typeof value !== "object" || value === null || seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+  Object.freeze(value);
+  for (const key of Object.keys(value)) {
+    deepFreezeArgs((value as Record<string, unknown>)[key], seen);
+  }
 }
 
 export interface GovernanceDeps {
@@ -289,6 +311,41 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
     }
   }
 
+  /** Best-effort deny evidence + blocking throw. The deny never depends on the sink. */
+  async function recordDenyAndThrow(
+    input: { tool: string; sessionID: string; callID: string },
+    argsHash: string,
+    evaluation: { verdict: Exclude<NormalizedVerdict, "ALLOW">; reasonCode?: string; decisionId?: string; locallySynthesized: boolean },
+  ): Promise<never> {
+    const record: BoundaryRecord = {
+      ...baseRecord(input.sessionID, input.callID),
+      record_type: BOUNDARY_DENY_RECORD,
+      tool: input.tool,
+      args_hash: argsHash,
+      verdict: evaluation.verdict,
+      reason_code: evaluation.reasonCode ?? "UNKNOWN",
+      decision_id: evaluation.decisionId,
+      locally_synthesized: evaluation.locallySynthesized,
+    };
+    try {
+      await sink.append(record);
+    } catch (error) {
+      stderr(
+        `${PLUGIN_ID}: failed to record deny evidence (denying anyway): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    throw new HelmGovernanceDeny(
+      `${PLUGIN_ID}: tool ${JSON.stringify(input.tool)} blocked by HELM ` +
+        `(verdict=${evaluation.verdict}, reason=${evaluation.reasonCode ?? "n/a"}` +
+        `${evaluation.decisionId ? `, decision=${evaluation.decisionId}` : ""})`,
+      evaluation.verdict,
+      evaluation.reasonCode ?? "UNKNOWN",
+      { decisionId: evaluation.decisionId, locallySynthesized: evaluation.locallySynthesized },
+    );
+  }
+
   async function toolExecuteBefore(
     input: { tool: string; sessionID: string; callID: string },
     output: { args: unknown },
@@ -303,44 +360,59 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
         { locallySynthesized: true },
       );
     }
+
+    // P1 POST_AUTH_ARGUMENT_MUTATION defense, step 1: snapshot the exact
+    // arguments at hook entry and evaluate a defensive COPY. opencode passes
+    // one mutable args object sequentially through every plugin's
+    // tool.execute.before hook, and our kernel evaluation awaits (yielding
+    // the event loop) — a concurrently retained reference could mutate the
+    // live object mid-evaluation.
+    let entryCanonical: string;
+    let evaluatedArgs: unknown;
+    try {
+      entryCanonical = canonicalize(output.args);
+      evaluatedArgs = JSON.parse(entryCanonical);
+    } catch (error) {
+      await recordDenyAndThrow(input, "unserializable", {
+        verdict: "UNKNOWN",
+        reasonCode: "EVIDENCE_SERIALIZATION_FAILURE",
+        locallySynthesized: true,
+      });
+      throw error; // unreachable; satisfies control-flow analysis
+    }
+    const argsHash = sha256Hex(entryCanonical);
+
     const evaluation = await evaluate({
       tool: input.tool,
       sessionID: input.sessionID,
       callID: input.callID,
-      args: output.args,
+      args: evaluatedArgs,
     });
-    const argsHash = hashBoundaryValue(output.args);
+
+    // P1 defense, step 2: re-verify at the last moment this hook controls.
+    // If the live args object no longer matches what the kernel evaluated,
+    // deny — authorization must never bind to mutated arguments.
+    let postEvaluationCanonical: string;
+    try {
+      postEvaluationCanonical = canonicalize(output.args);
+    } catch {
+      postEvaluationCanonical = "<unserializable>";
+    }
+    if (postEvaluationCanonical !== entryCanonical) {
+      await recordDenyAndThrow(input, argsHash, {
+        verdict: "UNKNOWN",
+        reasonCode: "ARGS_MUTATED_DURING_EVALUATION",
+        locallySynthesized: true,
+      });
+    }
 
     if (!isAuthorized(evaluation.verdict)) {
-      const record: BoundaryRecord = {
-        ...baseRecord(input.sessionID, input.callID),
-        record_type: BOUNDARY_DENY_RECORD,
-        tool: input.tool,
-        args_hash: argsHash,
+      await recordDenyAndThrow(input, argsHash, {
         verdict: evaluation.verdict,
-        reason_code: evaluation.reasonCode ?? "UNKNOWN",
-        decision_id: evaluation.decisionId,
-        locally_synthesized: evaluation.locallySynthesized,
-      };
-      // Deny records are best-effort: the deny itself must not depend on the
-      // sink. A sink failure is logged loudly, then we still deny.
-      try {
-        await sink.append(record);
-      } catch (error) {
-        stderr(
-          `${PLUGIN_ID}: failed to record deny evidence (denying anyway): ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-      throw new HelmGovernanceDeny(
-        `${PLUGIN_ID}: tool ${JSON.stringify(input.tool)} blocked by HELM ` +
-          `(verdict=${evaluation.verdict}, reason=${evaluation.reasonCode ?? "n/a"}` +
-          `${evaluation.decisionId ? `, decision=${evaluation.decisionId}` : ""})`,
-        evaluation.verdict,
-        evaluation.reasonCode ?? "UNKNOWN",
-        { decisionId: evaluation.decisionId, locallySynthesized: evaluation.locallySynthesized },
-      );
+        reasonCode: evaluation.reasonCode,
+        decisionId: evaluation.decisionId,
+        locallySynthesized: evaluation.locallySynthesized,
+      });
     }
 
     const record: BoundaryRecord = {
@@ -355,28 +427,39 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
     // Strict mode: failing to mint the pre-execution record blocks the call,
     // mirroring the kernel hook's "receipt-write-failure denies" posture.
     await appendEvidence(record, "tool.execute.before");
+
+    // P1 defense, step 3: freeze the authorized args object so LATER plugins
+    // in the chain cannot mutate what the kernel authorized. Mutation of a
+    // frozen object throws in ESM strict mode, failing that hook and
+    // blocking the call. Residual limitation (documented in README): we
+    // cannot observe mutation by opencode internals or the tool itself after
+    // all hooks return.
+    deepFreezeArgs(output.args);
   }
 
   async function toolExecuteAfter(
     input: { tool: string; sessionID: string; callID: string; args: unknown },
     output: { title: string; output: string; metadata: unknown },
   ): Promise<void> {
-    const record: BoundaryRecord = {
-      ...baseRecord(input.sessionID, input.callID),
-      record_type: BOUNDARY_CLOSE_RECORD,
-      tool: input.tool,
-      args_hash: hashBoundaryValue(input.args),
-      output_hash: hashBoundaryValue({ title: output.title, output: output.output }),
-      outcome: detectExecutionOutcome(output),
-    };
-    // Post-execution: NEVER throw into the tool path. The effect already
-    // happened; a throw would surface as a tool failure and invite retries
-    // with duplicate side effects. Sink failures are reported and (strict
-    // mode) arm the next-call evidence gate instead.
+    // Post-execution: NOTHING in this hook may throw into the tool path
+    // (P2 POST_EFFECT_HASH_THROW). The effect already happened; a throw —
+    // from hashing cyclic/BigInt/undefined payloads just as much as from a
+    // sink failure — would surface as a tool failure and invite retries
+    // with duplicate side effects. All serialization AND the sink append
+    // live inside the same try; failures are reported and (strict mode)
+    // arm the next-call evidence gate instead.
     try {
+      const record: BoundaryRecord = {
+        ...baseRecord(input.sessionID, input.callID),
+        record_type: BOUNDARY_CLOSE_RECORD,
+        tool: input.tool,
+        args_hash: hashBoundaryValue(input.args),
+        output_hash: hashBoundaryValue({ title: output.title, output: output.output }),
+        outcome: detectExecutionOutcome(output),
+      };
       await sink.append(record);
     } catch (error) {
-      const message = `evidence sink failure in tool.execute.after: ${
+      const message = `evidence failure in tool.execute.after: ${
         error instanceof Error ? error.message : String(error)
       }`;
       stderr(`${PLUGIN_ID}: ${message}`);

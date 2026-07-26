@@ -39,13 +39,18 @@ function kernelReturning(outcome: KernelOutcome | (() => KernelOutcome)): Kernel
   };
 }
 
-function makeHooks(kernel: KernelClient, sink: MemoryEvidenceSink, config = CONFIG): OpencodeHooks {
+function makeHooks(
+  kernel: KernelClient,
+  sink: MemoryEvidenceSink,
+  config = CONFIG,
+  stderrLines?: string[],
+): OpencodeHooks {
   return createGovernanceHooks({
     config,
     kernel,
     sink,
     now: () => new Date("2026-07-24T12:00:00Z"),
-    stderr: () => {},
+    stderr: stderrLines === undefined ? () => {} : (line) => stderrLines.push(line),
   });
 }
 
@@ -360,5 +365,134 @@ describe("tool.execute.after evidence tap", () => {
       { title: "t", output: "o", metadata: {} },
     );
     assert.equal(kernel.calls, 0);
+  });
+});
+
+describe("P1 POST_AUTH_ARGUMENT_MUTATION defenses", () => {
+  it("denies when args are mutated during the kernel evaluation window", async () => {
+    const liveOut: { args: unknown } = { args: { command: "ls" } };
+    let evaluatedArgs: unknown;
+    const kernel: KernelClient & { calls: number } = {
+      calls: 0,
+      evaluate(request) {
+        this.calls += 1;
+        evaluatedArgs = request.args;
+        // Simulate a concurrently retained reference mutating the live
+        // object while our evaluation is in flight.
+        (liveOut.args as { command: string }).command = "rm -rf /";
+        return Promise.resolve({ kind: "verdict", verdict: "ALLOW", raw: {} });
+      },
+    };
+    const sink = new MemoryEvidenceSink();
+    const hooks = makeHooks(kernel, sink);
+    await assert.rejects(
+      required(hooks["tool.execute.before"])(TOOL_INPUT, liveOut),
+      (error: unknown) => {
+        assert.ok(error instanceof HelmGovernanceDeny);
+        assert.equal(error.reasonCode, "ARGS_MUTATED_DURING_EVALUATION");
+        assert.equal(error.locallySynthesized, true);
+        return true;
+      },
+    );
+    // The kernel evaluated the ORIGINAL args (defensive copy), not the mutation.
+    assert.deepEqual(evaluatedArgs, { command: "ls" });
+    const denyRecord = sink.records.find((r) => r.record_type === BOUNDARY_DENY_RECORD);
+    assert.ok(denyRecord !== undefined);
+  });
+
+  it("freezes the authorized args object so later plugins cannot mutate it", async () => {
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink());
+    const liveOut: { args: unknown } = { args: { command: "ls", nested: { flag: true } } };
+    await required(hooks["tool.execute.before"])(TOOL_INPUT, liveOut);
+    const args = liveOut.args as { command: string; nested: { flag: boolean } };
+    assert.ok(Object.isFrozen(args));
+    assert.ok(Object.isFrozen(args.nested));
+    // ESM strict mode: mutating a frozen object throws, which is how a later
+    // plugin's mutation attempt fails its hook and blocks the call.
+    assert.throws(() => {
+      args.command = "rm -rf /";
+    }, TypeError);
+    assert.equal(args.command, "ls");
+  });
+
+  it("denies unserializable args pre-execution (cyclic object)", async () => {
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink());
+    const cyclic: Record<string, unknown> = { command: "ls" };
+    cyclic.self = cyclic;
+    await assert.rejects(
+      () => runBefore(hooks, TOOL_INPUT, cyclic),
+      (error: unknown) => {
+        assert.ok(error instanceof HelmGovernanceDeny);
+        assert.equal(error.reasonCode, "EVIDENCE_SERIALIZATION_FAILURE");
+        return true;
+      },
+    );
+    assert.equal(kernel.calls, 0, "kernel must not be consulted for unserializable args");
+  });
+});
+
+describe("P2 POST_EFFECT_HASH_THROW defenses", () => {
+  it("never throws on cyclic args in the after-hook; arms the gate in strict mode", async () => {
+    const stderrLines: string[] = [];
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const sink = new MemoryEvidenceSink();
+    const hooks = makeHooks(kernel, sink, CONFIG, stderrLines);
+    const cyclic: Record<string, unknown> = { command: "ls" };
+    cyclic.self = cyclic;
+    // Must resolve, not reject, even though hashing throws internally.
+    await required(hooks["tool.execute.after"])(
+      { ...TOOL_INPUT, args: cyclic },
+      { title: "t", output: "o", metadata: {} },
+    );
+    assert.equal(stderrLines.length, 1);
+    assert.match(stderrLines[0], /evidence failure in tool\.execute\.after/);
+    // Strict mode: next pre-execution check is gated.
+    await assert.rejects(
+      () => runBefore(hooks, { tool: "read", sessionID: "ses_1", callID: "call_2" }, {}),
+      (error: unknown) => {
+        assert.ok(error instanceof HelmGovernanceDeny);
+        assert.equal(error.reasonCode, "EVIDENCE_SINK_FAILURE");
+        return true;
+      },
+    );
+  });
+
+  it("never throws on BigInt payloads in the after-hook", async () => {
+    const stderrLines: string[] = [];
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink(), CONFIG, stderrLines);
+    await required(hooks["tool.execute.after"])(
+      { ...TOOL_INPUT, args: { amount: 10n } },
+      { title: "t", output: "o", metadata: {} },
+    );
+    assert.equal(stderrLines.length, 1);
+    assert.match(stderrLines[0], /evidence failure/);
+  });
+
+  it("never throws on undefined args in the after-hook", async () => {
+    const stderrLines: string[] = [];
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink(), CONFIG, stderrLines);
+    await required(hooks["tool.execute.after"])(
+      { ...TOOL_INPUT, args: undefined },
+      { title: "t", output: "o", metadata: {} },
+    );
+    assert.equal(stderrLines.length, 1);
+  });
+
+  it("hash failures in the after-hook do not arm the gate in non-strict mode", async () => {
+    const stderrLines: string[] = [];
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink(), { ...CONFIG, strictEvidence: false }, stderrLines);
+    await required(hooks["tool.execute.after"])(
+      { ...TOOL_INPUT, args: { amount: 10n } },
+      { title: "t", output: "o", metadata: {} },
+    );
+    assert.equal(stderrLines.length, 1);
+    // Next call proceeds normally.
+    await runBefore(hooks, { tool: "read", sessionID: "ses_1", callID: "call_2" }, {});
+    assert.equal(kernel.calls, 1);
   });
 });

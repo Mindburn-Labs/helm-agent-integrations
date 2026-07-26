@@ -82,17 +82,20 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 - Agent-controlled metadata spoofing authority (`principal`, `tenant_id`, `risk/effect class` keys are stripped before evaluation).
 - Replay of a permission approval into a different call: non-ALLOW evaluations are cached for 30 s keyed by `(sessionID, callID, SHA-256 of the exact evaluated payload)` — mutated arguments under a reused callID always trigger a fresh kernel evaluation. `ALLOW` outcomes are never cached at all; every authorization is freshly evaluated. The cache is hard-bounded (256 entries, expired-sweep + oldest-eviction) so agent-driven unique denies cannot exhaust memory.
 - Conflicting authority responses: if a kernel response carries verdict material in both contract fields (`verdict` and `decision.verdict`) and they disagree, the response fails closed as `KERNEL_MALFORMED_RESPONSE` — conflicts are never resolved in the permissive direction.
+- Post-authorization argument mutation (three layers): (1) the kernel evaluates a **defensive copy** of the args snapshotted at hook entry; (2) after all awaits, the live args object is **re-hashed and compared** — any concurrent mutation during the evaluation window denies with `ARGS_MUTATED_DURING_EVALUATION`; (3) the authorized args object is **deep-frozen** before the hook returns, so later plugins in opencode's sequential chain (which receive the same mutable object) throw on mutation attempts, failing their hook and blocking the call. Unserializable args (cyclic, BigInt) deny pre-execution with `EVIDENCE_SERIALIZATION_FAILURE`.
+- Post-execution evidence failures (including hashing cyclic/BigInt/undefined payloads) never throw into the tool path — they are reported and arm a next-call deny gate in strict mode, so a retry with duplicate side effects is never induced.
 
 **Not protected against (out of scope)**
 
 - A compromised opencode host process (plugins are in-process; the host can skip or neuter hooks). True host-level enforcement needs the kernel PEP in front of the effect, e.g. MCP firewall or sandbox-runner.
 - opencode's own permission ruleset allowing a tool before/without plugin hooks firing (see Known gaps).
 - Other plugins rewriting verdicts via the same hook surface.
+- **Residual argument-mutation limitation:** the freeze only covers mutation *by later plugin hooks*. Mutation of args by opencode internals or the tool itself *after* all `tool.execute.before` hooks return is unobservable from a plugin; equally, a plugin registered *before* this one sees pre-snapshot args (we evaluate what we receive, which is the correct post-their-mutation state). Closing the post-hook window requires host-level enforcement (kernel PEP / MCP firewall), not a plugin. Note the deliberate availability tradeoff: a tool that mutates its own args object during execution will hit the freeze and fail loudly — that is fail-closed by design, not a bug.
 - Evidence-file tampering after write; the JSONL sink is a tap, not a transparency log. Verification happens when records are ingested and projected by HELM.
 
 ## Verification status
 
-**Verified by tests** (`npm test`, 67 tests, no network/kernel required):
+**Verified by tests** (`npm test`, 74 tests, no network/kernel required):
 
 - Verdict mapping matrix and fail-closed behavior on every kernel failure class.
 - Strict verdict parsing incl. near-miss and conflicting-field payloads.
