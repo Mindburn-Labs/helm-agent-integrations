@@ -2,12 +2,14 @@ name: HELM Boundary Check
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -15,6 +17,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "packages/js/helm-tool-wrapper/package-lock.json"
 
       - uses: actions/setup-python@v6
         with:
