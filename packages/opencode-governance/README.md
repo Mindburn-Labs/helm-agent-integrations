@@ -95,7 +95,7 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 
 ## Verification status
 
-**Verified by tests** (`npm test`, 74 tests, no network/kernel required):
+**Verified by tests** (`npm test`, 76 tests, no network/kernel required):
 
 - Verdict mapping matrix and fail-closed behavior on every kernel failure class.
 - Strict verdict parsing incl. near-miss and conflicting-field payloads.
@@ -122,7 +122,7 @@ Tests mock the kernel verdict source (fetch/spawn injected); no network or kerne
 - `src/verdict.ts` — strict verdict normalization + status mapping (unknown ⇒ deny).
 - `src/kernel.ts` — `KernelClient` interface, HTTP + local-binary clients, non-throwing outcome type.
 - `src/config.ts` — env/options resolution, fail closed on anything missing/invalid.
-- `src/evidence.ts` — canonical JSON + SHA-256, boundary record types, JSONL/memory sinks.
+- `src/evidence.ts` — strict lossless canonical JSON (JSON-finite trees only: no undefined, non-finite numbers, BigInt, functions, symbols, non-plain objects, or cycles — anything else is a typed error so the evaluated copy can never diverge from the original) + SHA-256, boundary record types, JSONL/memory sinks.
 - `src/plugin.ts` — hook bag (`permission.ask`, `tool.execute.before/after`), verdict cache, `HelmGovernanceDeny`.
 - `src/opencode-types.ts` — structural mirror of `@opencode-ai/plugin` contract types (kept local so the package compiles without the opencode dependency tree).
 

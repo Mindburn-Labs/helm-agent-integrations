@@ -210,12 +210,19 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
     // ride a stale verdict. ALLOW outcomes are never cached at all — every
     // authorization is freshly evaluated (fail closed against trajectory and
     // doom-loop policies that a cached ALLOW would bypass).
-    const payloadHash = hashBoundaryValue({
+    const payload: Record<string, unknown> = {
       tool: request.tool,
       args: request.args,
-      permission: request.permission,
-      patterns: request.patterns,
-    });
+    };
+    // Omit undefined optional fields explicitly: the strict JSON-finite
+    // validator rejects undefined values, and omission keeps the key stable.
+    if (request.permission !== undefined) {
+      payload.permission = request.permission;
+    }
+    if (request.patterns !== undefined) {
+      payload.patterns = request.patterns;
+    }
+    const payloadHash = hashBoundaryValue(payload);
     const key = `${request.sessionID}:${request.callID ?? ""}:${payloadHash}`;
     const cached = verdictCache.get(key);
     if (cached !== undefined) {

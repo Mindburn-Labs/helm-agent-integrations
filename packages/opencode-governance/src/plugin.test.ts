@@ -439,6 +439,28 @@ describe("P1 POST_AUTH_ARGUMENT_MUTATION defenses", () => {
     );
     assert.equal(kernel.calls, 0, "kernel must not be consulted for unserializable args");
   });
+
+  it("denies args that would change meaning through JSON normalization (P1 LOSSY_ARGUMENT_AUTHORIZATION)", async () => {
+    const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
+    const hooks = makeHooks(kernel, new MemoryEvidenceSink());
+    const lossyArgs: unknown[] = [
+      { command: "ls", extra: undefined }, // undefined property would be dropped
+      { command: ["ls", undefined] }, // would become null in the evaluated copy
+      { timeout: Number.NaN },
+      { limit: Number.POSITIVE_INFINITY },
+    ];
+    for (const args of lossyArgs) {
+      await assert.rejects(
+        () => runBefore(hooks, TOOL_INPUT, args),
+        (error: unknown) => {
+          assert.ok(error instanceof HelmGovernanceDeny);
+          assert.equal(error.reasonCode, "EVIDENCE_SERIALIZATION_FAILURE", JSON.stringify(args));
+          return true;
+        },
+      );
+    }
+    assert.equal(kernel.calls, 0, "kernel must never evaluate a lossy-normalized copy");
+  });
 });
 
 describe("P2 POST_EFFECT_HASH_THROW defenses", () => {

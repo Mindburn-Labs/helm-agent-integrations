@@ -21,13 +21,20 @@ import { join } from "node:path";
 import type { NormalizedVerdict } from "./verdict.js";
 
 /**
- * Deterministic JSON stringify: object keys sorted recursively.
+ * Deterministic JSON stringify: object keys sorted recursively, over
+ * STRICTLY JSON-finite trees only.
  *
- * Typing honesty (P2 CANONICALIZE_BUILD_FAILURE): under strict TS lib defs,
- * `JSON.stringify` returns `string | undefined` — top-level `undefined`,
- * functions, and symbols serialize to `undefined`, not a string. Silently
- * casting that away would let unserializable boundary material produce a
- * garbage hash input, so it is a hard, typed error instead (fail closed).
+ * Typing/losslessness honesty (P2 CANONICALIZE_BUILD_FAILURE, P1
+ * LOSSY_ARGUMENT_AUTHORIZATION): `JSON.stringify` is lossy — it returns
+ * `undefined` for top-level undefined/functions/symbols, silently DROPS
+ * undefined object properties, converts undefined/NaN/Infinity array
+ * members to null, stringifies Dates, and throws on BigInt/cycles.
+ * Authorization that binds to a normalized copy while the tool executes
+ * the original would authorize materially different arguments. So any
+ * value outside the exact JSON data model — undefined anywhere, functions,
+ * symbols, BigInt, non-finite numbers, non-plain objects, cycles — is a
+ * hard, typed error (fail closed). A value that passes validation is
+ * guaranteed to round-trip losslessly through JSON.parse(canonicalize(v)).
  */
 export class EvidenceSerializationError extends Error {
   constructor(message: string) {
@@ -36,13 +43,60 @@ export class EvidenceSerializationError extends Error {
   }
 }
 
+function assertJsonFiniteTree(value: unknown, seen: Set<object>, path: string): void {
+  if (value === null) {
+    return;
+  }
+  switch (typeof value) {
+    case "boolean":
+    case "string":
+      return;
+    case "number":
+      if (!Number.isFinite(value)) {
+        throw new EvidenceSerializationError(
+          `non-finite number at ${path} is not valid boundary material (would serialize lossily)`,
+        );
+      }
+      return;
+    case "object": {
+      if (seen.has(value)) {
+        throw new EvidenceSerializationError(`cyclic structure at ${path} is not valid boundary material`);
+      }
+      const isArray = Array.isArray(value);
+      if (!isArray) {
+        const proto: unknown = Object.getPrototypeOf(value);
+        if (proto !== Object.prototype && proto !== null) {
+          throw new EvidenceSerializationError(
+            `non-plain object at ${path} (${(value as object).constructor?.name ?? "unknown"}) is not valid boundary material`,
+          );
+        }
+      }
+      seen.add(value);
+      if (isArray) {
+        (value as unknown[]).forEach((item, index) => assertJsonFiniteTree(item, seen, `${path}[${index}]`));
+      } else {
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+          assertJsonFiniteTree(item, seen, `${path}.${key}`);
+        }
+      }
+      seen.delete(value);
+      return;
+    }
+    default:
+      // undefined, function, symbol, bigint
+      throw new EvidenceSerializationError(
+        `unserializable boundary material of type ${typeof value} at ${path}`,
+      );
+  }
+}
+
 export function canonicalize(value: unknown): string {
+  assertJsonFiniteTree(value, new Set(), "$");
   const serialized: string | undefined = JSON.stringify(sortKeys(value));
   if (serialized === undefined) {
+    // Unreachable for validated trees; kept as a fail-closed guard.
     throw new EvidenceSerializationError(
-      `boundary material is not JSON-serializable (got ${
-        value === undefined ? "undefined" : typeof value
-      }); refusing to hash unserializable evidence`,
+      "boundary material failed JSON serialization after validation",
     );
   }
   return serialized;

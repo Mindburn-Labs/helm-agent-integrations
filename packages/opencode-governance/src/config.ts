@@ -125,6 +125,13 @@ function parseTimeout(raw: unknown): number {
   if (typeof raw === "number") {
     parsed = raw;
   } else if (typeof raw === "string") {
+    // Strict digits-only: parseInt would silently accept "1ms"/"5000junk"
+    // (P2 PERMISSIVE_TIMEOUT_PARSE); malformed strings are a hard error.
+    if (!/^\d+$/.test(raw)) {
+      throw new GovernanceConfigError(
+        `@helm-ai/opencode-governance: HELM_TIMEOUT_MS must be a digits-only integer string, got ${JSON.stringify(raw)}`,
+      );
+    }
     parsed = Number.parseInt(raw, 10);
   } else {
     throw new GovernanceConfigError(

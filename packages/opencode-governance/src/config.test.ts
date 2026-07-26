@@ -186,6 +186,8 @@ describe("resolveConfig", () => {
   it("fails closed on wrong-type option values instead of silently ignoring them", () => {
     const wrongTypes: Array<Record<string, unknown>> = [
       { timeoutMs: "abc" },
+      { timeoutMs: "1ms" }, // P2 PERMISSIVE_TIMEOUT_PARSE: parseInt would accept
+      { timeoutMs: "5000junk" },
       { timeoutMs: true },
       { timeoutMs: 0 },
       { strictEvidence: "maybe" },

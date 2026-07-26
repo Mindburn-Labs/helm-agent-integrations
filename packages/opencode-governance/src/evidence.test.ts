@@ -41,9 +41,34 @@ describe("canonicalize", () => {
     assert.throws(() => canonicalize(() => {}), EvidenceSerializationError);
     assert.throws(() => canonicalize(Symbol("x")), EvidenceSerializationError);
     assert.throws(() => hashBoundaryValue(undefined), EvidenceSerializationError);
-    // Nested undefined is fine: JSON.stringify handles object members.
-    assert.equal(canonicalize({ a: undefined, b: 1 }), '{"b":1}');
     assert.equal(canonicalize(null), "null");
+  });
+
+  it("fails closed on lossy material (P1 LOSSY_ARGUMENT_AUTHORIZATION)", () => {
+    // These would silently change meaning through JSON.stringify; they must
+    // be rejected so the evaluated copy can never diverge from the original.
+    const cyclic: Record<string, unknown> = { a: 1 };
+    cyclic.self = cyclic;
+    const lossy: unknown[] = [
+      { a: undefined, b: 1 }, // undefined property would be dropped
+      [undefined], // would become [null]
+      [NaN],
+      [Infinity],
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      10n,
+      new Date("2026-07-24"),
+      new Map([["a", 1]]),
+      new Set([1]),
+      /regex/,
+      cyclic,
+    ];
+    for (const [index, value] of lossy.entries()) {
+      assert.throws(() => canonicalize(value), EvidenceSerializationError, `lossy case ${index}`);
+    }
+    // Exact JSON-finite trees round-trip losslessly.
+    const fine = { b: [1, "two", null, true, 1.5, { c: [] }], a: {} };
+    assert.deepEqual(JSON.parse(canonicalize(fine)), fine);
   });
 });
 
