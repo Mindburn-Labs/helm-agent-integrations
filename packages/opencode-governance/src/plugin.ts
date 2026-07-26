@@ -415,6 +415,23 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
       });
     }
 
+    // P1 defense, step 3 (BEFORE any further await): freeze the authorized
+    // args object AND seal the writable `output.args` slot so that neither
+    // later plugins in the chain nor concurrent code holding a reference can
+    // mutate OR replace what the kernel authorized while this hook awaits
+    // the evidence write below. Mutation/reassignment of frozen structures
+    // throws in ESM strict mode, failing that code and blocking the call.
+    // Residual limitation (documented in README): mutation by opencode
+    // internals or the tool itself after all hooks return is unobservable
+    // from a plugin.
+    deepFreezeArgs(output.args);
+    Object.defineProperty(output, "args", {
+      value: output.args,
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    });
+
     const record: BoundaryRecord = {
       ...baseRecord(input.sessionID, input.callID),
       record_type: BOUNDARY_OPEN_RECORD,
@@ -427,14 +444,6 @@ export function createGovernanceHooks(deps: GovernanceDeps): OpencodeHooks {
     // Strict mode: failing to mint the pre-execution record blocks the call,
     // mirroring the kernel hook's "receipt-write-failure denies" posture.
     await appendEvidence(record, "tool.execute.before");
-
-    // P1 defense, step 3: freeze the authorized args object so LATER plugins
-    // in the chain cannot mutate what the kernel authorized. Mutation of a
-    // frozen object throws in ESM strict mode, failing that hook and
-    // blocking the call. Residual limitation (documented in README): we
-    // cannot observe mutation by opencode internals or the tool itself after
-    // all hooks return.
-    deepFreezeArgs(output.args);
   }
 
   async function toolExecuteAfter(

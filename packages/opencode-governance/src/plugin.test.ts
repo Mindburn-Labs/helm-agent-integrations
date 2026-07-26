@@ -400,7 +400,7 @@ describe("P1 POST_AUTH_ARGUMENT_MUTATION defenses", () => {
     assert.ok(denyRecord !== undefined);
   });
 
-  it("freezes the authorized args object so later plugins cannot mutate it", async () => {
+  it("freezes the authorized args object and seals the output.args slot", async () => {
     const kernel = kernelReturning({ kind: "verdict", verdict: "ALLOW", raw: {} });
     const hooks = makeHooks(kernel, new MemoryEvidenceSink());
     const liveOut: { args: unknown } = { args: { command: "ls", nested: { flag: true } } };
@@ -414,6 +414,14 @@ describe("P1 POST_AUTH_ARGUMENT_MUTATION defenses", () => {
       args.command = "rm -rf /";
     }, TypeError);
     assert.equal(args.command, "ls");
+    // The slot itself is sealed: later plugins cannot REPLACE the authorized
+    // args object either.
+    const descriptor = Object.getOwnPropertyDescriptor(liveOut, "args");
+    assert.equal(descriptor?.writable, false);
+    assert.equal(descriptor?.configurable, false);
+    assert.throws(() => {
+      liveOut.args = { command: "id" };
+    }, TypeError);
   });
 
   it("denies unserializable args pre-execution (cyclic object)", async () => {
