@@ -596,6 +596,82 @@ def from_composio_action(call: Mapping[str, Any]) -> BoundaryIntent:
     )
 
 
+def normalize_daytona_network(params: Any) -> str:
+    """Normalize Daytona sandbox network settings into a stable enum.
+
+    Daytona sandboxes have network egress enabled by default. Only an explicit
+    block-all opts out ("isolated"), and an explicit CIDR or domain allowlist
+    narrows egress ("allowlisted"). Anything else fails closed to "external".
+    """
+    record = _record(params)
+    if record.get("network_block_all") is True or record.get("networkBlockAll") is True:
+        return "isolated"
+    if (
+        record.get("network_allow_list")
+        or record.get("networkAllowList")
+        or record.get("domain_allow_list")
+        or record.get("domainAllowList")
+    ):
+        return "allowlisted"
+    return "external"
+
+
+def from_daytona_sandbox_create(call: Mapping[str, Any]) -> BoundaryIntent:
+    network = normalize_daytona_network(call)
+    return _intent(
+        "tool.daytona.sandbox.create",
+        dict(call),
+        {
+            "framework": "daytona",
+            "sandbox_class": call.get("sandbox_class", call.get("class", "container")),
+            "network": network,
+            "target": call.get("target"),
+            "ephemeral": call.get("auto_delete_interval") == 0,
+            **_record(call.get("metadata")),
+        },
+        risk_class="T2",
+        effect_class="E3" if network in {"isolated", "allowlisted"} else "E4",
+    )
+
+
+def from_daytona_process_exec(call: Mapping[str, Any]) -> BoundaryIntent:
+    # The caller passes the owning sandbox's network settings alongside the
+    # command; a missing capability record fails closed to "external".
+    network = normalize_daytona_network(call)
+    return _intent(
+        "tool.daytona.process.exec",
+        dict(call),
+        {
+            "framework": "daytona",
+            "sandbox_id": call.get("sandbox_id"),
+            "network": network,
+            **_record(call.get("metadata")),
+        },
+        risk_class="T2",
+        effect_class="E3" if network in {"isolated", "allowlisted"} else "E4",
+    )
+
+
+def from_daytona_ssh_grant(call: Mapping[str, Any]) -> BoundaryIntent:
+    return _intent(
+        "tool.daytona.sandbox.ssh_grant",
+        dict(call),
+        {
+            "framework": "daytona",
+            "sandbox_id": call.get("sandbox_id"),
+            "access_channel": "ssh",
+            **_record(call.get("metadata")),
+        },
+        risk_class="T2",
+        effect_class="E4",
+    )
+
+
+fromDaytonaSandboxCreate = from_daytona_sandbox_create
+fromDaytonaProcessExec = from_daytona_process_exec
+fromDaytonaSshGrant = from_daytona_ssh_grant
+
+
 async def run_async_result(value: Union[HelmBoundaryResult, Awaitable[HelmBoundaryResult]]) -> HelmBoundaryResult:
     """Test helper for callers that accept sync or async wrapped functions."""
 

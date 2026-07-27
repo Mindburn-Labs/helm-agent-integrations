@@ -13,11 +13,15 @@ from helm_tool_wrapper import (
     from_claude_tool_call,
     from_composio_action,
     from_codex_tool_call,
+    from_daytona_process_exec,
+    from_daytona_sandbox_create,
+    from_daytona_ssh_grant,
     from_e2b_execution,
     from_tinyfish_agent_run,
     from_tinyfish_browser_session,
     from_tinyfish_fetch,
     from_tinyfish_search,
+    normalize_daytona_network,
     normalize_e2b_network,
     preflight_action,
     with_helm_boundary,
@@ -382,6 +386,44 @@ class BoundaryWrapperTests(unittest.TestCase):
         self.assertEqual(normalize_e2b_network(False), "isolated")
         self.assertEqual(normalize_e2b_network("external"), "external")
         self.assertEqual(normalize_e2b_network({"internet_access": True}), "external")
+
+    def test_daytona_helpers_normalize_network_and_fail_closed(self) -> None:
+        # No explicit network settings must not be treated as isolated.
+        unbounded = from_daytona_sandbox_create({"snapshot": "daytonaio/sandbox:latest"})
+        self.assertEqual(unbounded.action_urn, "tool.daytona.sandbox.create")
+        self.assertEqual(unbounded.metadata["network"], "external")
+        self.assertEqual(unbounded.effect_class, "E4")
+
+        allowlisted = from_daytona_sandbox_create(
+            {
+                "snapshot": "daytonaio/sandbox:latest",
+                "domain_allow_list": ["api.example.com"],
+                "auto_delete_interval": 0,
+            }
+        )
+        self.assertEqual(allowlisted.metadata["network"], "allowlisted")
+        self.assertEqual(allowlisted.effect_class, "E3")
+        self.assertTrue(allowlisted.metadata["ephemeral"])
+
+        isolated = from_daytona_sandbox_create(
+            {"snapshot": "daytonaio/sandbox:latest", "network_block_all": True}
+        )
+        self.assertEqual(isolated.metadata["network"], "isolated")
+        self.assertEqual(isolated.effect_class, "E3")
+
+        exec_unknown = from_daytona_process_exec({"sandbox_id": "sbx-1", "command": "make test"})
+        self.assertEqual(exec_unknown.action_urn, "tool.daytona.process.exec")
+        self.assertEqual(exec_unknown.metadata["network"], "external")
+        self.assertEqual(exec_unknown.effect_class, "E4")
+
+        ssh = from_daytona_ssh_grant({"sandbox_id": "sbx-1", "expires_in_minutes": 60})
+        self.assertEqual(ssh.action_urn, "tool.daytona.sandbox.ssh_grant")
+        self.assertEqual(ssh.metadata["access_channel"], "ssh")
+        self.assertEqual(ssh.effect_class, "E4")
+
+        self.assertEqual(normalize_daytona_network({"network_block_all": True}), "isolated")
+        self.assertEqual(normalize_daytona_network({"networkAllowList": "10.0.0.0/24"}), "allowlisted")
+        self.assertEqual(normalize_daytona_network(None), "external")
 
 
 if __name__ == "__main__":

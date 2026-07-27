@@ -49,6 +49,26 @@ def normalize_e2b_network(capability: Any) -> str:
     return "external"
 
 
+def normalize_daytona_network(params: Any) -> str:
+    """Normalize Daytona sandbox network settings into a stable enum.
+
+    Daytona sandboxes have network egress enabled by default. Only an explicit
+    block-all opts out ("isolated"), and an explicit CIDR or domain allowlist
+    narrows egress ("allowlisted"). Anything else fails closed to "external".
+    """
+    record = params if isinstance(params, dict) else {}
+    if record.get("network_block_all") is True or record.get("networkBlockAll") is True:
+        return "isolated"
+    if (
+        record.get("network_allow_list")
+        or record.get("networkAllowList")
+        or record.get("domain_allow_list")
+        or record.get("domainAllowList")
+    ):
+        return "allowlisted"
+    return "external"
+
+
 @dataclass(frozen=True)
 class Scenario:
     scenario_id: str
@@ -334,6 +354,39 @@ SCENARIOS = [
             # normalized into the stable enum the reference policy matches on.
             "network": normalize_e2b_network({"internet_access": True}),
         },
+    ),
+    Scenario(
+        scenario_id="daytona-sandbox-unbounded-egress-deny",
+        framework="daytona",
+        title="Daytona sandbox creation with unbounded egress is denied",
+        action_urn="tool.daytona.sandbox.create",
+        risk_class="T2",
+        effect_class="E4",
+        verdict="DENY",
+        reason_code="SANDBOX_UNBOUNDED_EGRESS_DENY",
+        dispatched=False,
+        policy="policies/agent.devtools.high_risk.toml",
+        arguments={
+            "snapshot": "daytonaio/sandbox:latest",
+            "sandbox_class": "container",
+            # Daytona sandboxes default to open egress; the raw settings are
+            # normalized into the stable enum the reference policy matches on.
+            "network": normalize_daytona_network({}),
+        },
+    ),
+    Scenario(
+        scenario_id="daytona-ssh-grant-escalate",
+        framework="daytona",
+        title="Daytona sandbox SSH grant escalates for human approval",
+        action_urn="tool.daytona.sandbox.ssh_grant",
+        risk_class="T2",
+        effect_class="E4",
+        verdict="ESCALATE",
+        reason_code="SANDBOX_HUMAN_ACCESS_ESCALATE",
+        dispatched=False,
+        policy="policies/agent.devtools.high_risk.toml",
+        arguments={"sandbox_id": "sbx-governed-demo", "expires_in_minutes": 60},
+        policy_facts={"access_channel": "ssh"},
     ),
     Scenario(
         scenario_id="composio-salesforce-export-deny",
