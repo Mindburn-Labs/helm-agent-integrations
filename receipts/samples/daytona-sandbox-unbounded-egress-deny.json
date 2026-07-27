@@ -1,6 +1,6 @@
 {
   "action_urn": "tool.daytona.sandbox.create",
-  "arguments_hash": "sha256:fac239b65a0322df66c7a56c658f2a9eda92da48b246af66cdfe629c8a2de1d8",
+  "arguments_hash": "sha256:a26eacd11511c02ed81f944b6d8bd4305a849d1a0b286696a52724c82d735d89",
   "decision_id": "decision:daytona-sandbox-unbounded-egress-deny",
   "dispatched": false,
   "effect_class": "E4",
@@ -13,7 +13,7 @@
     "network": "external"
   },
   "reason_code": "SANDBOX_UNBOUNDED_EGRESS_DENY",
-  "receipt_hash": "sha256:a2db565e73df695ade1d6e671f8fdd77c67adfa968a76a595c96df1223be8ddb",
+  "receipt_hash": "sha256:afc7cee0f9f2f65967b9d1ec4705d0ebb1965434d5cb912629d0ffb103c0377c",
   "receipt_id": "receipt:daytona-sandbox-unbounded-egress-deny",
   "risk_class": "T2",
   "sample_only": true,

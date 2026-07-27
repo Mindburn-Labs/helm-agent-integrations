@@ -8,3 +8,5 @@ __pycache__/
 .venv/
 .DS_Store
 integrations/daytona/examples/governed-sandbox-live/out/
+# local kernel state (policy TOMLs point here); holds signing keys
+data/

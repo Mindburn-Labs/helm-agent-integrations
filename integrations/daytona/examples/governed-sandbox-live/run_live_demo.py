@@ -34,12 +34,12 @@ from helm_tool_wrapper import (  # noqa: E402
 SESSION_ID = "daytona-governed-demo"
 
 ALLOWLISTED_CREATE = {
-    "snapshot": "daytonaio/sandbox:latest",
+    "snapshot": "daytona-small",
     "sandbox_class": "container",
-    "cpu": 1,
-    "memory": 1,
-    "disk": 3,
-    "domain_allow_list": ["pypi.org", "files.pythonhosted.org"],
+    # Verified against daytona SDK 0.176.0: the allowlist is a comma-separated
+    # CIDR string, not a domain list. Resource caps (cpu/memory/disk) live on
+    # Resources, which the image-based create path takes, not the snapshot one.
+    "network_allow_list": "10.0.0.0/8,192.168.0.0/16",
     "auto_stop_interval": 15,
     "auto_delete_interval": 0,
 }
@@ -47,7 +47,7 @@ ALLOWLISTED_CREATE = {
 PROPOSALS: list[tuple[str, BoundaryIntent, str, Mapping[str, Any]]] = [
     (
         "unbounded-create",
-        from_daytona_sandbox_create({"snapshot": "daytonaio/sandbox:latest"}),
+        from_daytona_sandbox_create({"snapshot": "daytona-small"}),
         "DENY",
         {},
     ),
@@ -96,16 +96,15 @@ def stub_transport(
 def compile_create_params(call: Mapping[str, Any], decision_id: str | None) -> dict[str, Any]:
     """Compile ALLOW constraints into Daytona sandbox create parameters.
 
-    Field names pinned against the Apache-2.0 `daytona` Python SDK as of
-    2026-07; verify on first live run and adjust here if the SDK renames them.
+    Field names verified against the Apache-2.0 `daytona` SDK 0.176.0 on
+    2026-07-27 with a live sandbox create. Only the fields
+    CreateSandboxFromSnapshotParams accepts appear here; resource caps would
+    require the image-based create path and its Resources object.
     """
     return {
         "snapshot": call["snapshot"],
-        "cpu": call.get("cpu"),
-        "memory": call.get("memory"),
-        "disk": call.get("disk"),
         "network_block_all": False,
-        "domain_allow_list": list(call.get("domain_allow_list", [])),
+        "network_allow_list": call.get("network_allow_list"),
         "auto_stop_interval": call.get("auto_stop_interval"),
         "auto_delete_interval": call.get("auto_delete_interval"),
         "labels": {
@@ -115,19 +114,22 @@ def compile_create_params(call: Mapping[str, Any], decision_id: str | None) -> d
     }
 
 
-def dispatch_live(params: dict[str, Any]) -> dict[str, Any]:
+def dispatch_live(params: Mapping[str, Any]) -> dict[str, Any]:
     try:
-        from daytona import Daytona  # type: ignore[import-not-found]
+        from daytona import CreateSandboxFromSnapshotParams, Daytona  # type: ignore[import-not-found]
     except ImportError:
         return {"dispatch_error": "daytona SDK not installed; pip install daytona"}
     client = Daytona()  # reads DAYTONA_API_KEY from the environment
-    sandbox = client.create(**{k: v for k, v in params.items() if v is not None})
+    create_params = CreateSandboxFromSnapshotParams(
+        **{k: v for k, v in params.items() if v is not None}
+    )
+    sandbox = client.create(create_params)
     try:
         response = sandbox.process.exec("echo governed-by-helm")
         output = getattr(response, "result", str(response))
     finally:
         sandbox.delete()
-    return {"sandbox_output": output}
+    return {"sandbox_id": sandbox.id, "sandbox_output": output}
 
 
 def main() -> int:

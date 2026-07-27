@@ -367,7 +367,7 @@ SCENARIOS = [
         dispatched=False,
         policy="policies/agent.devtools.high_risk.toml",
         arguments={
-            "snapshot": "daytonaio/sandbox:latest",
+            "snapshot": "daytona-small",
             "sandbox_class": "container",
             # Daytona sandboxes default to open egress; the raw settings are
             # normalized into the stable enum the reference policy matches on.

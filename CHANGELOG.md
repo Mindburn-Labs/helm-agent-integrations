@@ -8,7 +8,8 @@
 - Added reference-policy rules and generated samples for
   `SANDBOX_UNBOUNDED_EGRESS_DENY` and `SANDBOX_HUMAN_ACCESS_ESCALATE`.
 - Added `integrations/daytona/` with a preflight example and an
-  offline-runnable governed-sandbox demo with an opt-in live mode.
+  offline-runnable governed-sandbox demo with an opt-in live mode, verified
+  against the live API on 2026-07-27 (SDK 0.176.0).
 
 ## 0.1.0 - 2026-06-05
 

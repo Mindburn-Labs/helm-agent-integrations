@@ -389,14 +389,14 @@ class BoundaryWrapperTests(unittest.TestCase):
 
     def test_daytona_helpers_normalize_network_and_fail_closed(self) -> None:
         # No explicit network settings must not be treated as isolated.
-        unbounded = from_daytona_sandbox_create({"snapshot": "daytonaio/sandbox:latest"})
+        unbounded = from_daytona_sandbox_create({"snapshot": "daytona-small"})
         self.assertEqual(unbounded.action_urn, "tool.daytona.sandbox.create")
         self.assertEqual(unbounded.metadata["network"], "external")
         self.assertEqual(unbounded.effect_class, "E4")
 
         allowlisted = from_daytona_sandbox_create(
             {
-                "snapshot": "daytonaio/sandbox:latest",
+                "snapshot": "daytona-small",
                 "domain_allow_list": ["api.example.com"],
                 "auto_delete_interval": 0,
             }
@@ -406,7 +406,7 @@ class BoundaryWrapperTests(unittest.TestCase):
         self.assertTrue(allowlisted.metadata["ephemeral"])
 
         isolated = from_daytona_sandbox_create(
-            {"snapshot": "daytonaio/sandbox:latest", "network_block_all": True}
+            {"snapshot": "daytona-small", "network_block_all": True}
         )
         self.assertEqual(isolated.metadata["network"], "isolated")
         self.assertEqual(isolated.effect_class, "E3")

@@ -36,6 +36,31 @@ reported, not asserted — the active policy owns the outcome. On ALLOW the
 demo creates a real sandbox with the compiled constraints, runs one command,
 and deletes the sandbox.
 
+## Verified against the live API (2026-07-27, SDK 0.176.0)
+
+The dispatch path was exercised against a real account. A sandbox created from
+the compiled constraints reports them back over the REST API:
+
+```json
+{
+  "networkAllowList": "10.0.0.0/8,192.168.0.0/16",
+  "networkBlockAll": false,
+  "autoStopInterval": 15,
+  "autoDeleteInterval": 0,
+  "labels": {"helm.decision_id": "...", "helm.session_id": "..."}
+}
+```
+
+Three constraints of the SDK surface shaped `compile_create_params`:
+
+- `create()` takes a `CreateSandboxFromSnapshotParams` object, not keyword
+  arguments.
+- `network_allow_list` is a comma-separated **CIDR string**. The SDK exposes no
+  domain allowlist field, so a domain-scoped permit condition cannot be
+  compiled through this path.
+- Resource caps live on `Resources`, which only the image-based create path
+  accepts; sandboxes created from a snapshot inherit that snapshot's preset.
+
 Sample-only demo. Verdict, receipt, and EvidencePack semantics remain owned
 by `helm-ai-kernel`; the JSONL written to `./out/` is demo output, not an
 EvidencePack.
