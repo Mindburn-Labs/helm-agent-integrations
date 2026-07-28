@@ -115,6 +115,10 @@ def compile_create_params(call: Mapping[str, Any], decision_id: str | None) -> d
 
 
 def dispatch_live(params: Mapping[str, Any]) -> dict[str, Any]:
+    # Checked here, not at startup, so the governed half can be verified with a
+    # kernel alone — no vendor credentials needed to prove the gate works.
+    if not os.environ.get("DAYTONA_API_KEY"):
+        return {"dispatch_error": "DAYTONA_API_KEY not set; verdict reported, dispatch skipped"}
     try:
         from daytona import CreateSandboxFromSnapshotParams, Daytona  # type: ignore[import-not-found]
     except ImportError:
@@ -138,7 +142,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.live:
-        missing = [k for k in ("HELM_URL", "HELM_API_KEY", "HELM_TENANT_ID", "DAYTONA_API_KEY") if not os.environ.get(k)]
+        missing = [k for k in ("HELM_URL", "HELM_API_KEY", "HELM_TENANT_ID") if not os.environ.get(k)]
         if missing:
             print(f"live mode needs env vars: {', '.join(missing)}")
             return 2

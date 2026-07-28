@@ -10,6 +10,8 @@
 - Added `integrations/daytona/` with a preflight example and an
   offline-runnable governed-sandbox demo with an opt-in live mode, verified
   against the live API on 2026-07-27 (SDK 0.176.0).
+- Added a kernel-loadable policy and reference pack for the governed-sandbox
+  demo, exercised against HELM AI Kernel v0.7.5.
 
 ## 0.1.0 - 2026-06-05
 

@@ -22,21 +22,49 @@ verdicts (exit code is non-zero on mismatch). Decision records land in
 
 ## Live (opt in)
 
+`policy/` holds a kernel-loadable policy and reference pack for this demo.
+Start a kernel with it, then run the demo against it:
+
+```bash
+helm serve -policy policy/daytona.governed.toml -port 7714 -data-dir ./data
+```
+
+The kernel needs these in its environment: `HELM_ADMIN_API_KEY` (the key the
+demo sends), and `HELM_RUNTIME_PRINCIPAL_ID=daytona-demo-agent` to bind the
+principal the demo presents. The tenant defaults to `default`.
+
 ```bash
 export HELM_URL=http://127.0.0.1:7714
-export HELM_API_KEY=...      # tenant-scoped evaluate key
-export HELM_TENANT_ID=...
-export DAYTONA_API_KEY=...   # from the Daytona dashboard
-pip install daytona
+export HELM_API_KEY=...       # must match the kernel's HELM_ADMIN_API_KEY
+export HELM_TENANT_ID=default
 python3 run_live_demo.py --live
 ```
 
-In live mode the verdicts come from the running HELM AI Kernel and are
-reported, not asserted — the active policy owns the outcome. On ALLOW the
-demo creates a real sandbox with the compiled constraints, runs one command,
-and deletes the sandbox.
+Verdicts now come from the kernel and are reported, not asserted — the active
+policy owns the outcome. Observed against kernel v0.7.5:
 
-## Verified against the live API (2026-07-27, SDK 0.176.0)
+```text
+unbounded-create: DENY (MISSING_REQUIREMENT)
+allowlisted-create: ALLOW
+ssh-grant: DENY (PDP_DENY)
+```
+
+Dispatch is separate. Export `DAYTONA_API_KEY` and `pip install daytona` to
+have an ALLOW create a real sandbox with the compiled constraints, run one
+command, and delete it. Without it the verdict is still reported and the
+skipped dispatch is recorded — so the gate can be verified with a kernel
+alone.
+
+Two things the demo policy makes explicit:
+
+- Policy expressions read the wrapper's normalized fields through
+  `input.effect.params.*` — the egress rule is
+  `input.effect.params.metadata.network != 'external'`.
+- A reference pack grants by action; an action it does not list is denied.
+  ESCALATE is not expressible this way, so `ssh_grant` returns DENY here
+  rather than the ESCALATE the offline stub returns.
+
+## Verified against the live Daytona API (2026-07-27, SDK 0.176.0)
 
 The dispatch path was exercised against a real account. A sandbox created from
 the compiled constraints reports them back over the REST API:

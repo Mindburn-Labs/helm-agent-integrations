@@ -1,0 +1,17 @@
+{
+  "pack_id": "daytona-governed-sandbox",
+  "label": "Daytona governed sandbox demo",
+  "version": 1,
+  "runtime_actions": [
+    {
+      "action": "tool.daytona.sandbox.create",
+      "expression": "input.effect.params.metadata.network != 'external'",
+      "description": "sandbox creation requires bounded egress (block-all or an allowlist)"
+    },
+    {
+      "action": "tool.daytona.process.exec",
+      "expression": "input.effect.params.metadata.network != 'external'",
+      "description": "execution requires the owning sandbox to have bounded egress"
+    }
+  ]
+}
