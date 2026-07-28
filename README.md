@@ -28,7 +28,8 @@ This repo currently ships:
 - TypeScript `withHelmBoundary(...)` wrapper around `POST /api/v1/evaluate`
 - Python `with_helm_boundary(...)` wrapper around `POST /api/v1/evaluate`
 - framework intent normalizers for Hermes, OpenClaw, Mastra, Codex, Claude
-  Code, Browser Use, E2B, Composio, and TinyFish governed web capability
+  Code, Browser Use, E2B, Daytona, Composio, and TinyFish governed web
+  capability
 - universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
   tool wrappers
 - routed-action receipt example showing verdict, receipt ref, and EvidencePack

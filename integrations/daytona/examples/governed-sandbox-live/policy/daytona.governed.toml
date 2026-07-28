@@ -1,0 +1,11 @@
+name = "daytona_governed_sandbox"
+profile = "devtools_high_risk_demo"
+reference_pack = "./reference/daytona.governed.v1.json"
+
+[server]
+bind = "127.0.0.1"
+port = 7714
+
+[receipts]
+store = "sqlite"
+path = "./data/daytona-governed-demo.db"

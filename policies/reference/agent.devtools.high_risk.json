@@ -19,6 +19,16 @@
       "reason_code": "SANDBOX_NETWORK_EGRESS_DENY"
     },
     {
+      "match": { "action_urn": "tool.daytona.sandbox.create", "network": "external" },
+      "verdict": "DENY",
+      "reason_code": "SANDBOX_UNBOUNDED_EGRESS_DENY"
+    },
+    {
+      "match": { "action_urn": "tool.daytona.sandbox.ssh_grant", "access_channel": "ssh" },
+      "verdict": "ESCALATE",
+      "reason_code": "SANDBOX_HUMAN_ACCESS_ESCALATE"
+    },
+    {
       "match": { "action_urn": "tool.proxy.shell.execute" },
       "verdict": "DENY",
       "reason_code": "PROXY_SIDE_EFFECT_DENY"
