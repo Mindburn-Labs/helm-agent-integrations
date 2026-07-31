@@ -29,9 +29,10 @@ governance semantics Rowboat does not have (Rowboat runs channel turns with
   `"chat"` to the allowlist restores Rowboat-style permission-less turns —
   a deliberate, risky operator choice.
 - **Transport is fail closed.** Telegram DMs only (group chats are ignored —
-  any member could otherwise drive the bridge), an explicit chat-ID allowlist
-  (empty = deny everyone), persisted poll offset (no re-execution after
-  restart), and terminal handling for revoked tokens (401/404).
+  any member could otherwise drive the bridge), an explicit chat-and-sender-ID
+  allowlist (empty = deny everyone), an offset confirmed only after the
+  inbound handler settles (at-least-once delivery after a persistence failure),
+  and terminal handling for revoked tokens (401/404).
 
 ## Credentials
 
@@ -68,7 +69,7 @@ const transport = new TelegramTransport(
     allowFrom: ["123456789"],       // your Telegram chat ID
     stateFile: ".helm/telegram-offset.json",
     onInbound: (senderKey, chatId, text) =>
-      void bridge.handleInbound(senderKey, text, (msg) => transport.send(chatId, msg)),
+      bridge.handleInbound(senderKey, text, (msg) => transport.send(chatId, msg)),
   }),
 );
 
@@ -76,9 +77,9 @@ await transport.start();
 ```
 
 `ChannelSessions` / `ChannelTurnEventSource` are minimal interfaces your
-governed runtime implements (create session, send message, stop turn, respond
-to ask_human, settle-event stream). The bridge only ever calls them after a
-Kernel `ALLOW`.
+governed runtime implements (principal-scoped session listing, create session,
+send message, stop turn, respond to ask_human, settle-event stream). The
+bridge only ever calls them after a Kernel `ALLOW`.
 
 ## Demo of a non-dispatching path
 

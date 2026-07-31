@@ -10,12 +10,21 @@
 //
 // Fail-closed properties:
 //   - DMs only: group chats would let any member drive the bridge.
-//   - allowFrom is an explicit chat-ID allowlist; an empty allowlist denies
-//     everyone.
-//   - The getUpdates offset is persisted after each processed batch. Telegram
-//     only confirms updates when a LATER getUpdates passes a higher offset,
-//     so without persistence every restart would redeliver — and re-execute —
-//     the last batch.
+//   - allowFrom is an explicit allowlist matched against BOTH the chat ID and
+//     the sender user ID; an empty allowlist denies everyone. Non-allowlisted
+//     chats are dropped silently — replying with a pairing hint would be a
+//     spam/discovery vector.
+//   - Update offsets are persisted only AFTER the update was fully handled,
+//     and an update is confirmed in-memory only after its offset was
+//     persisted. A persistence failure fails closed: the offset is not
+//     advanced, the error is surfaced, and Telegram redelivers the
+//     unconfirmed update. Delivery semantics are therefore at-least-once at
+//     the transport boundary with exactly-once confirmation per persisted
+//     offset — Telegram only confirms updates when a LATER getUpdates passes
+//     a higher offset, so without persistence every restart would redeliver
+//     the last batch; persisting before handling would instead lose commands
+//     on crash. Side-effecting handlers downstream must tolerate redelivery
+//     of the most recent unconfirmed update after a persistence failure.
 //   - 401/404 from the Bot API are terminal (token revoked / bot deleted);
 //     retrying forever would hammer the API and misreport status.
 
@@ -62,12 +71,17 @@ export interface TelegramUpdate {
 export interface TelegramTransportOptions {
   /** Bot token, sourced from the HELM_TELEGRAM_BOT_TOKEN env var. Never logged. */
   botToken: string;
-  /** Explicit chat-ID allowlist (as strings). Empty allowlist denies everyone. */
+  /** Explicit allowlist (as strings) matched against chat ID AND sender user ID. Empty allowlist denies everyone. */
   allowFrom: string[];
   /** JSON file holding { offset } across restarts. */
   stateFile: string;
-  /** chatId is the address to reply to; the caller owns reply routing. */
-  onInbound: (senderKey: string, chatId: string, text: string) => void;
+  /**
+   * chatId is the address to reply to; the caller owns reply routing.
+   * Awaited by the transport: the poll offset is persisted only after this
+   * handler completes, so it should return the handling promise (a rejected
+   * promise keeps the update unconfirmed and surfaces the error).
+   */
+  onInbound: (senderKey: string, chatId: string, text: string) => void | Promise<void>;
   onStatus?: (status: TelegramTransportStatus) => void;
   /** Injectable for tests. */
   fetch?: FetchLike;
@@ -145,12 +159,21 @@ export class TelegramTransport {
     }
   }
 
-  private async saveOffset(): Promise<void> {
+  /**
+   * Persist the poll offset for an update that was fully handled.
+   * Fail closed: any persistence error throws, so the caller keeps the
+   * in-memory offset un-advanced and the update unconfirmed — a silent
+   * failure here would replay and re-execute side effects after restart.
+   */
+  private async saveOffset(offset: number): Promise<void> {
     try {
       await fs.mkdir(path.dirname(this.opts.stateFile), { recursive: true });
-      await fs.writeFile(this.opts.stateFile, JSON.stringify({ offset: this.offset }));
-    } catch {
-      // best effort — worst case is one redelivered batch after restart
+      await fs.writeFile(this.opts.stateFile, JSON.stringify({ offset }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TelegramApiError(
+        `Failed to persist the Telegram poll offset — refusing to confirm processed updates: ${message}`,
+      );
     }
   }
 
@@ -229,29 +252,34 @@ export class TelegramTransport {
       this.abort.signal,
     ) as TelegramUpdate[];
     for (const update of updates) {
-      this.offset = update.update_id + 1;
-      this.processUpdate(update);
-    }
-    if (updates.length > 0) {
-      await this.saveOffset();
+      // Handle FIRST: the offset is advanced only after the update was fully
+      // handled, so a crash or handler failure can never lose a command.
+      await this.processUpdate(update);
+      const next = update.update_id + 1;
+      // Persist BEFORE confirming in-memory: if persistence fails, fail
+      // closed — the offset stays un-advanced, the error propagates to the
+      // poll loop's error status, and Telegram redelivers the update.
+      await this.saveOffset(next);
+      this.offset = next;
     }
   }
 
   /** Route one update; public so tests can exercise authorization directly. */
-  processUpdate(update: TelegramUpdate): void {
+  async processUpdate(update: TelegramUpdate): Promise<void> {
     const message = update.message;
     if (!message?.text || message.from?.is_bot) return;
     // DMs only: group chats would let any member drive the bridge.
     if (message.chat.type !== "private") return;
     const chatId = String(message.chat.id);
-    if (!this.opts.allowFrom.includes(chatId)) {
-      void this.send(
-        chatId,
-        `⛔ Not authorized. Your chat ID is ${chatId} — add it to the bridge allowlist to pair this chat.`,
-      ).catch(() => undefined);
+    const fromId = message.from ? String(message.from.id) : null;
+    // Both the chat and the sender user must be allowlisted: a allowlisted
+    // chat must not be drivable by an unknown sender identity.
+    if (!this.opts.allowFrom.includes(chatId) || fromId === null || !this.opts.allowFrom.includes(fromId)) {
+      // Silent drop — replying with a pairing hint would be a spam/discovery
+      // vector for anyone who finds the bot.
       return;
     }
-    this.opts.onInbound(`telegram:${chatId}`, chatId, message.text);
+    await this.opts.onInbound(`telegram:${chatId}`, chatId, message.text);
   }
 
   async send(chatId: string, text: string): Promise<void> {

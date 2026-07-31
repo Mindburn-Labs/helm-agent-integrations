@@ -52,6 +52,8 @@ class FakeSessions {
   sent: SentMessage[] = [];
   stopped: Array<{ turnId: string; reason: string }> = [];
   answered: Array<{ turnId: string; toolCallId: string; answer: string }> = [];
+  listCalls: string[] = [];
+  onlyPrincipal?: string;
   created = 0;
   turnCounter = 0;
   /** Optional hook fired synchronously inside sendMessage (bus is already subscribed). */
@@ -59,8 +61,12 @@ class FakeSessions {
   /** Optional hook fired synchronously inside respondToAskHuman. */
   onAnswer?: (turnId: string) => void;
 
-  listSessions(): ChannelSessionSummary[] {
-    return this.summaries;
+  // Deliberately UNscoped: returns every session regardless of principal, to
+  // prove the bridge itself enforces per-principal scoping even when the
+  // engine does not.
+  listSessions(principal: string): ChannelSessionSummary[] {
+    this.listCalls.push(principal);
+    return this.onlyPrincipal === undefined || principal === this.onlyPrincipal ? this.summaries : [];
   }
 
   async createSession(): Promise<string> {
@@ -139,6 +145,78 @@ test("read-only command is Kernel-evaluated before execution", async () => {
   assert.equal(req.metadata?.auto_permission, true);
   assert.equal(sessions.sent.length, 0);
   assert.ok(replies.some((r) => r.includes("Quarterly audit")));
+});
+
+test("resumed sessions retain the sender principal for every lookup", async () => {
+  const { bridge, sessions, replies, reply } = harness();
+  sessions.onlyPrincipal = "telegram:42";
+  sessions.summaries.push({
+    sessionId: "sess-1",
+    title: "Private audit",
+    updatedAt: new Date().toISOString(),
+    latestTurnId: "turn-private",
+    latestTurnStatus: "running",
+  });
+
+  await bridge.handleInbound("telegram:42", "resume 1", reply);
+  await bridge.handleInbound("telegram:42", "status", reply);
+  await bridge.handleInbound("telegram:42", "stop", reply);
+
+  assert.ok(replies.some((r) => r.includes('Resumed "Private audit"')));
+  assert.ok(replies.some((r) => r.includes('Current session: "Private audit"')));
+  assert.deepEqual(sessions.stopped, [{ turnId: "turn-private", reason: "stopped from governed channel" }]);
+  assert.ok(sessions.listCalls.every((principal) => principal === "telegram:42"));
+});
+
+test("a bridge-owned session is hidden from another sender even with an unscoped engine", async () => {
+  const { bridge, sessions, bus, replies, reply } = harness();
+  sessions.onSend = (turnId) => bus.emit(turnId, { type: "turn_completed", text: "done" });
+
+  await bridge.handleInbound("telegram:42", "start private work", reply);
+  replies.length = 0;
+  await bridge.handleInbound("telegram:1337", "list", reply);
+  await bridge.handleInbound("telegram:1337", "resume 1", reply);
+
+  assert.equal(sessions.sent.length, 1);
+  assert.ok(replies.some((r) => r.includes("No governed sessions yet")));
+  assert.ok(replies.some((r) => r.includes("No session #1")));
+});
+
+test("new with a message evaluates the fresh session and embedded turn separately", async () => {
+  const { bridge, evaluator, sessions, replies, reply } = harness();
+  evaluator.decide = (request) =>
+    request.actionUrn === "channel.telegram.turn.run"
+      ? { verdict: "DENY", reason: "turns disabled" }
+      : { verdict: "ALLOW" };
+
+  await bridge.handleInbound("telegram:42", "new delete the audit", reply);
+
+  assert.deepEqual(
+    evaluator.requests.map((request) => request.actionUrn),
+    ["channel.telegram.command.new", "channel.telegram.turn.run"],
+  );
+  assert.equal(sessions.created, 0);
+  assert.equal(sessions.sent.length, 0);
+  assert.ok(replies.some((r) => r.includes('HELM denied "chat"')));
+});
+
+test("a timeout keeps the sender busy without discarding the active session", async () => {
+  const { bridge, sessions, bus, replies, reply } = harness({ turnTimeoutMs: 1 });
+
+  await bridge.handleInbound("telegram:42", "first", reply);
+  await bridge.handleInbound("telegram:42", "new second", reply);
+  await bridge.handleInbound("telegram:42", "status", reply);
+
+  assert.equal(sessions.sent.length, 1);
+  assert.ok(replies.some((r) => r.includes('Current session: "Session 1"')));
+
+  bus.emit("turn-1", { type: "turn_completed", text: "first complete" });
+  await new Promise((resolve) => setImmediate(resolve));
+  sessions.onSend = (turnId) => bus.emit(turnId, { type: "turn_completed", text: "second complete" });
+  await bridge.handleInbound("telegram:42", "second", reply);
+
+  assert.equal(sessions.sent.length, 2);
+  assert.equal(sessions.sent[1].sessionId, "sess-1");
 });
 
 test("chat message becomes a Kernel-evaluated turn and dispatches on ALLOW", async () => {

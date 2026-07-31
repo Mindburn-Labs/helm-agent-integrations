@@ -40,9 +40,17 @@ export interface ChannelTurnSendOptions {
  * Minimal governed-session engine the bridge drives. Implementations are
  * expected to route sendMessage/stopTurn/respondToAskHuman through the host
  * agent runtime; the bridge only ever calls them after a Kernel ALLOW.
+ *
+ * Session listing is principal-scoped: implementations MUST return only the
+ * sessions the given principal is authorized to see. The bridge additionally
+ * checks recorded ownership for sessions it created, so another sender cannot
+ * list, resume, or drive them even if an in-process engine responds
+ * incorrectly. After a bridge restart, the session engine remains the source
+ * of truth for pre-existing session visibility.
  */
 export interface ChannelSessions {
-  listSessions(): ChannelSessionSummary[];
+  /** Return only sessions visible to this principal (the channel sender). */
+  listSessions(principal: string): ChannelSessionSummary[];
   createSession(): Promise<string>;
   sendMessage(
     sessionId: string,
@@ -127,6 +135,10 @@ interface SenderState {
   lastList: string[];
   pendingAsk: { turnId: string; toolCallId: string } | null;
   busy: boolean;
+  // Turn currently occupying the sender. Cleared only by a real settle event
+  // (or by the turn never starting); a watcher timeout alone NEVER clears it,
+  // so a still-running turn keeps the sender busy.
+  activeTurnId: string | null;
 }
 
 type Settled =
@@ -225,6 +237,10 @@ interface TurnWatcher {
 
 export class ChannelBridge {
   private senders = new Map<string, SenderState>();
+  // Ownership record for sessions created through this bridge. Used to
+  // enforce per-principal scoping even if the session engine ever answers
+  // with an unscoped listing (defense in depth — the engine scopes too).
+  private sessionOwners = new Map<string, string>();
   private readonly turnTimeoutMs: number;
   private readonly autoPermissionAllowlist: Set<string>;
 
@@ -272,22 +288,40 @@ export class ChannelBridge {
           await reply(HELP_TEXT);
           return;
         case "list":
-          await reply(this.renderList(state));
+          await reply(this.renderList(state, senderKey));
           return;
         case "resume":
-          await reply(this.resumeSession(state, Number(command.arg)));
+          await reply(this.resumeSession(state, senderKey, Number(command.arg)));
           return;
         case "status":
-          await reply(this.renderStatus(state));
+          await reply(this.renderStatus(state, senderKey));
           return;
         case "stop":
-          await reply(await this.stopActive(state));
+          await reply(await this.stopActive(state, senderKey));
           return;
         case "new": {
+          // A fresh-session request must never discard the active session
+          // while its turn is still running. The Kernel has authorized this
+          // command, but no local state change is safe until the sender is
+          // free to start the new turn.
+          if (state.busy) {
+            await reply('⏳ Still working on the previous message — send "stop" to cancel it.');
+            return;
+          }
           state.activeSessionId = null;
           state.pendingAsk = null;
           if (!command.arg) {
             await reply("🆕 Fresh governed session — send your first message.");
+            return;
+          }
+          // "new <message>" embeds a turn: command.new (E1, evaluated above)
+          // only authorizes starting a fresh session. The message itself MUST
+          // pass the full turn evaluation chain (E3 turn.run) before dispatch,
+          // exactly like a bare chat message — otherwise policies that deny
+          // channel turns would be bypassed by prefixing "new".
+          const turnDecision = await this.evaluate(senderKey, state, { name: "chat", arg: command.arg });
+          if (turnDecision.verdict !== "ALLOW") {
+            await reply(denialText("chat", turnDecision));
             return;
           }
           await this.runChatTurn(state, senderKey, command.arg, reply);
@@ -306,7 +340,7 @@ export class ChannelBridge {
   private senderState(senderKey: string): SenderState {
     let state = this.senders.get(senderKey);
     if (!state) {
-      state = { activeSessionId: null, lastList: [], pendingAsk: null, busy: false };
+      state = { activeSessionId: null, lastList: [], pendingAsk: null, busy: false, activeTurnId: null };
       this.senders.set(senderKey, state);
     }
     return state;
@@ -337,20 +371,38 @@ export class ChannelBridge {
     });
   }
 
-  private sessionEntry(sessionId: string): ChannelSessionSummary | undefined {
-    return this.config.sessions.listSessions().find((e) => e.sessionId === sessionId);
+  private sessionEntry(senderKey: string, sessionId: string): ChannelSessionSummary | undefined {
+    const owner = this.sessionOwners.get(sessionId);
+    if (owner !== undefined && owner !== senderKey) return undefined;
+    return this.config.sessions
+      .listSessions(senderKey)
+      .find((e) => e.sessionId === sessionId);
   }
 
-  private recentSessions(): ChannelSessionSummary[] {
+  /**
+   * Sessions visible to one sender. The engine is asked for the
+   * principal-scoped list; anything this bridge recorded as owned by a
+   * different principal is dropped regardless, so cross-principal session
+   * discovery or control is denied at the bridge boundary too.
+   */
+  private visibleSessions(senderKey: string): ChannelSessionSummary[] {
     return this.config.sessions
-      .listSessions()
+      .listSessions(senderKey)
+      .filter((e) => {
+        const owner = this.sessionOwners.get(e.sessionId);
+        return owner === undefined || owner === senderKey;
+      });
+  }
+
+  private recentSessions(senderKey: string): ChannelSessionSummary[] {
+    return this.visibleSessions(senderKey)
       .filter((e) => !e.error)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, LIST_LIMIT);
   }
 
-  private renderList(state: SenderState): string {
-    const entries = this.recentSessions();
+  private renderList(state: SenderState, senderKey: string): string {
+    const entries = this.recentSessions(senderKey);
     if (entries.length === 0) {
       return "No governed sessions yet — just send a message to start one.";
     }
@@ -368,25 +420,35 @@ export class ChannelBridge {
     return ["Recent governed sessions:", ...lines, "", `Reply "resume N" to continue one.`].join("\n");
   }
 
-  private resumeSession(state: SenderState, index: number): string {
+  private resumeSession(state: SenderState, senderKey: string, index: number): string {
     if (state.lastList.length === 0) {
-      state.lastList = this.recentSessions().map((e) => e.sessionId);
+      state.lastList = this.recentSessions(senderKey).map((e) => e.sessionId);
     }
     const sessionId = state.lastList[index - 1];
     if (!sessionId) {
       return `No session #${index} — send "list" to see recent governed sessions.`;
     }
+    // Defense in depth: never resume a session recorded under another
+    // principal, even if it somehow surfaced in this sender's list.
+    const owner = this.sessionOwners.get(sessionId);
+    if (owner !== undefined && owner !== senderKey) {
+      return "⛔ That session belongs to a different sender — access denied.";
+    }
+    const entry = this.sessionEntry(senderKey, sessionId);
+    if (!entry) {
+      state.lastList = [];
+      return "⛔ That session is no longer available — send \"list\" to see your governed sessions.";
+    }
     state.activeSessionId = sessionId;
     state.pendingAsk = null;
-    const entry = this.sessionEntry(sessionId);
     return `▶️ Resumed "${entry?.title ?? "Untitled"}" — send a message to continue.`;
   }
 
-  private renderStatus(state: SenderState): string {
+  private renderStatus(state: SenderState, senderKey: string): string {
     if (!state.activeSessionId) {
       return "No current session — your next message starts a new governed one.";
     }
-    const entry = this.sessionEntry(state.activeSessionId);
+    const entry = this.sessionEntry(senderKey, state.activeSessionId);
     if (!entry) return "The current session no longer exists — send a message to start fresh.";
     const status = state.busy
       ? "working"
@@ -396,10 +458,10 @@ export class ChannelBridge {
     return `Current session: "${entry.title ?? "Untitled"}" — ${status}.`;
   }
 
-  private async stopActive(state: SenderState): Promise<string> {
+  private async stopActive(state: SenderState, senderKey: string): Promise<string> {
     state.pendingAsk = null;
     if (!state.activeSessionId) return "Nothing to stop.";
-    const entry = this.sessionEntry(state.activeSessionId);
+    const entry = this.sessionEntry(senderKey, state.activeSessionId);
     if (!entry?.latestTurnId) return "Nothing to stop.";
     if (
       entry.latestTurnStatus === "completed"
@@ -428,6 +490,8 @@ export class ChannelBridge {
       await reply("⏳ Working on it…");
       if (!state.activeSessionId) {
         state.activeSessionId = await this.config.sessions.createSession();
+        // Record ownership so no other sender can list/resume/drive it.
+        this.sessionOwners.set(state.activeSessionId, senderKey);
       }
       const sent = await this.config.sessions.sendMessage(state.activeSessionId, text, {
         autoPermission: this.isAutoPermissionAllowed("chat"),
@@ -437,11 +501,24 @@ export class ChannelBridge {
           transport: this.config.transportName,
         },
       });
+      state.activeTurnId = sent.turnId;
       const settled = await watcher.waitFor(sent.turnId, this.turnTimeoutMs);
+      if (settled.kind === "timeout") {
+        // The turn is still running. Keep the sender busy and reconcile the
+        // busy flag from the actual settle event — a timeout alone must never
+        // free the sender, or later messages would start concurrent turns in
+        // the same session.
+        this.reconcileBusyOnSettle(state, sent.turnId, reply);
+      } else {
+        state.activeTurnId = null;
+        state.busy = false;
+      }
       await this.deliverSettled(state, sent.turnId, settled, reply);
     } finally {
       watcher.dispose();
-      state.busy = false;
+      if (state.activeTurnId === null) {
+        state.busy = false;
+      }
     }
   }
 
@@ -473,8 +550,9 @@ export class ChannelBridge {
       await reply(denialText("ask_human.answer", decision));
       return;
     }
-    state.pendingAsk = null;
     if (state.busy) {
+      // Keep pendingAsk: the answer was NOT accepted for routing, so the
+      // sender must be able to retry once the current turn frees up.
       await reply('⏳ Still working on the previous message — send "stop" to cancel it.');
       return;
     }
@@ -482,6 +560,10 @@ export class ChannelBridge {
     const watcher = this.watchBus();
     try {
       const settledPromise = watcher.waitFor(ask.turnId, this.turnTimeoutMs);
+      // The answer is accepted for routing only now — clear pendingAsk at the
+      // point of acceptance, not before the busy check or evaluation.
+      state.pendingAsk = null;
+      state.activeTurnId = ask.turnId;
       // respondToAskHuman may resolve only when the resumed turn settles, so
       // race it against the watcher rather than awaiting it first; a stale
       // ask (already answered elsewhere) rejects and is re-routed as chat.
@@ -491,14 +573,43 @@ export class ChannelBridge {
           .respondToAskHuman(ask.turnId, ask.toolCallId, text)
           .then(() => settledPromise),
       ]);
+      if (settled.kind === "timeout") {
+        // Resumed turn still running: stay busy until its real settle event.
+        this.reconcileBusyOnSettle(state, ask.turnId, reply);
+      } else {
+        state.activeTurnId = null;
+        state.busy = false;
+      }
       await this.deliverSettled(state, ask.turnId, settled, reply);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await reply(`❌ Could not deliver your answer: ${message}`);
     } finally {
       watcher.dispose();
-      state.busy = false;
+      if (state.activeTurnId === null) {
+        state.busy = false;
+      }
     }
+  }
+
+  /**
+   * After a watcher timeout the turn is still running. Subscribe for its real
+   * settle event and only then free the sender (and deliver the outcome), so
+   * the busy flag always reflects an actual turn completion/failure/cancel
+   * rather than an arbitrary clock.
+   */
+  private reconcileBusyOnSettle(state: SenderState, turnId: string, reply: ReplyFn): void {
+    const unsubscribe = this.config.turnEvents.subscribeAll((event) => {
+      if (event.turnId !== turnId) return;
+      const settled = settleOf(event.event);
+      if (!settled) return;
+      unsubscribe();
+      if (state.activeTurnId === turnId) {
+        state.activeTurnId = null;
+        state.busy = false;
+      }
+      void this.deliverSettled(state, turnId, settled, reply).catch(() => undefined);
+    });
   }
 
   private async deliverSettled(
@@ -535,7 +646,9 @@ export class ChannelBridge {
         );
         return;
       case "timeout":
-        await reply("⏱️ Still running — check the governed console for progress.");
+        await reply(
+          "⏱️ Still running — this chat stays busy until the turn actually finishes; check the governed console for progress.",
+        );
         return;
     }
   }

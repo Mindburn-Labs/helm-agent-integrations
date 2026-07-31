@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -83,16 +83,18 @@ test("telegramOptionsFromEnv reads the token from the environment only", () => {
   assert.equal(opts.botToken, "test-token-from-env");
 });
 
-test("allowlisted DM is routed to the bridge as telegram:<chatId>", () => {
+test("allowlisted DM is routed to the bridge as telegram:<chatId>", async () => {
   const inbound: Array<{ senderKey: string; chatId: string; text: string }> = [];
   const transport = new TelegramTransport({
     botToken: "t",
     allowFrom: ["42"],
     stateFile: "/tmp/x.json",
-    onInbound: (senderKey, chatId, text) => inbound.push({ senderKey, chatId, text }),
+    onInbound: (senderKey, chatId, text) => {
+      inbound.push({ senderKey, chatId, text });
+    },
   });
 
-  transport.processUpdate(dmUpdate(42, "list", 7));
+  await transport.processUpdate(dmUpdate(42, "list", 7));
 
   assert.deepEqual(inbound, [{ senderKey: "telegram:42", chatId: "42", text: "list" }]);
 });
@@ -104,12 +106,14 @@ test("group chats, bots, and non-allowlisted chats are rejected fail-closed", as
     botToken: "t",
     allowFrom: ["42"],
     stateFile: "/tmp/x.json",
-    onInbound: () => inbound.push(1),
+    onInbound: () => {
+      inbound.push(1);
+    },
     fetch: fetchImpl,
   });
 
   // Group chat: silently ignored (any member could drive the bridge).
-  transport.processUpdate({
+  await transport.processUpdate({
     update_id: 1,
     message: {
       message_id: 1,
@@ -119,7 +123,7 @@ test("group chats, bots, and non-allowlisted chats are rejected fail-closed", as
     },
   });
   // Bot-authored message: ignored.
-  transport.processUpdate({
+  await transport.processUpdate({
     update_id: 2,
     message: {
       message_id: 2,
@@ -128,17 +132,50 @@ test("group chats, bots, and non-allowlisted chats are rejected fail-closed", as
       from: { id: 999, is_bot: true },
     },
   });
-  // Non-allowlisted DM: denied with a pairing hint, never routed inbound.
-  transport.processUpdate(dmUpdate(1337, "list", 3));
+  // Non-allowlisted DM: silently dropped — no pairing hint (spam/discovery
+  // vector), never routed inbound.
+  await transport.processUpdate(dmUpdate(1337, "list", 3));
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(inbound.length, 0);
-  const denial = calls.find((c) => c.url.endsWith("/sendMessage"));
-  assert.ok(denial);
-  const body = denial.body as { chat_id: string; text: string };
-  assert.equal(body.chat_id, "1337");
-  assert.ok(body.text.includes("Not authorized"));
-  assert.ok(body.text.includes("1337"));
+  assert.equal(calls.filter((c) => c.url.endsWith("/sendMessage")).length, 0);
+});
+
+test("an allowlisted chat is still dropped when the sender user ID is not allowlisted", async () => {
+  const inbound: unknown[] = [];
+  const { calls, fetchImpl } = fakeFetch(() => ({}));
+  const transport = new TelegramTransport({
+    botToken: "t",
+    allowFrom: ["42"],
+    stateFile: "/tmp/x.json",
+    onInbound: () => {
+      inbound.push(1);
+    },
+    fetch: fetchImpl,
+  });
+
+  // chat.id is allowlisted but from.id is not: drop silently.
+  await transport.processUpdate({
+    update_id: 1,
+    message: {
+      message_id: 1,
+      text: "list",
+      chat: { id: 42, type: "private" },
+      from: { id: 1337, is_bot: false },
+    },
+  });
+  // Missing sender identity: drop.
+  await transport.processUpdate({
+    update_id: 2,
+    message: {
+      message_id: 2,
+      text: "list",
+      chat: { id: 42, type: "private" },
+    },
+  });
+
+  assert.equal(inbound.length, 0);
+  assert.equal(calls.filter((c) => c.url.endsWith("/sendMessage")).length, 0);
 });
 
 test("pollOnce advances and persists the update offset", async () => {
@@ -152,7 +189,9 @@ test("pollOnce advances and persists the update offset", async () => {
       botToken: "t",
       allowFrom: ["42"],
       stateFile,
-      onInbound: (_senderKey, _chatId, text) => inbound.push(text),
+      onInbound: (_senderKey, _chatId, text) => {
+        inbound.push(text);
+      },
       fetch: fetchImpl,
     });
 
@@ -200,6 +239,111 @@ test("pollOnce resumes from a persisted offset after restart", async () => {
     const poll = calls.find((c) => c.url.endsWith("/getUpdates"));
     assert.ok(poll);
     assert.equal((poll.body as { offset: number }).offset, 56);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("offset is persisted only after inbound handling completes", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "helm-channel-bridge-"));
+  try {
+    const stateFile = path.join(dir, "telegram-offset.json");
+    let release: () => void = () => undefined;
+    const handled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { fetchImpl } = fakeFetch((method) =>
+      method === "getUpdates" ? [dmUpdate(42, "hello", 101)] : {});
+    const transport = new TelegramTransport({
+      botToken: "t",
+      allowFrom: ["42"],
+      stateFile,
+      onInbound: () => handled,
+      fetch: fetchImpl,
+    });
+
+    const poll = transport.pollOnce();
+    // Let the getUpdates round reach the (still pending) handler.
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Handling has not completed: nothing may be persisted yet.
+    await assert.rejects(readFile(stateFile, "utf8"), /ENOENT/);
+
+    release();
+    await poll;
+    const persisted = JSON.parse(await readFile(stateFile, "utf8")) as { offset: number };
+    assert.equal(persisted.offset, 102);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("handler failure keeps the update unconfirmed (no offset advance, nothing persisted)", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "helm-channel-bridge-"));
+  try {
+    const stateFile = path.join(dir, "telegram-offset.json");
+    const { calls, fetchImpl } = fakeFetch((method) =>
+      method === "getUpdates" ? [dmUpdate(42, "boom", 201)] : {});
+    const transport = new TelegramTransport({
+      botToken: "t",
+      allowFrom: ["42"],
+      stateFile,
+      onInbound: () => Promise.reject(new Error("bridge exploded")),
+      fetch: fetchImpl,
+    });
+
+    await assert.rejects(transport.pollOnce(), /bridge exploded/);
+    await assert.rejects(readFile(stateFile, "utf8"), /ENOENT/);
+
+    // The next poll must re-fetch from the un-advanced offset.
+    await assert.rejects(transport.pollOnce(), /bridge exploded/);
+    const polls = calls.filter((c) => c.url.endsWith("/getUpdates"));
+    assert.equal(polls.length, 2);
+    assert.equal((polls[0].body as { offset: number }).offset, 0);
+    assert.equal((polls[1].body as { offset: number }).offset, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("offset persistence failure fails closed: offset not advanced, error surfaced", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "helm-channel-bridge-"));
+  try {
+    // A directory as the state file makes writeFile fail (EISDIR).
+    const stateFile = path.join(dir, "offset-as-dir");
+    await mkdir(stateFile);
+    const handled: string[] = [];
+    const { calls, fetchImpl } = fakeFetch((method) =>
+      method === "getUpdates" ? [dmUpdate(42, "hello", 301)] : {});
+    const transport = new TelegramTransport({
+      botToken: "t",
+      allowFrom: ["42"],
+      stateFile,
+      onInbound: (_senderKey, _chatId, text) => {
+        handled.push(text);
+      },
+      fetch: fetchImpl,
+    });
+
+    await assert.rejects(
+      transport.pollOnce(),
+      (error: unknown) => {
+        assert.ok(error instanceof TelegramApiError);
+        assert.ok(error.message.includes("Failed to persist the Telegram poll offset"));
+        return true;
+      },
+    );
+    // The update WAS handled (side effect ran), but it was NOT confirmed.
+    assert.deepEqual(handled, ["hello"]);
+
+    // Next poll re-fetches from the un-advanced offset. Consumers must make
+    // side effects idempotent across that intentional redelivery.
+    await assert.rejects(transport.pollOnce(), /Failed to persist/);
+    const polls = calls.filter((c) => c.url.endsWith("/getUpdates"));
+    assert.equal(polls.length, 2);
+    assert.equal((polls[0].body as { offset: number }).offset, 0);
+    assert.equal((polls[1].body as { offset: number }).offset, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
