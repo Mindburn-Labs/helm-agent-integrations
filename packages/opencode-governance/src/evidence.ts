@@ -32,8 +32,9 @@ import type { NormalizedVerdict } from "./verdict.js";
  * Authorization that binds to a normalized copy while the tool executes
  * the original would authorize materially different arguments. So any
  * value outside the exact JSON data model — undefined anywhere, functions,
- * symbols, BigInt, non-finite numbers, non-plain objects, cycles — is a
- * hard, typed error (fail closed). A value that passes validation is
+ * symbols, BigInt, non-finite numbers, -0, non-plain objects,
+ * altered array prototypes, or repeated references — is a hard, typed error
+ * (fail closed). A value that passes validation is
  * guaranteed to round-trip losslessly through JSON.parse(canonicalize(v)).
  */
 export class EvidenceSerializationError extends Error {
@@ -52,34 +53,67 @@ function assertJsonFiniteTree(value: unknown, seen: Set<object>, path: string): 
     case "string":
       return;
     case "number":
-      if (!Number.isFinite(value)) {
+      if (!Number.isFinite(value) || Object.is(value, -0)) {
         throw new EvidenceSerializationError(
-          `non-finite number at ${path} is not valid boundary material (would serialize lossily)`,
+          `number at ${path} is not valid boundary material (would serialize lossily)`,
         );
       }
       return;
     case "object": {
       if (seen.has(value)) {
-        throw new EvidenceSerializationError(`cyclic structure at ${path} is not valid boundary material`);
+        throw new EvidenceSerializationError(`repeated object reference at ${path} is not valid boundary material`);
+      }
+      // Symbol-keyed and non-enumerable properties are invisible to
+      // JSON.stringify but visible to the executing tool — the evaluated
+      // copy would silently lack them (P1 LOSSY_ARGUMENT_VALIDATION_GAPS).
+      if (Object.getOwnPropertySymbols(value).length > 0) {
+        throw new EvidenceSerializationError(`symbol-keyed property at ${path} is not valid boundary material`);
       }
       const isArray = Array.isArray(value);
-      if (!isArray) {
-        const proto: unknown = Object.getPrototypeOf(value);
-        if (proto !== Object.prototype && proto !== null) {
-          throw new EvidenceSerializationError(
-            `non-plain object at ${path} (${(value as object).constructor?.name ?? "unknown"}) is not valid boundary material`,
-          );
-        }
+      const proto: unknown = Object.getPrototypeOf(value);
+      if (proto !== (isArray ? Array.prototype : Object.prototype)) {
+        throw new EvidenceSerializationError(
+          `non-plain ${isArray ? "array" : "object"} at ${path} is not valid boundary material`,
+        );
       }
       seen.add(value);
-      if (isArray) {
-        (value as unknown[]).forEach((item, index) => assertJsonFiniteTree(item, seen, `${path}[${index}]`));
+      if (!isArray) {
+        for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+          if (!descriptor.enumerable) {
+            throw new EvidenceSerializationError(`non-enumerable property at ${path}.${key} is not valid boundary material`);
+          }
+          if (descriptor.get !== undefined || descriptor.set !== undefined) {
+            throw new EvidenceSerializationError(
+              `accessor property at ${path}.${key} is not valid boundary material (value could change after validation)`,
+            );
+          }
+          assertJsonFiniteTree(descriptor.value, seen, `${path}.${key}`);
+        }
       } else {
-        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-          assertJsonFiniteTree(item, seen, `${path}.${key}`);
+        const array = value as unknown[];
+        // Sparse holes serialize as null — a different value than the tool
+        // sees; extra named properties are invisible to JSON but visible to
+        // the tool. Both are rejected.
+        for (const name of Object.getOwnPropertyNames(array)) {
+          const index = Number(name);
+          if (
+            name !== "length"
+            && (!Number.isSafeInteger(index) || index < 0 || String(index) !== name || index >= array.length)
+          ) {
+            throw new EvidenceSerializationError(`non-index property "${name}" on array at ${path} is not valid boundary material`);
+          }
+        }
+        for (let index = 0; index < array.length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(array, index);
+          if (descriptor === undefined) {
+            throw new EvidenceSerializationError(`sparse array hole at ${path}[${index}] is not valid boundary material`);
+          }
+          if (!descriptor.enumerable || descriptor.get !== undefined || descriptor.set !== undefined) {
+            throw new EvidenceSerializationError(`non-data array element at ${path}[${index}] is not valid boundary material`);
+          }
+          assertJsonFiniteTree(descriptor.value, seen, `${path}[${index}]`);
         }
       }
-      seen.delete(value);
       return;
     }
     default:
@@ -108,7 +142,9 @@ function sortKeys(value: unknown): unknown {
   }
   if (typeof value === "object" && value !== null) {
     const record = value as Record<string, unknown>;
-    const sorted: Record<string, unknown> = {};
+    // A normal object treats an own "__proto__" key as a prototype setter;
+    // use a null-prototype serialization container so the key is preserved.
+    const sorted: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const key of Object.keys(record).sort()) {
       sorted[key] = sortKeys(record[key]);
     }

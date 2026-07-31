@@ -70,6 +70,48 @@ describe("canonicalize", () => {
     const fine = { b: [1, "two", null, true, 1.5, { c: [] }], a: {} };
     assert.deepEqual(JSON.parse(canonicalize(fine)), fine);
   });
+
+  it("fails closed on hidden or identity-bearing argument shapes", () => {
+    const nonEnumerable = { command: "ls" };
+    Object.defineProperty(nonEnumerable, "hidden", { value: true, enumerable: false });
+    let accessorRead = false;
+    const accessor: Record<string, unknown> = {};
+    Object.defineProperty(accessor, "command", {
+      enumerable: true,
+      get() {
+        accessorRead = true;
+        return "ls";
+      },
+    });
+    const sparse = new Array(1);
+    const namedArray = ["ls"];
+    namedArray[4_294_967_295] = "hidden";
+    const alteredArray: unknown[] = [];
+    Object.setPrototypeOf(alteredArray, null);
+    const nullPrototype = Object.create(null) as Record<string, unknown>;
+    nullPrototype.command = "ls";
+    const shared = { command: "ls" };
+
+    for (const value of [
+      { command: "ls", [Symbol("hidden")]: true },
+      nonEnumerable,
+      accessor,
+      sparse,
+      namedArray,
+      alteredArray,
+      nullPrototype,
+      { first: shared, second: shared },
+      -0,
+    ]) {
+      assert.throws(() => canonicalize(value), EvidenceSerializationError);
+    }
+    assert.equal(accessorRead, false, "validation must not invoke an accessor");
+  });
+
+  it("preserves an own __proto__ data key", () => {
+    const value = JSON.parse('{"__proto__":{"safe":true}}');
+    assert.equal(canonicalize(value), '{"__proto__":{"safe":true}}');
+  });
 });
 
 describe("JsonlEvidenceSink", () => {

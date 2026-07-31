@@ -95,14 +95,14 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 
 ## Verification status
 
-**Verified by tests** (`npm test`, 76 tests, no network/kernel required):
+**Verified by tests** (`npm test`, 78 tests, no network/kernel required):
 
 - Verdict mapping matrix and fail-closed behavior on every kernel failure class.
 - Strict verdict parsing incl. near-miss and conflicting-field payloads.
-- Loader/dispatch contract (`src/opencode-contract.test.ts`): the built module is loaded through a faithful replication of opencode's `readV1Plugin` default-export contract and `applyPlugin` instantiation (`server(input, options)`), and hooks are dispatched through a `Plugin.trigger`-equivalent loop with opencode's error-propagation semantics — a kernel DENY rejects in `tool.execute.before`, which is exactly the failure opencode's `session/tools.ts` observes as a blocked tool call; ALLOW passes and mints evidence through the full path.
+- Public plugin contract (`src/opencode-contract.test.ts`): TypeScript checks the built module and hook signatures against the pinned `@opencode-ai/plugin` package; the test instantiates `server(input, options)`, verifies a DENY rejects `tool.execute.before`, and verifies ALLOW mints evidence through the public hook callbacks.
 - Boundary evidence records, cache bounding, transport rules, config typing.
 
-**NOT verified:** behavior inside a real opencode process (opencode version drift, interplay with other plugins, TUI/config surfaces), and the `permission.ask` hook path in production (no trigger site at the studied commit — see Known gaps). The handwritten contract types in `src/opencode-types.ts` mirror `@opencode-ai/plugin` structurally; if opencode changes the hook contract, update the mirror and the contract test.
+**NOT verified:** behavior inside a real opencode process (dispatcher behavior, version drift, interplay with other plugins, TUI/config surfaces), and the `permission.ask` hook path in production (no trigger site at the studied commit — see Known gaps). `src/opencode-types.ts` aliases the pinned public `@opencode-ai/plugin` types, so public-contract drift fails typecheck; a real-process test still requires an installed opencode runtime.
 
 ## Known gaps (audited against opencode @ `62e46412`, 2026-07-23)
 
@@ -122,8 +122,8 @@ Tests mock the kernel verdict source (fetch/spawn injected); no network or kerne
 - `src/verdict.ts` — strict verdict normalization + status mapping (unknown ⇒ deny).
 - `src/kernel.ts` — `KernelClient` interface, HTTP + local-binary clients, non-throwing outcome type.
 - `src/config.ts` — env/options resolution, fail closed on anything missing/invalid.
-- `src/evidence.ts` — strict lossless canonical JSON (JSON-finite trees only: no undefined, non-finite numbers, BigInt, functions, symbols, non-plain objects, or cycles — anything else is a typed error so the evaluated copy can never diverge from the original) + SHA-256, boundary record types, JSONL/memory sinks.
+- `src/evidence.ts` — strict lossless canonical JSON (JSON-finite trees only: no undefined, non-finite numbers, `-0`, BigInt, functions, symbols, non-plain objects, altered array prototypes, or repeated references — anything else is a typed error so the evaluated copy can never diverge from the original) + SHA-256, boundary record types, JSONL/memory sinks.
 - `src/plugin.ts` — hook bag (`permission.ask`, `tool.execute.before/after`), verdict cache, `HelmGovernanceDeny`.
-- `src/opencode-types.ts` — structural mirror of `@opencode-ai/plugin` contract types (kept local so the package compiles without the opencode dependency tree).
+- `src/opencode-types.ts` — aliases for the pinned `@opencode-ai/plugin` public contract types.
 
 Evidence base: `research/opencode-study/26-helm-map-kernel-governance.md` (integration seams) and `17-pkg-plugin-codemode.md` (plugin loading/hook semantics).
