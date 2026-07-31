@@ -10,12 +10,15 @@
  *   hangOnPrompt    — never finish the prompt until session/cancel
  *   ignoreCancel    — never respond to the pending prompt even after cancel
  *   sessionId       — fixed session id (default "fake-session-1")
+ *   forgeSession    — inbound fs/permission requests quote a session id the
+ *                     connector never issued (session-binding tests)
  */
 "use strict";
 
 const behavior = JSON.parse(process.env.FAKE_AGENT_BEHAVIOR || "{}");
 // pid is embedded so tests can tell a reused warm adapter from a fresh spawn.
 const sessionId = (behavior.sessionId || "fake-session") + "-pid" + process.pid;
+const inboundSessionId = behavior.forgeSession ? `forged-${sessionId}` : sessionId;
 let nextId = 1;
 let buffer = "";
 const pending = new Map();
@@ -44,7 +47,7 @@ async function handlePrompt(id, params) {
     if (behavior.readFilePath) {
       let note;
       try {
-        const res = await request("fs/read_text_file", { sessionId, path: behavior.readFilePath });
+        const res = await request("fs/read_text_file", { sessionId: inboundSessionId, path: behavior.readFilePath });
         note = `read-ok:${res.content}`;
       } catch (err) {
         note = `read-denied:${err.message}`;
@@ -57,7 +60,7 @@ async function handlePrompt(id, params) {
     if (behavior.writeFilePath) {
       let note;
       try {
-        await request("fs/write_text_file", { sessionId, path: behavior.writeFilePath, content: "engine-wrote-this" });
+        await request("fs/write_text_file", { sessionId: inboundSessionId, path: behavior.writeFilePath, content: "engine-wrote-this" });
         note = "write-ok";
       } catch (err) {
         note = `write-denied:${err.message}`;
@@ -69,7 +72,7 @@ async function handlePrompt(id, params) {
     }
     if (behavior.requestPermission) {
       const res = await request("session/request_permission", {
-        sessionId,
+        sessionId: inboundSessionId,
         toolCall: { toolCallId: "tc-1", title: `${behavior.requestPermission} something`, kind: behavior.requestPermission },
         options: [
           { optionId: "opt-allow-once", name: "Allow once", kind: "allow_once" },

@@ -87,6 +87,9 @@ export interface EnsureEngineOptions {
   /** PEM Ed25519 public keys trusted to sign engine manifests. When
    *  non-empty, a missing/invalid signature fails closed. */
   trustedPublicKeys?: string[];
+  /** Explicit dev-only opt-in to provisioning from an UNSIGNED manifest.
+   *  Without trustedPublicKeys, provisioning refuses unless this is true. */
+  allowUnsignedManifest?: boolean;
   enginesRoot?: string;
   receiptsDir?: string;
   onProgress?: (p: EngineProgress) => void;
@@ -125,14 +128,22 @@ export function manifestDigestSha256(manifest: unknown): string {
 
 /**
  * Verify the manifest's Ed25519 signature against the trusted key set.
- * Fail-closed: throws unless at least one trusted key verifies.
+ * Fail-closed: throws unless at least one trusted key verifies. An empty
+ * trusted key set is an error too — unsigned mode is never implicit; callers
+ * running dev fixtures must opt in explicitly (see ensureEngine's
+ * `allowUnsignedManifest`).
  */
 export function verifyManifestSignature(
   manifest: unknown,
   signatureBase64: string | undefined,
   trustedPublicKeys: string[],
 ): void {
-  if (trustedPublicKeys.length === 0) return; // unsigned mode (dev only)
+  if (trustedPublicKeys.length === 0) {
+    throw new Error(
+      "HELM engine manifest verification requires at least one trusted public key (fail-closed); " +
+        "unsigned manifests require an explicit dev opt-in",
+    );
+  }
   if (!signatureBase64) {
     throw new Error("HELM engine manifest signature is required but missing (fail-closed)");
   }
@@ -285,8 +296,17 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
   if (!entry) throw new Error(`HELM provisioning: no manifest entry for agent ${JSON.stringify(agent)}`);
   const enginesRoot = opts.enginesRoot ?? DEFAULT_ENGINES_ROOT;
 
-  opts.onProgress?.({ phase: "verify-manifest" });
-  verifyManifestSignature(opts.manifest, opts.manifestSignature, opts.trustedPublicKeys ?? []);
+  const trustedKeys = opts.trustedPublicKeys ?? [];
+  if (trustedKeys.length === 0 && opts.allowUnsignedManifest !== true) {
+    throw new Error(
+      "HELM provisioning: trustedPublicKeys are required to authenticate the engine manifest " +
+        "(fail-closed); pass allowUnsignedManifest: true to opt into unsigned dev mode",
+    );
+  }
+  if (trustedKeys.length > 0) {
+    opts.onProgress?.({ phase: "verify-manifest" });
+    verifyManifestSignature(opts.manifest, opts.manifestSignature, trustedKeys);
+  }
 
   const version = entry.version;
   const key = platformKey(entry);
@@ -326,27 +346,32 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
   };
 
   opts.onProgress?.({ phase: "check" });
-  // Fast path: already provisioned and intact — re-verify the binary hash
-  // against the ledger so a tampered cache is not silently reused.
+  // Fast path: already provisioned and intact. Re-verify the binary hash
+  // against the ledger AND the ledger's manifest digest + integrity against
+  // the CURRENT (freshly signature-verified) manifest — a changed signed
+  // manifest at the same version must not silently reuse stale bytes.
   const existing = executablePath(versionDir, plat);
   if (existing && fs.existsSync(metaPath)) {
+    let ledger: { binarySha512?: string; manifestDigestSha256?: string; integrity?: string } | null = null;
     try {
-      const ledger = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { binarySha512?: string };
-      if (ledger.binarySha512 && ledger.binarySha512 !== (await sha512FileHex(existing))) {
-        throw new Error("cached engine binary hash mismatch — reprovisioning");
-      }
+      ledger = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    } catch {
+      ledger = null; // unparseable ledger → treat as tampered, reprovision
+    }
+    const binaryOk =
+      !!ledger?.binarySha512 && ledger.binarySha512 === (await sha512FileHex(existing));
+    const digestOk = ledger?.manifestDigestSha256 === manifestDigest;
+    const integrityOk = ledger?.integrity === plat.integrity;
+    if (binaryOk && digestOk && integrityOk) {
       const receipt = await buildReceipt(existing);
       await persistReceipt(receipt);
       opts.onProgress?.({ phase: "done" });
       return { executablePath: existing, version, receipt };
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("hash mismatch")) {
-        fs.rmSync(versionDir, { recursive: true, force: true });
-        fs.rmSync(metaPath, { force: true });
-      } else {
-        throw err;
-      }
     }
+    // Stale or tampered cache (binary hash, manifest digest, or integrity
+    // drift) — wipe and reprovision from the verified manifest.
+    fs.rmSync(versionDir, { recursive: true, force: true });
+    fs.rmSync(metaPath, { force: true });
   }
 
   fs.mkdirSync(agentRoot, { recursive: true });

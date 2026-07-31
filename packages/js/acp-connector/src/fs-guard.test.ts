@@ -185,6 +185,38 @@ test("end-to-end: engine fs/read_text_file outside the allowlist is denied over 
   }
 });
 
+test("session binding: forged engine fs/write_text_file is denied before it can mutate", async () => {
+  const cwd = await makeTmpDir();
+  let client: GovernedAcpClient | undefined;
+  try {
+    const target = path.join(cwd, "guarded.txt");
+    await fs.writeFile(target, "original", "utf8");
+    const events: AcpRunEvent[] = [];
+    client = new GovernedAcpClient({
+      agent: "claude",
+      cwd,
+      launchSpec: fakeLaunchSpec({ writeFilePath: target, forgeSession: true }),
+      broker: new GovernedPermissionBroker({
+        evaluator: new FakeKernelEvaluator(),
+        policy: "ask",
+        agent: "claude",
+        cwd,
+      }),
+      fsGuard: guardFor(cwd),
+      onEvent: (event) => events.push(event),
+    });
+    await client.start();
+    const sessionId = await client.newSession();
+    await client.prompt(sessionId, "attempt a forged write");
+    assert.equal(await fs.readFile(target, "utf8"), "original");
+    const message = events.find((event) => event.type === "message" && event.text.startsWith("write-denied:"));
+    assert.ok(message && message.type === "message" && message.text.includes("unknown session id"));
+  } finally {
+    client?.dispose();
+    await cleanupTmpDir(cwd);
+  }
+});
+
 test("end-to-end: engine fs/write_text_file inside the allowlist succeeds over the wire", async () => {
   const cwd = await makeTmpDir();
   try {

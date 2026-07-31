@@ -21,10 +21,10 @@ const OPTIONS = [
   { optionId: "opt-reject", name: "Reject", kind: "reject_once" },
 ];
 
-function permRequest(kind: string): RequestPermissionRequest {
+function permRequest(kind: string, rawInput?: Record<string, unknown>): RequestPermissionRequest {
   return {
     sessionId: "sess-1",
-    toolCall: { toolCallId: "tc-1", title: `${kind} something`, kind },
+    toolCall: { toolCallId: "tc-1", title: `${kind} something`, kind, ...(rawInput ? { rawInput } : {}) },
     options: OPTIONS,
   };
 }
@@ -117,6 +117,15 @@ test("kernel stickyAllow hint sticks under the plain ask policy too, with receip
   assert.equal(broker.stickyAllowReceipts()[0]?.receiptId, "rcpt-sticky");
   await broker.resolve(permRequest("edit"));
   assert.equal(evaluator.calls.length, 1);
+});
+
+test("sticky allows bind to the requested tool target", async () => {
+  const evaluator = new FakeKernelEvaluator();
+  evaluator.defaultVerdict = { verdict: "ALLOW", stickyAllow: true };
+  const broker = makeBroker(evaluator);
+  await broker.resolve(permRequest("execute", { command: "printf safe" }));
+  await broker.resolve(permRequest("execute", { command: "rm -rf /tmp/not-safe" }));
+  assert.equal(evaluator.calls.length, 2, "a sticky allow must not cross tool targets");
 });
 
 test("option-family fallback: allow maps to allow_once when allow_always is not offered", () => {

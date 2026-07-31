@@ -24,7 +24,9 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: "packages/js/helm-tool-wrapper/package-lock.json"
+          cache-dependency-path: |
+            packages/js/helm-tool-wrapper/package-lock.json
+            packages/js/acp-connector/package-lock.json
 
       - uses: actions/setup-python@v6
         with:
@@ -57,6 +59,14 @@ jobs:
       - name: Install Python wrapper check dependencies
         run: python -m pip install --disable-pip-version-check ".[dev]"
         working-directory: packages/python/helm_tool_wrapper
+
+      - name: Install ACP connector package dependencies
+        run: npm ci
+        working-directory: packages/js/acp-connector
+
+      - name: Test ACP connector
+        run: npm test
+        working-directory: packages/js/acp-connector
 
       - name: Test Python wrapper
         run: python -m unittest discover packages/python/helm_tool_wrapper/tests

@@ -6,6 +6,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import type { CodingAgent } from "./types.js";
 
 export interface StoredSession {
@@ -24,7 +25,11 @@ export class SessionStore {
 
   private fileFor(runId: string): string {
     const safe = runId.replace(/[^a-zA-Z0-9._-]/g, "_");
-    return path.join(this.dir, `${safe}.json`);
+    // Sanitization alone is not injective — distinct runIds ("a/b", "a:b")
+    // collapse to the same filename. Bind the file to the exact runId with a
+    // hash suffix; read() additionally requires the stored runId to match.
+    const digest = crypto.createHash("sha256").update(runId, "utf8").digest("hex").slice(0, 16);
+    return path.join(this.dir, `${safe}-${digest}.json`);
   }
 
   async read(runId: string): Promise<StoredSession | null> {
@@ -35,7 +40,10 @@ export class SessionStore {
         typeof parsed.runId === "string" &&
         typeof parsed.agent === "string" &&
         typeof parsed.cwd === "string" &&
-        typeof parsed.sessionId === "string"
+        typeof parsed.sessionId === "string" &&
+        // The file must belong to THIS runId — a filename collision or a
+        // swapped file must never resume another run's session.
+        parsed.runId === runId
       ) {
         return parsed as StoredSession;
       }

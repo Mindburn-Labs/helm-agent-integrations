@@ -121,6 +121,14 @@ export interface PermissionAsk {
   kind?: string;
   isRead: boolean;
   sessionId: string;
+  /**
+   * The full raw tool-call payload as supplied by the adapter (e.g. ACP
+   * `rawInput` with the command/args/file content the tool will run with).
+   * The kernel MUST see this — authorizing on title/kind alone would approve
+   * a label, not the actual side effect. Canonicalized for the wire by the
+   * kernel evaluator; also feeds sticky-allow target keying.
+   */
+  toolInput?: unknown;
 }
 
 /** Internal decision vocabulary before mapping onto offered options. */

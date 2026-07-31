@@ -64,12 +64,31 @@ const DEFAULT_CANCEL_GRACE_MS = 2_000;
 export class AcpSessionManager {
   private readonly opts: AcpSessionManagerOptions;
   private readonly runs = new Map<string, ActiveRun>();
+  /** runIds with a prompt currently in flight. One prompt per run — a second
+   *  concurrent runPrompt would swap the live client's broker/event handlers
+   *  out from under the running turn, so it is rejected fail-closed. */
+  private readonly activePrompts = new Set<string>();
 
   constructor(opts: AcpSessionManagerOptions) {
     this.opts = opts;
   }
 
   async runPrompt(args: RunPromptArgs): Promise<RunPromptResult> {
+    if (this.activePrompts.has(args.runId)) {
+      throw new Error(
+        `HELM ACP: concurrent runPrompt for runId ${JSON.stringify(args.runId)} rejected — ` +
+          "one active prompt per run (fail-closed)",
+      );
+    }
+    this.activePrompts.add(args.runId);
+    try {
+      return await this.runPromptInner(args);
+    } finally {
+      this.activePrompts.delete(args.runId);
+    }
+  }
+
+  private async runPromptInner(args: RunPromptArgs): Promise<RunPromptResult> {
     const { runId, agent, cwd, prompt, policy, onEvent, signal } = args;
 
     const broker = new GovernedPermissionBroker({

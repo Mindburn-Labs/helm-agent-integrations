@@ -38,6 +38,9 @@ function toAsk(request: RequestPermissionRequest): PermissionAsk {
     kind,
     isRead: kind ? READ_TOOL_KINDS.has(kind) : false,
     sessionId: request.sessionId,
+    // The full adapter-supplied tool-call payload (rawInput, locations,
+    // content, …) — the kernel authorizes this, not the title/kind label.
+    toolInput: tc,
   };
 }
 
@@ -66,8 +69,41 @@ function selected(optionId: string): RequestPermissionResponse {
   return { outcome: { outcome: "selected", optionId } };
 }
 
+/**
+ * Best-effort canonical target for a tool call: the shell command, file path,
+ * or URL the call actually acts on, taken from the adapter-supplied payload
+ * (ACP rawInput / locations). Sticky allows key on this so an "always allow"
+ * for `execute: ls` does NOT silently extend to `execute: rm -rf …`.
+ */
+export function canonicalAskTarget(ask: PermissionAsk): string | undefined {
+  const input = ask.toolInput;
+  if (!input || typeof input !== "object") return undefined;
+  const rec = input as Record<string, unknown>;
+  const rawInput = (rec.rawInput ?? undefined) as Record<string, unknown> | undefined;
+  const firstLocation = Array.isArray(rec.locations)
+    ? (rec.locations[0] as { path?: unknown } | undefined)?.path
+    : undefined;
+  const candidates: unknown[] = [
+    rawInput?.command,
+    rawInput?.file_path,
+    rawInput?.path,
+    rawInput?.url,
+    firstLocation,
+    rec.command,
+    rec.path,
+    rec.url,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c !== "") return c.slice(0, 512);
+  }
+  return undefined;
+}
+
 function memoryKey(ask: PermissionAsk): string {
-  return ask.kind ? `kind:${ask.kind}` : `title:${ask.title}`;
+  const target = canonicalAskTarget(ask);
+  if (ask.kind && target) return `kind:${ask.kind}:target:${target}`;
+  if (ask.kind) return `kind:${ask.kind}`;
+  return `title:${ask.title}`;
 }
 
 /** A sticky allow with its authorizing evidence — the recorded receipt. */

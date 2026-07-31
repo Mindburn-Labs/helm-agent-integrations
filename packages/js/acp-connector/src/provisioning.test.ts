@@ -84,6 +84,7 @@ test("happy path: verify → extract → atomic install → ledger + receipted b
   try {
     const result = await ensureEngine("fake-agent", {
       manifest: fx.manifest,
+      allowUnsignedManifest: true,
       enginesRoot,
       receiptsDir,
       fetch: fileFetch(),
@@ -123,11 +124,42 @@ test("integrity mismatch fails closed — corrupt/tampered download never instal
     `sha512-${crypto.createHash("sha512").update("not-the-tarball").digest("base64")}`;
   try {
     await assert.rejects(
-      ensureEngine("fake-agent", { manifest: fx.manifest, enginesRoot: path.join(fx.dir, "engines"), fetch: fileFetch() }),
+      ensureEngine("fake-agent", {
+        manifest: fx.manifest,
+        allowUnsignedManifest: true,
+        enginesRoot: path.join(fx.dir, "engines"),
+        fetch: fileFetch(),
+      }),
       /integrity check failed/,
     );
     // Nothing installed.
     await assert.rejects(fs.stat(path.join(fx.dir, "engines", "fake-agent", "1.0.0")));
+  } finally {
+    await cleanupTmpDir(fx.dir);
+  }
+});
+
+test("unsigned manifests need an explicit development opt-in before download", async (t) => {
+  if (process.platform === "win32") return t.skip("fixture uses posix tar");
+  const fx = await makeEngineFixture();
+  let fetched = false;
+  const countingFetch: typeof globalThis.fetch = (async () => {
+    fetched = true;
+    return fileFetch()("file:///unused");
+  }) as typeof globalThis.fetch;
+  try {
+    await assert.rejects(
+      ensureEngine("fake-agent", { manifest: fx.manifest, enginesRoot: path.join(fx.dir, "engines"), fetch: countingFetch }),
+      /trustedPublicKeys are required/,
+    );
+    assert.equal(fetched, false, "unsigned manifests must fail before download");
+    const result = await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot: path.join(fx.dir, "engines"),
+      fetch: fileFetch(),
+    });
+    assert.equal(result.version, "1.0.0");
   } finally {
     await cleanupTmpDir(fx.dir);
   }
@@ -204,20 +236,66 @@ test("cache hit re-verifies the ledger hash; tampered cache reprovisions", async
     return new Response(new Blob([data]).stream(), { status: 200 });
   }) as unknown as typeof globalThis.fetch;
   try {
-    const first = await ensureEngine("fake-agent", { manifest: fx.manifest, enginesRoot, fetch: countingFetch });
+    const first = await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot,
+      fetch: countingFetch,
+    });
     assert.equal(fetches, 1);
 
     // Cache hit: no second download, but a fresh receipt is still emitted.
-    const second = await ensureEngine("fake-agent", { manifest: fx.manifest, enginesRoot, fetch: countingFetch });
+    const second = await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot,
+      fetch: countingFetch,
+    });
     assert.equal(fetches, 1);
     assert.equal(second.receipt.binarySha512, first.receipt.binarySha512);
     assert.notEqual(second.receipt.receiptId, first.receipt.receiptId);
 
     // Tamper with the installed binary → the next ensure reprovisions.
     await fs.writeFile(first.executablePath, "evil-binary", "utf8");
-    const third = await ensureEngine("fake-agent", { manifest: fx.manifest, enginesRoot, fetch: countingFetch });
+    const third = await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot,
+      fetch: countingFetch,
+    });
     assert.equal(fetches, 2, "tampered cache must trigger a fresh verified download");
     assert.equal(await fs.readFile(third.executablePath, "utf8"), BINARY_CONTENT);
+  } finally {
+    await cleanupTmpDir(fx.dir);
+  }
+});
+
+test("cache re-provisions when the manifest changes at the same engine version", async (t) => {
+  if (process.platform === "win32") return t.skip("fixture uses posix tar");
+  const fx = await makeEngineFixture();
+  const enginesRoot = path.join(fx.dir, "engines");
+  let fetches = 0;
+  const countingFetch = (async (input: unknown) => {
+    fetches++;
+    const data = await fs.readFile(String(input).slice("file://".length));
+    return new Response(new Blob([data]).stream(), { status: 200 });
+  }) as unknown as typeof globalThis.fetch;
+  try {
+    await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot,
+      fetch: countingFetch,
+    });
+    fx.manifest["fake-agent"].platforms[platformKeyForTest()].pkg = "fake-engine-reissued";
+    const reprovisioned = await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot,
+      fetch: countingFetch,
+    });
+    assert.equal(fetches, 2, "a changed manifest must not reuse the old cache");
+    assert.equal(reprovisioned.receipt.manifestDigestSha256, manifestDigestSha256(fx.manifest));
   } finally {
     await cleanupTmpDir(fx.dir);
   }

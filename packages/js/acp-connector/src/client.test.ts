@@ -114,6 +114,19 @@ test("session/load resume with stale-session fallback to session/new", async () 
   }
 });
 
+test("session store keeps distinct run ids that sanitize to the same filename", async () => {
+  const cwd = await makeTmpDir();
+  try {
+    const store = new SessionStore(cwd);
+    await store.write({ runId: "run/a", agent: "claude", cwd, sessionId: "session-a" });
+    await store.write({ runId: "run:a", agent: "claude", cwd, sessionId: "session-b" });
+    assert.equal((await store.read("run/a"))?.sessionId, "session-a");
+    assert.equal((await store.read("run:a"))?.sessionId, "session-b");
+  } finally {
+    await cleanupTmpDir(cwd);
+  }
+});
+
 test("cancel → grace → force-kill: a turn that ignores cancel still unwinds", async () => {
   const cwd = await makeTmpDir();
   try {
@@ -179,6 +192,32 @@ test("graceful cancel: agent that honors session/cancel resolves cancelled witho
   }
 });
 
+test("session binding: forged adapter permission is cancelled before kernel evaluation", async () => {
+  const cwd = await makeTmpDir();
+  let client: GovernedAcpClient | undefined;
+  try {
+    const evaluator = new FakeKernelEvaluator();
+    const events: AcpRunEvent[] = [];
+    client = new GovernedAcpClient({
+      agent: "claude",
+      cwd,
+      launchSpec: fakeLaunchSpec({ requestPermission: "edit", forgeSession: true }),
+      broker: makeBroker(evaluator, cwd),
+      fsGuard: guardFor(cwd),
+      onEvent: (event) => events.push(event),
+    });
+    await client.start();
+    const sessionId = await client.newSession();
+    await client.prompt(sessionId, "attempt a forged permission");
+    assert.equal(evaluator.calls.length, 0, "a forged request must never reach the kernel");
+    const message = events.find((event) => event.type === "message" && event.text.startsWith("permission:"));
+    assert.ok(message && message.type === "message" && message.text === "permission:cancelled:");
+  } finally {
+    client?.dispose();
+    await cleanupTmpDir(cwd);
+  }
+});
+
 test("warm-connection reuse: back-to-back turns within the grace window share one adapter", async () => {
   const cwd = await makeTmpDir();
   try {
@@ -208,6 +247,46 @@ test("warm-connection reuse: back-to-back turns within the grace window share on
     });
     // Same session id ⇒ same pid ⇒ the warm adapter was reused, not respawned.
     assert.equal(first.sessionId, second.sessionId);
+    manager.disposeAll();
+  } finally {
+    await cleanupTmpDir(cwd);
+  }
+});
+
+test("manager rejects a concurrent prompt for one run before handlers can be swapped", async () => {
+  const cwd = await makeTmpDir();
+  try {
+    const manager = new AcpSessionManager({
+      sessionStore: new SessionStore(cwd),
+      fsGuard: guardFor(cwd),
+      evaluator: new FakeKernelEvaluator(),
+      launchSpecFor: () => fakeLaunchSpec({ hangOnPrompt: true }),
+      disposeGraceMs: 0,
+      cancelGraceMs: 100,
+    });
+    const controller = new AbortController();
+    const first = manager.runPrompt({
+      runId: "run-concurrent",
+      agent: "claude",
+      cwd,
+      prompt: "first",
+      policy: "ask",
+      onEvent: () => {},
+      signal: controller.signal,
+    });
+    await assert.rejects(
+      manager.runPrompt({
+        runId: "run-concurrent",
+        agent: "claude",
+        cwd,
+        prompt: "second",
+        policy: "ask",
+        onEvent: () => {},
+      }),
+      /concurrent runPrompt/,
+    );
+    controller.abort();
+    assert.equal((await first).stopReason, "cancelled");
     manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);

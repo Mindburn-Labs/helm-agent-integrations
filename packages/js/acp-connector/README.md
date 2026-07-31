@@ -46,9 +46,10 @@ routing every sensitive decision through the HELM boundary.
 - **Managed engine provisioning client** (`provisioning.ts`) — lockfile-pinned
   versions, sha512 (npm SRI) verification, temp-dir extract, atomic rename,
   `.meta` ledger, prune-superseded. Plus the HELM additions:
-  Ed25519-signed manifest enforcement (fail-closed before any download when
-  trusted keys are configured) and a `ProvisioningReceipt` carrying the
-  sha512 of the installed binary + manifest digest, persisted per install —
+  Ed25519-signed manifest enforcement (trusted keys are required by default;
+  only an explicit dev-only opt-in permits an unsigned fixture) and a
+  `ProvisioningReceipt` carrying the sha512 of the installed binary + manifest
+  digest, persisted per install —
   the exact bytes being executed are receipted. Cache hits re-verify the
   ledger hash and reprovision on tamper.
 - **Session manager** (`manager.ts` + `session-store.ts`) — warm-connection
@@ -103,8 +104,9 @@ const result = await manager.runPrompt({
 
 Design mechanisms adapted from Rowboat (Apache-2.0) with attribution comments
 in each module; all code here is original. Deliberately NOT adopted: open fs
-handlers (full user FS reach), `yolo` permission policy, unsigned manifests.
-No terminal capability is advertised.
+handlers (full user FS reach), `yolo` permission policy, or implicit unsigned
+manifests. No terminal capability is advertised. This is a HELM-compatible
+example, not a certification claim.
 
 ## Tests
 
@@ -112,8 +114,8 @@ No terminal capability is advertised.
 npm test
 ```
 
-35 tests against a fake ACP agent speaking the real wire protocol:
+Focused tests against a fake ACP agent speaking the real wire protocol cover:
 lifecycle, startup deadline, cancel→grace→force-kill, warm reuse, kernel
 verdict round-trips, fail-closed denials, allowlist enforcement including
 symlink escape attempts, provisioning hash verification, signed-manifest
-enforcement, and tamper-triggered reprovisioning.
+enforcement, session binding, and tamper-triggered reprovisioning.

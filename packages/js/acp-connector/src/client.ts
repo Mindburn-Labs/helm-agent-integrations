@@ -136,6 +136,9 @@ export class GovernedAcpClient {
   private loadSession_ = false;
   private stderrTail = "";
   private exitInfo: string | null = null;
+  /** The session this connection actually opened. Inbound adapter requests
+   *  naming any other session id are forged/stale and fail closed. */
+  private activeSessionId: string | null = null;
 
   constructor(opts: GovernedAcpClientOptions) {
     this.agent = opts.agent;
@@ -197,6 +200,20 @@ export class GovernedAcpClient {
     }
   }
 
+  /**
+   * Fail-closed session binding: an inbound request is only served when it
+   * names the session this connection opened. Before any session exists, or
+   * for any other id, the request is rejected — the adapter cannot escalate
+   * privileges by quoting a session it was never given.
+   */
+  private sessionMatches(sessionId: unknown): boolean {
+    return (
+      this.activeSessionId !== null &&
+      typeof sessionId === "string" &&
+      sessionId === this.activeSessionId
+    );
+  }
+
   private wireIncoming(peer: NdJsonRpcPeer): void {
     const self = this;
     peer.on(
@@ -209,15 +226,33 @@ export class GovernedAcpClient {
       ) => {
         try {
           switch (method) {
-            case "session/request_permission":
-              respond(await self.broker.resolve(params as RequestPermissionRequest));
+            case "session/request_permission": {
+              const req = params as RequestPermissionRequest;
+              if (!self.sessionMatches(req.sessionId)) {
+                // Forged/mismatched session — never reach the kernel, never
+                // allow. `cancelled` is the protocol-level fail-closed answer.
+                respond({ outcome: { outcome: "cancelled" } });
+                return;
+              }
+              respond(await self.broker.resolve(req));
               return;
-            case "fs/read_text_file":
-              respond(await self.fsGuard.readTextFile(params as ReadTextFileRequest));
+            }
+            case "fs/read_text_file": {
+              const req = params as ReadTextFileRequest;
+              if (!self.sessionMatches(req.sessionId)) {
+                throw new Error("HELM ACP: fs/read_text_file with an unknown session id (fail-closed)");
+              }
+              respond(await self.fsGuard.readTextFile(req));
               return;
-            case "fs/write_text_file":
-              respond(await self.fsGuard.writeTextFile(params as WriteTextFileRequest));
+            }
+            case "fs/write_text_file": {
+              const req = params as WriteTextFileRequest;
+              if (!self.sessionMatches(req.sessionId)) {
+                throw new Error("HELM ACP: fs/write_text_file with an unknown session id (fail-closed)");
+              }
+              respond(await self.fsGuard.writeTextFile(req));
               return;
+            }
             default:
               respondError(new JsonRpcError(JSON_RPC_METHOD_NOT_FOUND, `unsupported method: ${method}`));
               return;
@@ -270,6 +305,7 @@ export class GovernedAcpClient {
       const res = await this.withStartupTimeout(
         this.conn().request<NewSessionResponse>("session/new", { cwd: this.cwd, mcpServers: [] }),
       );
+      this.activeSessionId = res.sessionId;
       return res.sessionId;
     } catch (e) {
       throw this.enrich(e, "newSession");
@@ -281,6 +317,7 @@ export class GovernedAcpClient {
       await this.withStartupTimeout(
         this.conn().request("session/load", { sessionId, cwd: this.cwd, mcpServers: [] }),
       );
+      this.activeSessionId = sessionId;
     } catch (e) {
       throw this.enrich(e, "loadSession");
     }
@@ -303,6 +340,9 @@ export class GovernedAcpClient {
   }
 
   async prompt(sessionId: string, text: string): Promise<PromptResponse> {
+    if (!this.sessionMatches(sessionId)) {
+      throw new Error("HELM ACP: prompt for an unknown session id (fail-closed)");
+    }
     try {
       return await this.conn().request<PromptResponse>("session/prompt", {
         sessionId,

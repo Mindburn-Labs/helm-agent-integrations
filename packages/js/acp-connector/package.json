@@ -6,8 +6,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/index.js",
-    "dist/index.d.ts",
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.d.ts",
+    "!dist/test-utils.js",
+    "!dist/test-utils.d.ts",
     "README.md"
   ],
   "scripts": {

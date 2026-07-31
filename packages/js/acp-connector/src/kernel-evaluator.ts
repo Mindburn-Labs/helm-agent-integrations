@@ -15,6 +15,7 @@
  * caller, which must treat it as a rejection.
  */
 
+import * as crypto from "node:crypto";
 import type { PermissionAsk } from "./types.js";
 
 export type KernelVerdictValue = "ALLOW" | "DENY" | "ESCALATE" | "PENDING" | string;
@@ -76,6 +77,73 @@ const DEFAULT_HELM_URL = "http://127.0.0.1:7714";
 /** Tool kinds that never mutate state — candidates for the low-risk tier. */
 export const READ_TOOL_KINDS = new Set(["read", "search", "fetch", "think"]);
 
+/**
+ * Deterministic JSON (recursively sorted keys) for arbitrary tool input.
+ * Cycles and non-JSON values are neutralized rather than throwing — a hostile
+ * or exotic adapter payload must never crash the evaluation path. The digest
+ * is computed over the FULL canonical bytes, before any size capping, so it
+ * always binds the complete input.
+ */
+export function canonicalJson(value: unknown): string {
+  const active = new Set<unknown>();
+  const canon = (v: unknown): unknown => {
+    if (typeof v === "bigint") return v.toString();
+    if (typeof v === "function" || typeof v === "symbol" || v === undefined) return null;
+    if (Array.isArray(v)) {
+      if (active.has(v)) return "[Circular]";
+      active.add(v);
+      try {
+        return v.map(canon);
+      } finally {
+        active.delete(v);
+      }
+    }
+    if (v && typeof v === "object") {
+      if (active.has(v)) return "[Circular]";
+      active.add(v);
+      try {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(v as Record<string, unknown>).sort()) {
+          out[key] = canon((v as Record<string, unknown>)[key]);
+        }
+        return out;
+      } finally {
+        active.delete(v);
+      }
+    }
+    return v;
+  };
+  return JSON.stringify(canon(value));
+}
+
+export function toolInputSha256(toolInput: unknown): string {
+  return crypto.createHash("sha256").update(canonicalJson(toolInput), "utf8").digest("hex");
+}
+
+/** Maximum full tool-input payload sent to the kernel (UTF-8 bytes). */
+export const TOOL_INPUT_PAYLOAD_CAP = 8192;
+
+/**
+ * Kernel-ready rendering of the raw tool input. The kernel receives the
+ * complete canonical value or the request fails: a preview plus a hash cannot
+ * authorize an effect it cannot inspect.
+ */
+export function kernelToolInput(toolInput: unknown): {
+  tool_input: unknown;
+  tool_input_sha256: string;
+} {
+  const canonical = canonicalJson(toolInput);
+  const byteLength = Buffer.byteLength(canonical, "utf8");
+  if (byteLength > TOOL_INPUT_PAYLOAD_CAP) {
+    throw new Error(
+      `HELM ACP: tool input is ${byteLength} bytes, exceeding the ${TOOL_INPUT_PAYLOAD_CAP}-byte evaluation limit; ` +
+        "refusing partial authorization",
+    );
+  }
+  const sha256 = crypto.createHash("sha256").update(canonical, "utf8").digest("hex");
+  return { tool_input: JSON.parse(canonical), tool_input_sha256: sha256 };
+}
+
 /** Advisory risk/effect classes (kernel-owned taxonomy T0–T3 / E0–E4). */
 export function classifyAsk(ask: PermissionAsk, tier: "low" | "standard"): { riskClass: string; effectClass: string } {
   if (tier === "low") return { riskClass: "T0", effectClass: "E1" };
@@ -121,6 +189,10 @@ export class HelmKernelEvaluator implements KernelEvaluator {
     const actionUrn = `tool.acp.${request.agent}.${request.ask.kind ?? "unknown"}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 10_000);
+    // The kernel authorizes the REAL effect: forward the full tool input /
+    // arguments (canonicalized, digest over the complete bytes), not just the
+    // agent-controlled title/kind label.
+    const toolInput = kernelToolInput(request.ask.toolInput ?? null);
     const payload = {
       principal: this.opts.principal,
       action: "EXECUTE_TOOL",
@@ -132,6 +204,8 @@ export class HelmKernelEvaluator implements KernelEvaluator {
           kind: request.ask.kind,
           tool_call_id: request.ask.toolCallId,
           cwd: request.cwd,
+          tool_input: toolInput.tool_input,
+          tool_input_sha256: toolInput.tool_input_sha256,
         },
         agent_id: this.opts.principal,
         effect_level: effectClass,
