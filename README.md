@@ -26,6 +26,9 @@ certification, or production trust anchors.
 This repo currently ships:
 
 - TypeScript `withHelmBoundary(...)` wrapper around `POST /api/v1/evaluate`
+- TypeScript `@mindburn/helm-acp-connector` — governed ACP connector for
+  embedded coding engines (Claude Code, Codex): kernel-verdict permissions,
+  allowlisted fs handlers, signed+receipted engine provisioning
 - Python `with_helm_boundary(...)` wrapper around `POST /api/v1/evaluate`
 - framework intent normalizers for Hermes, OpenClaw, Mastra, Codex, Claude
   Code, Browser Use, E2B, Daytona, Composio, and TinyFish governed web
