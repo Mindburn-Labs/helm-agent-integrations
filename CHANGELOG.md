@@ -12,6 +12,21 @@
   against the live API on 2026-07-27 (SDK 0.176.0).
 - Added a kernel-loadable policy and reference pack for the governed-sandbox
   demo, exercised against HELM AI Kernel v0.7.5.
+- Added package-root runnable examples for all twelve framework intent
+  normalizers in TypeScript and Python.
+- Exposed the TypeScript example through the package export map and shipped
+  the Python example as an installed module.
+- Made CI execute both examples and isolated consumers installed from each
+  package artifact, including the simulated preflight contract and default-deny
+  no-dispatch vector.
+- Added Python 3.9/3.12 type-check and lint coverage for the installed helper
+  examples.
+- Pinned the helper release tooling and switched JavaScript checks to `npm ci`
+  for repeatable CI installs.
+- Restored generated-sample verification on Python 3.9 with an explicit
+  `tomli` compatibility dependency.
+- Pinned the build backend and distribution validator compatibility layer for
+  the organization-wide deterministic release gate.
 
 ## 0.1.0 - 2026-06-05
 
@@ -26,4 +41,3 @@
   Google ADK, Mastra, Browser Use, E2B, Composio, LlamaIndex, and AG2.
 - Added deterministic sample receipt and EvidencePack generation.
 - Added GitHub Actions validation.
-

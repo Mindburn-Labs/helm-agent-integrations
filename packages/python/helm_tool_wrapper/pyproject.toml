@@ -1,6 +1,6 @@
 [project]
 name = "helm-tool-wrapper"
-version = "0.1.0"
+version = "0.2.0"
 description = "Thin HELM AI Kernel preflight wrapper for Python agent tool calls"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -10,13 +10,17 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.0",
-  "ruff>=0.1.0",
-  "mypy>=1.0",
+  "build==1.4.0",
+  "mypy==1.18.1",
+  "packaging==25.0",
+  "pytest==8.4.2",
+  "ruff==0.13.0",
+  "tomli==2.4.1; python_version < '3.11'",
+  "twine==6.2.0",
 ]
 
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools==80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

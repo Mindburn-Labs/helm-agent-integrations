@@ -7,9 +7,13 @@ import argparse
 import hashlib
 import json
 import tarfile
-import tomllib
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9-3.10 compatibility for the CI matrix.
+    import tomli as tomllib
 
 CANONICAL_VERDICTS = {"ALLOW", "DENY", "ESCALATE"}
 POLICY_REFERENCE_SCHEMA = "helm.integration.policy.reference.v1"
