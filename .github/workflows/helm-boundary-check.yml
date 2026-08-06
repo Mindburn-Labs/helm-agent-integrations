@@ -32,6 +32,14 @@ jobs:
         run: npm test
         working-directory: packages/js/helm-tool-wrapper
 
+      - name: Install channel bridge dependencies
+        run: npm install
+        working-directory: packages/js/helm-channel-bridge
+
+      - name: Test channel bridge
+        run: npm test
+        working-directory: packages/js/helm-channel-bridge
+
       - name: Test Python wrapper
         run: python -m unittest discover packages/python/helm_tool_wrapper/tests
 
