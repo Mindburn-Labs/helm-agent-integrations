@@ -5,6 +5,7 @@ validate: test-js test-python samples verify-samples
 test-js:
 	cd packages/js/helm-tool-wrapper && npm install && npm test
 	cd packages/js/helm-channel-bridge && npm install && npm test
+	cd packages/opencode-governance && npm install && npm test
 
 test-python:
 	python3 -m unittest discover packages/python/helm_tool_wrapper/tests
@@ -26,6 +27,8 @@ package: package-js package-python
 clean:
 	rm -rf packages/js/helm-tool-wrapper/dist
 	rm -rf packages/js/helm-tool-wrapper/node_modules
+	rm -rf packages/opencode-governance/dist
+	rm -rf packages/opencode-governance/node_modules
 	rm -rf packages/python/helm_tool_wrapper/.pytest_cache
 	rm -rf packages/python/helm_tool_wrapper/helm_tool_wrapper.egg-info
 	rm -rf packages/python/helm_tool_wrapper/build
