@@ -78,19 +78,20 @@ const DEFAULT_HELM_URL = "http://127.0.0.1:7714";
 export const READ_TOOL_KINDS = new Set(["read", "search", "fetch", "think"]);
 
 /**
- * Deterministic JSON (recursively sorted keys) for arbitrary tool input.
- * Cycles and non-JSON values are neutralized rather than throwing — a hostile
- * or exotic adapter payload must never crash the evaluation path. The digest
- * is computed over the FULL canonical bytes, before any size capping, so it
- * always binds the complete input.
+ * Deterministic JSON (recursively sorted keys) for tool input. ACP is a JSON
+ * protocol, so values that would be changed or discarded by JSON encoding are
+ * rejected rather than authorized under a lossy representation.
  */
 export function canonicalJson(value: unknown): string {
-  const active = new Set<unknown>();
+  const active = new Set<object>();
   const canon = (v: unknown): unknown => {
-    if (typeof v === "bigint") return v.toString();
-    if (typeof v === "function" || typeof v === "symbol" || v === undefined) return null;
+    if (v === null || typeof v === "string" || typeof v === "boolean") return v;
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) throw new Error("HELM ACP: tool input contains a non-finite number");
+      return v;
+    }
     if (Array.isArray(v)) {
-      if (active.has(v)) return "[Circular]";
+      if (active.has(v)) throw new Error("HELM ACP: tool input contains a cycle");
       active.add(v);
       try {
         return v.map(canon);
@@ -99,7 +100,11 @@ export function canonicalJson(value: unknown): string {
       }
     }
     if (v && typeof v === "object") {
-      if (active.has(v)) return "[Circular]";
+      const proto = Object.getPrototypeOf(v);
+      if (proto !== Object.prototype && proto !== null) {
+        throw new Error("HELM ACP: tool input must contain only JSON objects");
+      }
+      if (active.has(v)) throw new Error("HELM ACP: tool input contains a cycle");
       active.add(v);
       try {
         const out: Record<string, unknown> = {};
@@ -111,7 +116,7 @@ export function canonicalJson(value: unknown): string {
         active.delete(v);
       }
     }
-    return v;
+    throw new Error(`HELM ACP: tool input contains unsupported ${typeof v} data`);
   };
   return JSON.stringify(canon(value));
 }
@@ -161,6 +166,37 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+function normalizeHelmUrl(value: string | undefined): string {
+  const raw = (value ?? DEFAULT_HELM_URL).replace(/\/$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("HELM ACP: helmUrl must be an absolute HTTP(S) URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("HELM ACP: helmUrl must use HTTP or HTTPS");
+  }
+  const loopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+  if (parsed.protocol === "http:" && !loopback) {
+    throw new Error("HELM ACP: plaintext helmUrl is allowed only on loopback");
+  }
+  return raw;
+}
+
+const AUTHORITY_VERDICTS = new Set(["ALLOW", "DENY", "ESCALATE", "PENDING"]);
+
+function readAuthorityVerdict(...values: unknown[]): string {
+  const verdicts = values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toUpperCase())
+    .filter((value) => AUTHORITY_VERDICTS.has(value));
+  if (new Set(verdicts).size > 1) {
+    throw new Error("HELM ACP: conflicting verdict fields in Kernel response (fail-closed)");
+  }
+  return verdicts[0] ?? "DENY";
 }
 
 /**
@@ -223,7 +259,7 @@ export class HelmKernelEvaluator implements KernelEvaluator {
       },
     };
     try {
-      const base = (this.opts.helmUrl ?? DEFAULT_HELM_URL).replace(/\/$/, "");
+      const base = normalizeHelmUrl(this.opts.helmUrl);
       const response = await fetchImpl(`${base}/api/v1/evaluate`, {
         method: "POST",
         headers: {
@@ -246,8 +282,14 @@ export class HelmKernelEvaluator implements KernelEvaluator {
       }
       const rec = readRecord(body);
       const nested = readRecord(rec.decision ?? rec.record ?? rec.result ?? body);
-      const verdictRaw = nested.verdict ?? nested.status ?? rec.verdict ?? rec.status;
-      const verdict = typeof verdictRaw === "string" ? verdictRaw.toUpperCase() : "DENY";
+      const verdict = readAuthorityVerdict(
+        nested.verdict,
+        nested.status,
+        rec.verdict,
+        rec.status,
+        response.headers.get("x-helm-verdict"),
+        response.headers.get("x-helm-status"),
+      );
       return {
         verdict,
         reason: str(nested.reason) ?? str(rec.reason),

@@ -36,6 +36,12 @@ test("kernel tool input is canonical and rejects partial authorization", () => {
     () => kernelToolInput({ rawInput: { command: "x".repeat(TOOL_INPUT_PAYLOAD_CAP) } }),
     /refusing partial authorization/,
   );
+  assert.throws(() => kernelToolInput({ value: 1n }), /unsupported bigint/);
+  assert.throws(() => kernelToolInput({ value: undefined }), /unsupported undefined/);
+  assert.throws(() => kernelToolInput({ value: Number.NaN }), /non-finite number/);
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  assert.throws(() => kernelToolInput(cyclic), /contains a cycle/);
 });
 
 test("kernel evaluator forwards the complete tool input to the evaluation contract", async () => {
@@ -63,4 +69,36 @@ test("kernel evaluator forwards the complete tool input to the evaluation contra
   const args = ((posted.context as Record<string, unknown>).args as Record<string, unknown>);
   assert.deepEqual(args.tool_input, input);
   assert.equal(args.tool_input_sha256, toolInputSha256(input));
+});
+
+test("kernel evaluator rejects plaintext non-loopback transport before sending credentials", async () => {
+  let called = false;
+  const evaluator = new HelmKernelEvaluator({
+    apiKey: "secret",
+    tenantId: "tenant-1",
+    principal: "principal-1",
+    helmUrl: "http://kernel.example.test",
+    fetch: async () => {
+      called = true;
+      throw new Error("must not be called");
+    },
+  });
+  await assert.rejects(evaluator.evaluate(evaluation({ command: "true" })), /plaintext helmUrl/);
+  assert.equal(called, false);
+});
+
+test("kernel evaluator rejects contradictory authority fields", async () => {
+  const evaluator = new HelmKernelEvaluator({
+    apiKey: "test-api-key",
+    tenantId: "tenant-1",
+    principal: "principal-1",
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ decision: { verdict: "ALLOW" }, verdict: "DENY" }),
+      text: async () => "",
+    }),
+  });
+  await assert.rejects(evaluator.evaluate(evaluation({ command: "true" })), /conflicting verdict fields/);
 });

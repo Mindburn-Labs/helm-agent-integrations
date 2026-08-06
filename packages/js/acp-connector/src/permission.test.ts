@@ -69,7 +69,7 @@ test("evaluator transport failure rejects (fail-closed, never a silent allow)", 
   assert.deepEqual(res.outcome, { outcome: "selected", optionId: "opt-reject" });
 });
 
-test("auto-approve-reads: read kinds take the low-risk tier and stick with a receipt", async () => {
+test("auto-approve-reads: read kinds take the low-risk tier but still evaluate every request", async () => {
   const evaluator = new FakeKernelEvaluator();
   const stickies: unknown[] = [];
   const broker = new GovernedPermissionBroker({
@@ -81,19 +81,16 @@ test("auto-approve-reads: read kinds take the low-risk tier and stick with a rec
   });
 
   const first = await broker.resolve(permRequest("read"));
-  assert.deepEqual(first.outcome, { outcome: "selected", optionId: "opt-allow-always" });
+  assert.deepEqual(first.outcome, { outcome: "selected", optionId: "opt-allow-once" });
   assert.equal(evaluator.calls.length, 1);
   assert.equal(evaluator.calls[0].tier, "low");
-  assert.equal(stickies.length, 1);
-  assert.deepEqual(
-    broker.stickyAllowReceipts().map((r) => r.receiptId),
-    ["rcpt-fake"],
-  );
+  assert.equal(stickies.length, 0);
+  assert.equal(broker.stickyAllowReceipts().length, 0);
 
-  // Second identical ask resolves from sticky memory WITHOUT a new kernel call.
+  // Low-risk classification is not reusable authority by itself.
   const second = await broker.resolve(permRequest("read"));
-  assert.deepEqual(second.outcome, { outcome: "selected", optionId: "opt-allow-always" });
-  assert.equal(evaluator.calls.length, 1);
+  assert.deepEqual(second.outcome, { outcome: "selected", optionId: "opt-allow-once" });
+  assert.equal(evaluator.calls.length, 2);
 });
 
 test("auto-approve-reads does NOT extend to mutating kinds (standard tier, no stick)", async () => {
@@ -121,11 +118,24 @@ test("kernel stickyAllow hint sticks under the plain ask policy too, with receip
 
 test("sticky allows bind to the requested tool target", async () => {
   const evaluator = new FakeKernelEvaluator();
-  evaluator.defaultVerdict = { verdict: "ALLOW", stickyAllow: true };
+  evaluator.defaultVerdict = {
+    verdict: "ALLOW",
+    stickyAllow: true,
+    decisionId: "dec-sticky",
+    receiptId: "rcpt-sticky",
+  };
   const broker = makeBroker(evaluator);
-  await broker.resolve(permRequest("execute", { command: "printf safe" }));
-  await broker.resolve(permRequest("execute", { command: "rm -rf /tmp/not-safe" }));
-  assert.equal(evaluator.calls.length, 2, "a sticky allow must not cross tool targets");
+  await broker.resolve(permRequest("execute", { command: "printf", argv: ["safe"] }));
+  await broker.resolve(permRequest("execute", { command: "printf", argv: ["unsafe"] }));
+  assert.equal(evaluator.calls.length, 2, "a sticky allow must bind the complete tool payload");
+});
+
+test("ALLOW without decision and receipt evidence rejects", async () => {
+  const evaluator = new FakeKernelEvaluator();
+  evaluator.defaultVerdict = { verdict: "ALLOW" };
+  const broker = makeBroker(evaluator);
+  const res = await broker.resolve(permRequest("edit"));
+  assert.deepEqual(res.outcome, { outcome: "selected", optionId: "opt-reject" });
 });
 
 test("option-family fallback: allow maps to allow_once when allow_always is not offered", () => {
@@ -149,6 +159,16 @@ test("reject with no reject option offered answers cancelled, never an allow", a
     sessionId: "s",
     toolCall: { kind: "edit", title: "x" },
     options: [{ optionId: "only-allow", kind: "allow_once" }],
+  });
+  assert.deepEqual(res.outcome, { outcome: "cancelled" });
+});
+
+test("ALLOW with no recognized allow option answers cancelled", async () => {
+  const broker = makeBroker(new FakeKernelEvaluator());
+  const res = await broker.resolve({
+    sessionId: "s",
+    toolCall: { kind: "edit", title: "x" },
+    options: [{ optionId: "mystery", kind: "run_everything" }],
   });
   assert.deepEqual(res.outcome, { outcome: "cancelled" });
 });
@@ -183,12 +203,12 @@ test("end-to-end: fake agent's requestPermission round-trips through the kernel"
     const p = permEvents[0];
     assert.ok(p.type === "permission");
     if (p.type === "permission") {
-      assert.equal(p.decision, "allow_always");
+      assert.equal(p.decision, "allow_once");
       assert.equal(p.receiptId, "rcpt-fake");
       assert.equal(p.ask.kind, "read");
     }
     const msg = events.find((e) => e.type === "message" && e.text.startsWith("permission:"));
-    assert.ok(msg && msg.type === "message" && msg.text === "permission:selected:opt-allow-always");
+    assert.ok(msg && msg.type === "message" && msg.text === "permission:selected:opt-allow-once");
     client.dispose();
   } finally {
     await cleanupTmpDir(cwd);

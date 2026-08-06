@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import {
   canonicalManifestBytes,
   ensureEngine,
+  getProvisionedEnginePath,
   manifestDigestSha256,
   sha512FileHex,
   verifyIntegrity,
@@ -265,6 +266,76 @@ test("cache hit re-verifies the ledger hash; tampered cache reprovisions", async
     });
     assert.equal(fetches, 2, "tampered cache must trigger a fresh verified download");
     assert.equal(await fs.readFile(third.executablePath, "utf8"), BINARY_CONTENT);
+  } finally {
+    await cleanupTmpDir(fx.dir);
+  }
+});
+
+test("runtime lookup re-verifies cached bytes before returning an executable", async (t) => {
+  if (process.platform === "win32") return t.skip("fixture uses posix tar");
+  const fx = await makeEngineFixture();
+  const enginesRoot = path.join(fx.dir, "engines");
+  try {
+    const installed = await ensureEngine("fake-agent", {
+      manifest: fx.manifest,
+      allowUnsignedManifest: true,
+      enginesRoot,
+      fetch: fileFetch(),
+    });
+    assert.equal(getProvisionedEnginePath("fake-agent", fx.manifest, enginesRoot), installed.executablePath);
+    await fs.writeFile(installed.executablePath, "tampered-after-provisioning", "utf8");
+    assert.throws(
+      () => getProvisionedEnginePath("fake-agent", fx.manifest, enginesRoot),
+      /runtime integrity verification/,
+    );
+  } finally {
+    await cleanupTmpDir(fx.dir);
+  }
+});
+
+test("path-bearing manifest fields cannot escape the engines root", async (t) => {
+  if (process.platform === "win32") return t.skip("fixture uses posix tar");
+  const fx = await makeEngineFixture();
+  let fetches = 0;
+  const fetch = (async (...args: Parameters<typeof globalThis.fetch>) => {
+    fetches++;
+    return fileFetch()(...args);
+  }) as typeof globalThis.fetch;
+  try {
+    await assert.rejects(
+      ensureEngine("../fake-agent", {
+        manifest: fx.manifest,
+        allowUnsignedManifest: true,
+        enginesRoot: path.join(fx.dir, "engines-a"),
+        fetch,
+      }),
+      /invalid agent id/,
+    );
+
+    const badVersion = structuredClone(fx.manifest);
+    badVersion["fake-agent"].version = "../escape";
+    await assert.rejects(
+      ensureEngine("fake-agent", {
+        manifest: badVersion,
+        allowUnsignedManifest: true,
+        enginesRoot: path.join(fx.dir, "engines-b"),
+        fetch,
+      }),
+      /invalid engine version/,
+    );
+
+    const badExecutable = structuredClone(fx.manifest);
+    badExecutable["fake-agent"].platforms[platformKeyForTest()].executableRelPath = "../../escape";
+    await assert.rejects(
+      ensureEngine("fake-agent", {
+        manifest: badExecutable,
+        allowUnsignedManifest: true,
+        enginesRoot: path.join(fx.dir, "engines-c"),
+        fetch,
+      }),
+      /contained relative path/,
+    );
+    assert.equal(fetches, 0, "invalid manifest paths must fail before download");
   } finally {
     await cleanupTmpDir(fx.dir);
   }

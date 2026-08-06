@@ -38,6 +38,7 @@ import * as crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { isPathInside } from "./fs-guard.js";
 
 export interface EnginePlatformEntry {
   /** npm package name the tarball was pinned from. */
@@ -106,6 +107,42 @@ export interface ProvisionedEngine {
 
 export const DEFAULT_ENGINES_ROOT = path.join(os.homedir(), ".helm", "engines");
 
+function requirePathSegment(value: unknown, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value === "." ||
+    value === ".." ||
+    !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(value)
+  ) {
+    throw new Error(`HELM provisioning: invalid ${label}`);
+  }
+  return value;
+}
+
+function requireExecutableRelPath(value: unknown): string {
+  if (typeof value !== "string" || value === "" || path.isAbsolute(value) || path.win32.isAbsolute(value)) {
+    throw new Error("HELM provisioning: executableRelPath must be a contained relative path");
+  }
+  const segments = value.split(/[\\/]+/);
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new Error("HELM provisioning: executableRelPath must be a contained relative path");
+  }
+  return segments.join(path.sep);
+}
+
+function receiptTarballUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
 /** Deterministic JSON (recursively sorted keys) — the signing surface. */
 export function canonicalManifestBytes(manifest: unknown): Buffer {
   const canonical = (value: unknown): unknown => {
@@ -173,7 +210,7 @@ export function platformKey(entry: EngineManifestEntry): string | null {
     if (isMuslLibc()) candidates.push(`linux-${arch}-musl`);
     candidates.push(`linux-${arch}`);
   }
-  return candidates.find((c) => c in entry.platforms) ?? null;
+  return candidates.find((c) => Object.prototype.hasOwnProperty.call(entry.platforms, c)) ?? null;
 }
 
 // glibc builds expose glibcVersionRuntime in the process report header; musl
@@ -189,8 +226,15 @@ function isMuslLibc(): boolean {
 }
 
 function executablePath(root: string, plat: EnginePlatformEntry): string | null {
-  const p = path.join(root, plat.executableRelPath);
-  return fs.existsSync(p) ? p : null;
+  const resolvedRoot = path.resolve(root);
+  const candidate = path.resolve(resolvedRoot, requireExecutableRelPath(plat.executableRelPath));
+  if (!isPathInside(resolvedRoot, candidate) || !fs.existsSync(candidate)) return null;
+  const canonicalRoot = fs.realpathSync(resolvedRoot);
+  const canonical = fs.realpathSync(candidate);
+  if (!isPathInside(canonicalRoot, canonical) || !fs.statSync(canonical).isFile()) {
+    throw new Error("HELM provisioning: executable escapes the provisioned version directory");
+  }
+  return canonical;
 }
 
 /** Verify the tarball against the npm SRI string ("sha512-<base64>"). */
@@ -292,9 +336,12 @@ function pruneOldVersions(enginesRoot: string, agent: string, keepVersion: strin
  * AND every cache hit — the running engine is always receipted.
  */
 export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Promise<ProvisionedEngine> {
-  const entry = opts.manifest[agent];
-  if (!entry) throw new Error(`HELM provisioning: no manifest entry for agent ${JSON.stringify(agent)}`);
-  const enginesRoot = opts.enginesRoot ?? DEFAULT_ENGINES_ROOT;
+  const safeAgent = requirePathSegment(agent, "agent id");
+  const entry = Object.prototype.hasOwnProperty.call(opts.manifest, safeAgent) ? opts.manifest[safeAgent] : undefined;
+  if (!entry || typeof entry !== "object") {
+    throw new Error(`HELM provisioning: no manifest entry for agent ${JSON.stringify(agent)}`);
+  }
+  const enginesRoot = path.resolve(opts.enginesRoot ?? DEFAULT_ENGINES_ROOT);
 
   const trustedKeys = opts.trustedPublicKeys ?? [];
   if (trustedKeys.length === 0 && opts.allowUnsignedManifest !== true) {
@@ -308,12 +355,24 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
     verifyManifestSignature(opts.manifest, opts.manifestSignature, trustedKeys);
   }
 
-  const version = entry.version;
+  const version = requirePathSegment(entry.version, "engine version");
+  if (!entry.platforms || typeof entry.platforms !== "object") {
+    throw new Error("HELM provisioning: manifest entry has no platform map");
+  }
   const key = platformKey(entry);
   if (!key) {
     throw new Error(`HELM provisioning: no ${agent} engine is available for ${process.platform}/${process.arch}`);
   }
   const plat = entry.platforms[key];
+  if (
+    !plat ||
+    typeof plat.tarball !== "string" ||
+    typeof plat.integrity !== "string" ||
+    typeof plat.executableRelPath !== "string"
+  ) {
+    throw new Error("HELM provisioning: malformed platform entry");
+  }
+  requireExecutableRelPath(plat.executableRelPath);
 
   const agentRoot = path.join(enginesRoot, agent);
   const versionDir = path.join(agentRoot, version);
@@ -326,7 +385,7 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
     agent,
     version,
     platform: key,
-    tarball: plat.tarball,
+    tarball: receiptTarballUrl(plat.tarball),
     tarballIntegrity: plat.integrity,
     binarySha512: await sha512FileHex(exe),
     manifestDigestSha256: manifestDigest,
@@ -337,11 +396,11 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
 
   const persistReceipt = async (receipt: ProvisioningReceipt): Promise<void> => {
     if (!opts.receiptsDir) return;
-    await fsp.mkdir(opts.receiptsDir, { recursive: true });
+    await fsp.mkdir(opts.receiptsDir, { recursive: true, mode: 0o700 });
     await fsp.writeFile(
       path.join(opts.receiptsDir, `${receipt.receiptId}.json`),
       JSON.stringify(receipt, null, 2),
-      "utf8",
+      { encoding: "utf8", mode: 0o600, flag: "wx" },
     );
   };
 
@@ -374,7 +433,7 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
     fs.rmSync(metaPath, { force: true });
   }
 
-  fs.mkdirSync(agentRoot, { recursive: true });
+  fs.mkdirSync(agentRoot, { recursive: true, mode: 0o700 });
   const tmpRoot = fs.mkdtempSync(path.join(agentRoot, `.tmp-${version}-`));
   try {
     const tarPath = path.join(tmpRoot, "engine.tgz");
@@ -404,7 +463,7 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
 
     opts.onProgress?.({ phase: "receipt" });
     const receipt = await buildReceipt(finalExe);
-    fs.mkdirSync(metaDir, { recursive: true });
+    fs.mkdirSync(metaDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(
       metaPath,
       JSON.stringify(
@@ -420,6 +479,7 @@ export async function ensureEngine(agent: string, opts: EnsureEngineOptions): Pr
         null,
         2,
       ),
+      { encoding: "utf8", mode: 0o600 },
     );
     await persistReceipt(receipt);
 
@@ -441,13 +501,31 @@ export function getProvisionedEnginePath(
   manifest: EngineManifest,
   enginesRoot: string = DEFAULT_ENGINES_ROOT,
 ): string {
-  const entry = manifest[agent];
+  const safeAgent = requirePathSegment(agent, "agent id");
+  const entry = Object.prototype.hasOwnProperty.call(manifest, safeAgent) ? manifest[safeAgent] : undefined;
   if (!entry) throw new Error(`HELM provisioning: no manifest entry for agent ${JSON.stringify(agent)}`);
+  const version = requirePathSegment(entry.version, "engine version");
   const key = platformKey(entry);
   const plat = key ? entry.platforms[key] : undefined;
-  const exe = plat ? executablePath(path.join(enginesRoot, agent, entry.version), plat) : null;
+  const root = path.resolve(enginesRoot);
+  const exe = plat ? executablePath(path.join(root, safeAgent, version), plat) : null;
   if (!exe) {
     throw new Error(`HELM: the ${agent} engine is not provisioned yet — provision it before starting a session`);
+  }
+  const metaPath = path.join(root, safeAgent, ".meta", `${safeAgent}-${version}.json`);
+  let ledger: { binarySha512?: string; manifestDigestSha256?: string; integrity?: string };
+  try {
+    ledger = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+  } catch {
+    throw new Error("HELM: provisioned engine ledger is missing or invalid (fail-closed)");
+  }
+  const actualHash = crypto.createHash("sha512").update(fs.readFileSync(exe)).digest("hex");
+  if (
+    ledger.binarySha512 !== actualHash ||
+    ledger.manifestDigestSha256 !== manifestDigestSha256(manifest) ||
+    ledger.integrity !== plat?.integrity
+  ) {
+    throw new Error("HELM: provisioned engine failed runtime integrity verification (fail-closed)");
   }
   return exe;
 }

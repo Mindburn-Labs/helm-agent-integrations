@@ -54,11 +54,19 @@ export class SessionStore {
   }
 
   async write(session: StoredSession): Promise<void> {
-    await fs.mkdir(this.dir, { recursive: true });
+    await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     const target = this.fileFor(session.runId);
-    const tmp = `${target}.tmp-${process.pid}`;
-    await fs.writeFile(tmp, JSON.stringify(session, null, 2), "utf8");
-    await fs.rename(tmp, target);
+    const tmp = `${target}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
+    try {
+      await fs.writeFile(tmp, JSON.stringify(session, null, 2), {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
+      await fs.rename(tmp, target);
+    } finally {
+      await fs.rm(tmp, { force: true });
+    }
   }
 
   async clear(runId: string): Promise<void> {

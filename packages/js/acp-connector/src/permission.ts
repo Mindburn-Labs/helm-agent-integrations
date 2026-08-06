@@ -13,9 +13,8 @@
  *    kernel still issues the verdict.
  *  - Fail-closed default: DENY / ESCALATE / PENDING / transport error /
  *    timeout all resolve to a rejection, never an allow.
- *  - Sticky per-session allows are recorded as receipts: each sticky entry
- *    carries the kernel decisionId/receiptId that authorized it, so the
- *    "always allow" convenience remains auditable evidence.
+ *  - Sticky per-session allows require an explicit kernel sticky hint, bind
+ *    the complete canonical request, and carry decision + receipt ids.
  */
 
 import type {
@@ -26,7 +25,7 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
 } from "./types.js";
-import { READ_TOOL_KINDS, type KernelEvaluator } from "./kernel-evaluator.js";
+import { READ_TOOL_KINDS, toolInputSha256, type KernelEvaluator } from "./kernel-evaluator.js";
 
 function toAsk(request: RequestPermissionRequest): PermissionAsk {
   const tc = request.toolCall ?? {};
@@ -69,41 +68,13 @@ function selected(optionId: string): RequestPermissionResponse {
   return { outcome: { outcome: "selected", optionId } };
 }
 
-/**
- * Best-effort canonical target for a tool call: the shell command, file path,
- * or URL the call actually acts on, taken from the adapter-supplied payload
- * (ACP rawInput / locations). Sticky allows key on this so an "always allow"
- * for `execute: ls` does NOT silently extend to `execute: rm -rf …`.
- */
-export function canonicalAskTarget(ask: PermissionAsk): string | undefined {
-  const input = ask.toolInput;
-  if (!input || typeof input !== "object") return undefined;
-  const rec = input as Record<string, unknown>;
-  const rawInput = (rec.rawInput ?? undefined) as Record<string, unknown> | undefined;
-  const firstLocation = Array.isArray(rec.locations)
-    ? (rec.locations[0] as { path?: unknown } | undefined)?.path
-    : undefined;
-  const candidates: unknown[] = [
-    rawInput?.command,
-    rawInput?.file_path,
-    rawInput?.path,
-    rawInput?.url,
-    firstLocation,
-    rec.command,
-    rec.path,
-    rec.url,
-  ];
-  for (const c of candidates) {
-    if (typeof c === "string" && c !== "") return c.slice(0, 512);
-  }
-  return undefined;
-}
-
 function memoryKey(ask: PermissionAsk): string {
-  const target = canonicalAskTarget(ask);
-  if (ask.kind && target) return `kind:${ask.kind}:target:${target}`;
-  if (ask.kind) return `kind:${ask.kind}`;
-  return `title:${ask.title}`;
+  return toolInputSha256({
+    sessionId: ask.sessionId,
+    title: ask.title,
+    kind: ask.kind ?? null,
+    toolInput: ask.toolInput ?? null,
+  });
 }
 
 /** A sticky allow with its authorizing evidence — the recorded receipt. */
@@ -141,7 +112,6 @@ export class GovernedPermissionBroker {
 
   async resolve(request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
     const ask = toAsk(request);
-    const key = memoryKey(ask);
 
     const finish = (
       decision: PermissionDecision,
@@ -150,17 +120,21 @@ export class GovernedPermissionBroker {
     ): RequestPermissionResponse => {
       this.opts.onResolved?.(ask, decision, auto, receiptId);
       const opt = pickPermissionOption(request.options ?? [], decision);
-      // If the agent offered no matching option, fall back to its first one
-      // rather than deadlocking the turn. A reject with no offered option is
-      // answered as cancelled — fail-closed either way.
       if (opt) return selected(opt.optionId);
-      const first = request.options?.[0];
-      if (first && decision !== "reject") return selected(first.optionId);
+      // An unknown option kind has unknown authority semantics. Never select
+      // an arbitrary first option, even after Kernel ALLOW.
       return { outcome: { outcome: "cancelled" } };
     };
 
-    // 1. Sticky allow from earlier this session — itself the product of a
-    //    kernel ALLOW, recorded with its receipt.
+    let key: string;
+    try {
+      key = memoryKey(ask);
+    } catch {
+      return finish("reject", true);
+    }
+
+    // 1. Exact-payload sticky allow from earlier this session — itself the
+    //    product of a kernel ALLOW, recorded with decision + receipt ids.
     const prior = this.sticky.get(key);
     if (prior) return finish("allow_always", true, prior.receiptId);
 
@@ -183,14 +157,15 @@ export class GovernedPermissionBroker {
       return finish("reject", true);
     }
 
-    if (verdict.verdict !== "ALLOW") {
+    if (verdict.verdict !== "ALLOW" || !verdict.decisionId || !verdict.receiptId) {
       return finish("reject", true, verdict.receiptId);
     }
 
-    // Kernel ALLOW. Sticky recording: only when the kernel marks the allow
-    // sticky, or for the low-risk tier under auto-approve-reads (the
-    // documented lightweight tier beneath the approval ceremony).
-    const sticky = verdict.stickyAllow === true || tier === "low";
+    // Reuse is permitted only when the Kernel explicitly marks the exact
+    // payload sticky and the agent offered an allow-always option.
+    const sticky =
+      verdict.stickyAllow === true &&
+      (request.options ?? []).some((option) => option.kind === "allow_always");
     if (sticky) {
       const receipt: StickyAllowReceipt = {
         key,

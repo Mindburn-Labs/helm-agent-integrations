@@ -6,7 +6,7 @@ engines (Claude Code, Codex).
 The positioning matches this repository: engines propose and orchestrate
 work; HELM governs execution and produces evidence. The connector drives
 vendor coding agents over ACP (the Zed-originated JSON-RPC protocol) while
-routing every sensitive decision through the HELM boundary.
+routing every interactive permission decision through the HELM boundary.
 
 ```text
 ┌─────────────┐   ACP (ndJSON/JSON-RPC over stdio)   ┌──────────────┐
@@ -31,10 +31,10 @@ routing every sensitive decision through the HELM boundary.
   adapted as a LOW-RISK TIER beneath the heavyweight approval ceremony:
   `auto-approve-reads` only classifies read-only tool kinds (read/search/
   fetch/think) as low-risk for the kernel — the kernel still issues the
-  verdict. Sticky per-session allows are recorded as receipts (decisionId +
-  receiptId that authorized them). Option-family fallback mapping ensures a
+  verdict on every request unless it explicitly grants an exact-payload sticky
+  allow with decision + receipt ids. Option-family fallback mapping ensures a
   decision always lands on an option the agent actually offered, and a reject
-  with no reject option offered answers `cancelled` — never an allow.
+  or allow with no recognized same-family option answers `cancelled`.
 - **Allowlisted fs handlers** (`fs-guard.ts`) — the counter-position to the
   open-fs-handler anti-pattern: `fs/read_text_file` / `fs/write_text_file`
   are served only when the requested path canonicalizes inside a declared
@@ -42,7 +42,8 @@ routing every sensitive decision through the HELM boundary.
   (realpath walk-up for non-existent paths), so a symlink inside an allowed
   root pointing outside is denied. One canonical `isPathInside` — a divergent
   copy is a permission-bypass risk. The `terminal` capability is never
-  advertised.
+  advertised. A writable root is an explicit static sandbox grant; individual
+  file writes are not Kernel decisions or production EvidencePack entries.
 - **Managed engine provisioning client** (`provisioning.ts`) — lockfile-pinned
   versions, sha512 (npm SRI) verification, temp-dir extract, atomic rename,
   `.meta` ledger, prune-superseded. Plus the HELM additions:
@@ -51,11 +52,15 @@ routing every sensitive decision through the HELM boundary.
   `ProvisioningReceipt` carrying the sha512 of the installed binary + manifest
   digest, persisted per install —
   the exact bytes being executed are receipted. Cache hits re-verify the
-  ledger hash and reprovision on tamper.
+  ledger hash and reprovision on tamper; runtime lookup re-verifies the binary,
+  ledger, manifest digest, and path containment before returning an executable.
 - **Session manager** (`manager.ts` + `session-store.ts`) — warm-connection
   reuse with an unref'd dispose grace window (default 60 s),
   cancel → grace (default 2 s) → force-kill so a wedged adapter can never
   lock a turn, per-run session-id persistence with stale-session fallback.
+- **Process credential boundary** — spawned adapters inherit only basic OS
+  runtime variables. Provider/cloud credentials must be delegated explicitly
+  through `extraEnv`; ambient parent-process secrets are not copied by default.
 
 ## Usage sketch
 
@@ -106,7 +111,9 @@ Design mechanisms adapted from Rowboat (Apache-2.0) with attribution comments
 in each module; all code here is original. Deliberately NOT adopted: open fs
 handlers (full user FS reach), `yolo` permission policy, or implicit unsigned
 manifests. No terminal capability is advertised. This is a HELM-compatible
-example, not a certification claim.
+example, not a production connector-certification or conformance claim. Static
+filesystem grants do not replace per-effect permits, ProofGraph entries, or a
+source-owned EvidencePack integration.
 
 ## Tests
 

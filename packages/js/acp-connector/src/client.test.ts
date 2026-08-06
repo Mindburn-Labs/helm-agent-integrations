@@ -4,7 +4,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GovernedAcpClient } from "./client.js";
+import { GovernedAcpClient, buildAdapterLaunchSpec } from "./client.js";
 import { GovernedPermissionBroker } from "./permission.js";
 import { AcpSessionManager } from "./manager.js";
 import { SessionStore } from "./session-store.js";
@@ -28,6 +28,24 @@ function makeBroker(evaluator: FakeKernelEvaluator, cwd: string, events?: AcpRun
       : undefined,
   });
 }
+
+test("adapter launch inherits only runtime basics; credentials require explicit delegation", () => {
+  const previous = process.env.HELM_TEST_AMBIENT_SECRET;
+  process.env.HELM_TEST_AMBIENT_SECRET = "must-not-leak";
+  try {
+    const isolated = buildAdapterLaunchSpec({ agent: "claude", adapterEntry: "/adapter.mjs" });
+    assert.equal(isolated.env?.HELM_TEST_AMBIENT_SECRET, undefined);
+    const delegated = buildAdapterLaunchSpec({
+      agent: "claude",
+      adapterEntry: "/adapter.mjs",
+      extraEnv: { HELM_TEST_AMBIENT_SECRET: "explicit" },
+    });
+    assert.equal(delegated.env?.HELM_TEST_AMBIENT_SECRET, "explicit");
+  } finally {
+    if (previous === undefined) delete process.env.HELM_TEST_AMBIENT_SECRET;
+    else process.env.HELM_TEST_AMBIENT_SECRET = previous;
+  }
+});
 
 test("lifecycle: start → newSession → prompt → events → dispose", async () => {
   const cwd = await makeTmpDir();
@@ -212,6 +230,28 @@ test("session binding: forged adapter permission is cancelled before kernel eval
     assert.equal(evaluator.calls.length, 0, "a forged request must never reach the kernel");
     const message = events.find((event) => event.type === "message" && event.text.startsWith("permission:"));
     assert.ok(message && message.type === "message" && message.text === "permission:cancelled:");
+  } finally {
+    client?.dispose();
+    await cleanupTmpDir(cwd);
+  }
+});
+
+test("session binding rejects config and cancel operations for another session", async () => {
+  const cwd = await makeTmpDir();
+  let client: GovernedAcpClient | undefined;
+  try {
+    client = new GovernedAcpClient({
+      agent: "claude",
+      cwd,
+      launchSpec: fakeLaunchSpec({}),
+      broker: makeBroker(new FakeKernelEvaluator(), cwd),
+      fsGuard: guardFor(cwd),
+      onEvent: () => {},
+    });
+    await client.start();
+    await client.newSession();
+    await assert.rejects(client.setSessionConfigOption("forged", "model", "x"), /unknown session id/);
+    await assert.rejects(client.cancel("forged"), /unknown session id/);
   } finally {
     client?.dispose();
     await cleanupTmpDir(cwd);

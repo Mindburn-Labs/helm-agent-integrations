@@ -36,6 +36,31 @@ export interface AdapterLaunchSpec {
   env?: NodeJS.ProcessEnv;
 }
 
+const INHERITED_ADAPTER_ENV = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "PATHEXT",
+] as const;
+
+function adapterBaseEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of INHERITED_ADAPTER_ENV) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  return env;
+}
+
 /**
  * Build a launch spec for a vendor ACP adapter, pointing it at a managed
  * engine binary. Env-hook mechanism adapted from Rowboat's agents.ts
@@ -47,7 +72,9 @@ export function buildAdapterLaunchSpec(opts: {
   engineExecutablePath?: string;
   extraEnv?: NodeJS.ProcessEnv;
 }): AdapterLaunchSpec {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...opts.extraEnv };
+  // Provider/cloud credentials are not ambient adapter capabilities. Callers
+  // must pass each required credential explicitly through extraEnv.
+  const env: NodeJS.ProcessEnv = { ...adapterBaseEnv(), ...opts.extraEnv };
   if (opts.engineExecutablePath) {
     if (opts.agent === "claude") env.CLAUDE_CODE_EXECUTABLE = opts.engineExecutablePath;
     if (opts.agent === "codex") env.CODEX_PATH = opts.engineExecutablePath;
@@ -270,6 +297,7 @@ export class GovernedAcpClient {
     peer.on("notification", (method: string, params: unknown) => {
       if (method === "session/update") {
         const n = params as SessionNotification;
+        if (!self.sessionMatches(n.sessionId)) return;
         self.onEvent(toEvent(n.update ?? { sessionUpdate: "unknown" }));
       }
     });
@@ -336,6 +364,9 @@ export class GovernedAcpClient {
   }
 
   async setSessionConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+    if (!this.sessionMatches(sessionId)) {
+      throw new Error("HELM ACP: config update for an unknown session id (fail-closed)");
+    }
     await this.conn().request("session/set_config_option", { sessionId, configId, value });
   }
 
@@ -355,6 +386,9 @@ export class GovernedAcpClient {
 
   /** session/cancel is a notification per the ACP spec. */
   async cancel(sessionId: string): Promise<void> {
+    if (!this.sessionMatches(sessionId)) {
+      throw new Error("HELM ACP: cancel for an unknown session id (fail-closed)");
+    }
     this.conn().notify("session/cancel", { sessionId });
   }
 
