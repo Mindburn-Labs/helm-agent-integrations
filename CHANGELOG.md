@@ -27,6 +27,17 @@
   `tomli` compatibility dependency.
 - Pinned the build backend and distribution validator compatibility layer for
   the organization-wide deterministic release gate.
+- Added `demos/helm-kubectl-ai-guard-demo`: a PATH-level `kubectl` shim
+  (`kubectl_guard.py`) that classifies kubectl-ai-proposed cluster operations
+  (`read_only` / `mutating` / `exec_channel` / `destructive`), evaluates them
+  against `POST /api/v1/evaluate` before dispatch, blocks on DENY/ESCALATE,
+  forwards approval references, and mirrors receipts to JSONL. Fail-closed in
+  enforce mode with an observe-mode shadow rollout. The shim binds the exact
+  argv digest, preserves server dry-run effects, requires ALLOW references,
+  scrubs HELM credentials before dispatch, and hardens its local receipt file.
+- Added sample policy `policies/policy.kubectl.governed.toml` with reference
+  pack and deterministic sample receipts/EvidencePacks for the read-only
+  ALLOW, apply ESCALATE, and delete DENY scenarios.
 
 ## 0.1.0 - 2026-06-05
 

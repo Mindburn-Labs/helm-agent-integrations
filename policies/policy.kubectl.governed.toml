@@ -1,0 +1,11 @@
+name = "helm.agent.integrations.policy.kubectl.governed"
+profile = "policy_kubectl_governed_demo"
+reference_pack = "./policies/reference/policy.kubectl.governed.json"
+
+[server]
+bind = "127.0.0.1"
+port = 7714
+
+[receipts]
+store = "sqlite"
+path = "./data/helm-agent-integrations-kubectl.db"
