@@ -15,8 +15,8 @@ kubectl-ai agent loop
     └─ "kubectl scale deploy/nginx --replicas=3"          (LLM-proposed)
         └─ PATH → kubectl-guard (this shim)
             ├─ parse + classify → read_only | mutating | destructive | exec_channel
-            ├─ POST /api/v1/evaluate → ALLOW | DENY | ESCALATE (+ signed receipt)
-            ├─ ALLOW      → exec real kubectl, receipt mirrored to JSONL
+            ├─ POST /api/v1/evaluate → ALLOW | DENY | ESCALATE (+ decision/receipt refs)
+            ├─ ALLOW      → require refs, attempt exec, mirror attempt to JSONL
             ├─ ESCALATE   → block (exit 2) until HELM_APPROVAL_REF is supplied
             ├─ DENY       → block (exit 1), receipt recorded
             └─ no verdict → block (fail-closed) in enforce mode
@@ -31,8 +31,9 @@ kubectl-ai agent loop
 | `exec_channel` | exec, cp, attach, port-forward, proxy, debug | `ESCALATE` (approval required) |
 | `destructive` | delete, drain | `DENY` |
 
-Unknown verbs are treated as `mutating` (fail-safe). `--dry-run=client|server`
-downgrades a mutation to `read_only`. The policy lives in
+Unknown verbs are treated as `mutating` (fail-safe). Only
+`--dry-run=client` downgrades a mutation to `read_only`; server dry-run keeps
+the original class because it reaches admission. The policy lives in
 [`policies/policy.kubectl.governed.toml`](../../policies/policy.kubectl.governed.toml)
 with its reference pack in
 [`policies/reference/policy.kubectl.governed.json`](../../policies/reference/policy.kubectl.governed.json);
@@ -76,8 +77,12 @@ Approving a held mutation:
 HELM_APPROVAL_REF=<approval-id> kubectl apply -f deploy.yaml
 ```
 
-Receipts mirror to `~/.helm/kubectl-guard/receipts.jsonl`
-(`HELM_KUBECTL_GUARD_RECEIPTS` overrides).
+Non-authoritative dispatch-attempt records mirror to
+`~/.helm/kubectl-guard/receipts.jsonl`
+(`HELM_KUBECTL_GUARD_RECEIPTS` overrides). The shim sends a SHA-256 digest of
+the exact argument vector for decision/approval binding, hashes approval refs
+in the local mirror, requires decision and receipt references before ALLOW,
+and removes HELM credentials before replacing itself with the real `kubectl`.
 
 ## With kubectl-ai
 
@@ -105,6 +110,8 @@ boundary (see the TypeScript/Python `withHelmBoundary` wrappers).
 ## What this demo does not do
 
 - It does not parse or lint manifests (`-f` contents are not inspected).
+- Its argument digest binds the command line, not mutable manifest contents;
+  production connectors must bind the referenced bytes or immutable object.
 - It does not replace RBAC; it adds a pre-dispatch authority layer in front of it.
 - It does not cover `kubectl-ai`'s MCP-client tools or non-kubectl tools.
 - It is not a certification of kubectl-ai. Third-party review of kubectl-ai

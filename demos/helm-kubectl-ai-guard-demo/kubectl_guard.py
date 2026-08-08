@@ -38,10 +38,13 @@ Configuration (environment):
 from __future__ import annotations
 
 import json
+import hashlib
+import math
 import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,7 +99,9 @@ MUTATING_VERBS = frozenset(
 
 DESTRUCTIVE_VERBS = frozenset({"delete", "drain"})
 
-EXEC_CHANNEL_VERBS = frozenset({"exec", "cp", "attach", "port-forward", "proxy", "debug"})
+EXEC_CHANNEL_VERBS = frozenset(
+    {"exec", "cp", "attach", "port-forward", "proxy", "debug"}
+)
 
 # Global flags that consume a separate value token before the verb.
 _VALUE_FLAGS = frozenset(
@@ -149,6 +154,8 @@ class KubectlIntent:
     context: str
     all_namespaces: bool
     dry_run: bool
+    dry_run_mode: str
+    argv_sha256: str
     summary: str
     facts: Mapping[str, Any] = field(default_factory=dict)
 
@@ -173,8 +180,13 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
     resource = ""
     namespace = "default"
     context = ""
+    cluster = ""
+    server = ""
+    user = ""
+    kubeconfig_sha256 = ""
     all_namespaces = False
     dry_run = False
+    dry_run_mode = "none"
     idx = 0
     positional: list[str] = []
 
@@ -182,13 +194,25 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
         token = tokens[idx]
         flag, inline_value = _split_flag(token)
         if flag in _VALUE_FLAGS:
-            value = inline_value if inline_value is not None else (tokens[idx + 1] if idx + 1 < len(tokens) else "")
+            value = (
+                inline_value
+                if inline_value is not None
+                else (tokens[idx + 1] if idx + 1 < len(tokens) else "")
+            )
             if inline_value is None:
                 idx += 1
             if flag in ("-n", "--namespace"):
                 namespace = value or namespace
             elif flag == "--context":
                 context = value
+            elif flag == "--cluster":
+                cluster = value
+            elif flag == "--server":
+                server = value
+            elif flag == "--user":
+                user = value
+            elif flag == "--kubeconfig" and value:
+                kubeconfig_sha256 = hashlib.sha256(value.encode("utf-8")).hexdigest()
         elif flag in _BOOL_FLAGS:
             if flag in ("-A", "--all-namespaces"):
                 all_namespaces = True
@@ -197,8 +221,8 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
             # verb we conservatively skip unknown flags without consuming a
             # value token (kubectl global boolean flags).
             if token.startswith("--dry-run"):
-                dry_run_value = inline_value if inline_value is not None else "client"
-                dry_run = dry_run_value != "none"
+                dry_run_mode = inline_value if inline_value is not None else "client"
+                dry_run = dry_run_mode != "none"
         else:
             verb = token
             positional = tokens[idx + 1 :]
@@ -214,20 +238,51 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
     while jdx < len(positional):
         token = positional[jdx]
         flag, inline_value = _split_flag(token)
-        if flag in ("-n", "--namespace"):
-            value = inline_value if inline_value is not None else (positional[jdx + 1] if jdx + 1 < len(positional) else "")
+        if flag in _VALUE_FLAGS:
+            value = (
+                inline_value
+                if inline_value is not None
+                else (positional[jdx + 1] if jdx + 1 < len(positional) else "")
+            )
             if inline_value is None:
                 jdx += 1
-            namespace = value or namespace
+            if flag in ("-n", "--namespace"):
+                namespace = value or namespace
+            elif flag == "--context":
+                context = value
+            elif flag == "--cluster":
+                cluster = value
+            elif flag == "--server":
+                server = value
+            elif flag == "--user":
+                user = value
+            elif flag == "--kubeconfig" and value:
+                kubeconfig_sha256 = hashlib.sha256(value.encode("utf-8")).hexdigest()
         elif flag in ("-A", "--all-namespaces"):
             all_namespaces = True
         elif flag == "--dry-run" or token.startswith("--dry-run"):
-            if inline_value is None and token == "--dry-run" and jdx + 1 < len(positional) and not positional[jdx + 1].startswith("-"):
-                dry_run = positional[jdx + 1] != "none"
+            if (
+                inline_value is None
+                and token == "--dry-run"
+                and jdx + 1 < len(positional)
+                and not positional[jdx + 1].startswith("-")
+            ):
+                dry_run_mode = positional[jdx + 1]
                 jdx += 1
             else:
-                dry_run = (inline_value or "client") != "none"
-        elif flag in ("-f", "--filename", "-l", "--selector", "--field-selector", "-o", "--output", "--for", "--timeout", "--container", "-c"):
+                dry_run_mode = inline_value or "client"
+            dry_run = dry_run_mode != "none"
+        elif flag in (
+            "-f",
+            "--filename",
+            "-l",
+            "--selector",
+            "--field-selector",
+            "--for",
+            "--timeout",
+            "--container",
+            "-c",
+        ):
             if inline_value is None:
                 jdx += 1
         elif token.startswith("-"):
@@ -237,23 +292,34 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
         jdx += 1
 
     # Two-word verbs.
-    targets: list[str] = []
     if verb in ("rollout", "config", "auth", "certificate") and cleaned:
         subverb = cleaned[0]
         resource = cleaned[1] if len(cleaned) > 1 else ""
-        targets = cleaned[1:]
     elif cleaned:
         resource = cleaned[0]
-        targets = cleaned
 
     command_class = classify(verb, subverb)
-    if dry_run and command_class in (CLASS_MUTATING, CLASS_DESTRUCTIVE):
+    # Client dry-run is local. Server dry-run still reaches admission and must
+    # retain the original effect class.
+    if dry_run_mode == "client" and command_class in (
+        CLASS_MUTATING,
+        CLASS_DESTRUCTIVE,
+    ):
         command_class = CLASS_READ_ONLY
+
+    argv_sha256 = hashlib.sha256(
+        json.dumps(list(argv), ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
     summary_parts = [verb]
     if subverb:
         summary_parts.append(subverb)
-    summary_parts.extend(targets)
+    # Keep logs and receipt mirrors useful without copying exec arguments,
+    # secret literals, tokens, or file paths. argv_sha256 binds the exact input.
+    if resource:
+        summary_parts.append(resource)
     if all_namespaces:
         summary_parts.append("--all-namespaces")
     elif namespace != "default":
@@ -268,6 +334,8 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
         context=context,
         all_namespaces=all_namespaces,
         dry_run=dry_run,
+        dry_run_mode=dry_run_mode,
+        argv_sha256=argv_sha256,
         summary=" ".join(summary_parts),
         facts={
             "verb": verb,
@@ -276,8 +344,14 @@ def parse_argv(argv: Sequence[str]) -> KubectlIntent:
             "resource": resource,
             "namespace": namespace,
             "context": context,
+            "cluster": cluster,
+            "server": server,
+            "user": user,
+            "kubeconfig_sha256": kubeconfig_sha256,
             "all_namespaces": all_namespaces,
             "dry_run": dry_run,
+            "dry_run_mode": dry_run_mode,
+            "argv_sha256": argv_sha256,
         },
     )
 
@@ -295,7 +369,12 @@ def classify(verb: str, subverb: str) -> str:
     if verb == "rollout":
         return CLASS_READ_ONLY if subverb in ("status", "history") else CLASS_MUTATING
     if verb == "config":
-        return CLASS_READ_ONLY if subverb in ("view", "current-context", "get-contexts", "get-clusters", "get-users") else CLASS_MUTATING
+        return (
+            CLASS_READ_ONLY
+            if subverb
+            in ("view", "current-context", "get-contexts", "get-clusters", "get-users")
+            else CLASS_MUTATING
+        )
     if verb == "auth":
         return CLASS_READ_ONLY if subverb == "can-i" else CLASS_MUTATING
     if verb == "certificate":
@@ -336,11 +415,29 @@ def load_config(env: Mapping[str, str], argv0_dir: str) -> GuardConfig:
         timeout = float(env.get("HELM_KUBECTL_GUARD_TIMEOUT") or "10")
     except ValueError as exc:
         raise GuardError("HELM_KUBECTL_GUARD_TIMEOUT must be a number") from exc
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise GuardError("HELM_KUBECTL_GUARD_TIMEOUT must be a positive finite number")
+    helm_url = (env.get("HELM_URL") or DEFAULT_HELM_URL).rstrip("/")
+    parsed_url = urllib.parse.urlsplit(helm_url)
+    if parsed_url.username or parsed_url.password or parsed_url.fragment:
+        raise GuardError("HELM_URL must not contain credentials or a fragment")
+    if parsed_url.scheme not in ("http", "https") or not parsed_url.hostname:
+        raise GuardError("HELM_URL must be an absolute HTTP(S) URL")
+    if parsed_url.scheme == "http" and parsed_url.hostname not in (
+        "127.0.0.1",
+        "::1",
+        "localhost",
+    ):
+        raise GuardError(
+            "plaintext HELM_URL is allowed only for the local loopback Kernel"
+        )
     return GuardConfig(
-        helm_url=(env.get("HELM_URL") or DEFAULT_HELM_URL).rstrip("/"),
-        api_key=(env.get("HELM_API_KEY") or env.get("HELM_ADMIN_API_KEY") or "").strip(),
+        helm_url=helm_url,
+        api_key=(env.get("HELM_API_KEY") or "").strip(),
         tenant_id=(env.get("HELM_RUNTIME_TENANT_ID") or "local-demo").strip(),
-        principal_id=(env.get("HELM_RUNTIME_PRINCIPAL_ID") or "kubectl-ai-agent").strip(),
+        principal_id=(
+            env.get("HELM_RUNTIME_PRINCIPAL_ID") or "kubectl-ai-agent"
+        ).strip(),
         session_id=(env.get("HELM_SESSION_ID") or "kubectl-ai-session").strip(),
         approval_ref=(env.get("HELM_APPROVAL_REF") or "").strip(),
         mode=mode,
@@ -355,16 +452,27 @@ def resolve_real_kubectl(env: Mapping[str, str], argv0_dir: str) -> str:
     not the shim's own directory."""
     override = (env.get("HELM_KUBECTL_REAL") or "").strip()
     if override:
-        return override
+        if (
+            not os.path.isabs(override)
+            or not os.path.isfile(override)
+            or not os.access(override, os.X_OK)
+        ):
+            raise GuardError("HELM_KUBECTL_REAL must be an absolute executable file")
+        resolved = os.path.realpath(override)
+        if argv0_dir and os.path.dirname(resolved) == os.path.realpath(argv0_dir):
+            raise GuardError("HELM_KUBECTL_REAL resolves back to the shim directory")
+        return resolved
     own_dir = os.path.realpath(argv0_dir) if argv0_dir else ""
     for entry in (env.get("PATH") or "").split(os.pathsep):
         if not entry:
+            continue
+        if not os.path.isabs(entry):
             continue
         if own_dir and os.path.realpath(entry) == own_dir:
             continue
         candidate = os.path.join(entry, "kubectl")
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
+            return os.path.realpath(candidate)
     raise GuardError(
         "real kubectl not found in PATH; set HELM_KUBECTL_REAL to its absolute path"
     )
@@ -382,7 +490,7 @@ class Verdict:
 def evaluate(config: GuardConfig, intent: KubectlIntent) -> Verdict:
     """Submit the intent to POST /api/v1/evaluate and parse the verdict."""
     if not config.api_key:
-        raise GuardError("HELM_API_KEY (or HELM_ADMIN_API_KEY) is required for evaluation")
+        raise GuardError("HELM_API_KEY is required for evaluation")
     risk_class, effect_class = risk_and_effect(intent.command_class)
     args: dict[str, Any] = dict(intent.facts)
     args["command"] = intent.summary
@@ -425,7 +533,9 @@ def evaluate(config: GuardConfig, intent: KubectlIntent) -> Verdict:
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise GuardError(f"HELM evaluate transport failed: {exc}") from exc
 
-    candidate = body
+    if not isinstance(body, Mapping):
+        raise GuardError("HELM evaluate returned a non-object response")
+    candidate: Mapping[str, Any] = body
     for key in ("decision", "record", "result"):
         if isinstance(body, Mapping) and isinstance(body.get(key), Mapping):
             candidate = body[key]
@@ -438,7 +548,10 @@ def evaluate(config: GuardConfig, intent: KubectlIntent) -> Verdict:
     ).upper()
     if verdict not in ("ALLOW", "DENY", "ESCALATE"):
         raise GuardError(f"HELM evaluate returned unexpected verdict {verdict!r}")
-    return Verdict(
+    top_level_verdict = str(body.get("verdict") or "").upper()
+    if top_level_verdict and top_level_verdict != verdict:
+        raise GuardError("HELM evaluate returned conflicting verdict fields")
+    result = Verdict(
         verdict=verdict,
         reason_code=str(
             headers.get("x-helm-reason-code")
@@ -447,7 +560,10 @@ def evaluate(config: GuardConfig, intent: KubectlIntent) -> Verdict:
             or ""
         ),
         receipt_id=str(
-            headers.get("x-helm-receipt-id") or candidate.get("receipt_id") or body.get("receipt_id") or ""
+            headers.get("x-helm-receipt-id")
+            or candidate.get("receipt_id")
+            or body.get("receipt_id")
+            or ""
         ),
         decision_id=str(
             headers.get("x-helm-decision-id")
@@ -458,9 +574,17 @@ def evaluate(config: GuardConfig, intent: KubectlIntent) -> Verdict:
         ),
         raw=candidate if isinstance(candidate, Mapping) else {},
     )
+    if result.verdict == "ALLOW" and (not result.receipt_id or not result.decision_id):
+        raise GuardError("HELM ALLOW is missing its decision or receipt reference")
+    return result
 
 
-def record_receipt(config: GuardConfig, intent: KubectlIntent, verdict: Verdict, dispatched: bool) -> None:
+def record_receipt(
+    config: GuardConfig,
+    intent: KubectlIntent,
+    verdict: Verdict,
+    dispatch_attempted: bool,
+) -> None:
     """Append a local JSONL receipt mirror. Never blocks the verdict path."""
     try:
         config.receipts_path.parent.mkdir(parents=True, exist_ok=True)
@@ -475,11 +599,20 @@ def record_receipt(config: GuardConfig, intent: KubectlIntent, verdict: Verdict,
             "reason_code": verdict.reason_code,
             "receipt_id": verdict.receipt_id,
             "decision_id": verdict.decision_id,
-            "approval_ref": config.approval_ref or None,
+            "approval_ref_sha256": hashlib.sha256(
+                config.approval_ref.encode("utf-8")
+            ).hexdigest()
+            if config.approval_ref
+            else None,
             "mode": config.mode,
-            "dispatched": dispatched,
+            "dispatch_attempted": dispatch_attempted,
         }
-        with config.receipts_path.open("a", encoding="utf-8") as handle:
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(config.receipts_path, flags, 0o600)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, sort_keys=True) + "\n")
     except OSError as exc:
         print(f"kubectl-guard: receipt mirror failed: {exc}", file=sys.stderr)
@@ -500,10 +633,22 @@ def announce(intent: KubectlIntent, verdict: Verdict, note: str = "") -> None:
     print(" ".join(bits), file=sys.stderr)
 
 
-def dispatch(config: GuardConfig, argv: Sequence[str]) -> int:
+def _dispatch_env(env: Mapping[str, str]) -> dict[str, str]:
+    clean = dict(env)
+    for key in (
+        "HELM_API_KEY",
+        "HELM_ADMIN_API_KEY",
+        "HELM_SERVICE_TOKEN",
+        "HELM_APPROVAL_REF",
+    ):
+        clean.pop(key, None)
+    return clean
+
+
+def dispatch(config: GuardConfig, argv: Sequence[str], env: Mapping[str, str]) -> int:
     """Replace this process with the real kubectl."""
-    os.execv(config.real_kubectl, [config.real_kubectl, *argv])
-    return 127  # unreachable; execv either replaces or raises
+    os.execve(config.real_kubectl, [config.real_kubectl, *argv], _dispatch_env(env))
+    return 127  # unreachable; execve either replaces or raises
 
 
 def main(argv: Sequence[str], env: Optional[Mapping[str, str]] = None) -> int:
@@ -516,10 +661,14 @@ def main(argv: Sequence[str], env: Optional[Mapping[str, str]] = None) -> int:
         mode = (env.get("HELM_KUBECTL_GUARD_MODE") or "enforce").strip().lower()
         print(f"kubectl-guard: blocked before evaluation: {exc}", file=sys.stderr)
         if mode == "observe":
-            print("kubectl-guard: observe mode — dispatching unevaluated", file=sys.stderr)
-            real = (env.get("HELM_KUBECTL_REAL") or "").strip()
-            if real:
-                os.execv(real, [real, *argv])
+            print(
+                "kubectl-guard: observe mode — dispatching unevaluated", file=sys.stderr
+            )
+            try:
+                real = resolve_real_kubectl(env, argv0_dir)
+            except GuardError:
+                return 1
+            os.execve(real, [real, *argv], _dispatch_env(env))
         return 1
 
     try:
@@ -531,18 +680,21 @@ def main(argv: Sequence[str], env: Optional[Mapping[str, str]] = None) -> int:
                 f"kubectl-guard: observe mode — dispatching '{intent.summary}' without verdict",
                 file=sys.stderr,
             )
-            return dispatch(config, argv)
-        print("kubectl-guard: enforce mode is fail-closed; command blocked", file=sys.stderr)
+            return dispatch(config, argv, env)
+        print(
+            "kubectl-guard: enforce mode is fail-closed; command blocked",
+            file=sys.stderr,
+        )
         return 1
 
     if verdict.verdict == "ALLOW":
         announce(intent, verdict)
-        record_receipt(config, intent, verdict, dispatched=True)
-        return dispatch(config, argv)
+        record_receipt(config, intent, verdict, dispatch_attempted=True)
+        return dispatch(config, argv, env)
 
     if verdict.verdict == "ESCALATE":
         announce(intent, verdict, note="approval required")
-        record_receipt(config, intent, verdict, dispatched=False)
+        record_receipt(config, intent, verdict, dispatch_attempted=False)
         print(
             "kubectl-guard: mutation held for approval. Complete the approval "
             "ceremony for decision "
@@ -554,7 +706,7 @@ def main(argv: Sequence[str], env: Optional[Mapping[str, str]] = None) -> int:
 
     # DENY
     announce(intent, verdict, note="command denied")
-    record_receipt(config, intent, verdict, dispatched=False)
+    record_receipt(config, intent, verdict, dispatch_attempted=False)
     return 1
 
 
