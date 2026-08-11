@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   fromBrowserUseAction,
@@ -36,6 +37,39 @@ function response(
       return JSON.stringify(body);
     },
   };
+}
+
+function evidenceResponse(
+  content: Uint8Array,
+  evidenceHash: string,
+  status = 200,
+): Awaited<ReturnType<FetchLike>> {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get(name: string) {
+        const values: Record<string, string> = {
+          "content-type": "application/octet-stream",
+          "x-helm-evidence-hash": evidenceHash,
+        };
+        return values[name.toLowerCase()] ?? null;
+      },
+    },
+    async json() {
+      throw new SyntaxError("binary EvidencePack");
+    },
+    async text() {
+      return "binary EvidencePack";
+    },
+    async arrayBuffer() {
+      return content.slice().buffer as ArrayBuffer;
+    },
+  };
+}
+
+function sha256(content: Uint8Array): string {
+  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
 
 test("withHelmBoundary dispatches only on ALLOW", async () => {
@@ -119,6 +153,7 @@ test("preflightAction sends HELM evaluate payload", async () => {
     tenantId: "tenant-preflight",
     apiKey: "api-key-preflight",
     principal: "agent-1",
+    workspaceId: "workspace-preflight",
     riskClass: "T2",
     effectClass: "E4",
     fetch: fetchImpl,
@@ -130,10 +165,16 @@ test("preflightAction sends HELM evaluate payload", async () => {
   assert.equal(postedHeaders?.["Content-Type"], "application/json");
   assert.equal(postedHeaders?.["X-Helm-Tenant-ID"], "tenant-preflight");
   assert.equal(postedHeaders?.["X-Helm-Principal-ID"], "agent-1");
+  assert.equal(postedHeaders?.["X-Helm-Workspace-ID"], "workspace-preflight");
   assert.deepEqual(posted, {
     principal: "agent-1",
     action: "EXECUTE_TOOL",
     resource: "tool.gmail.send_email",
+    tool: "EXECUTE_TOOL",
+    args: { to: "ops@example.com" },
+    agent_id: "agent-1",
+    effect_level: "tool.gmail.send_email",
+    session_id: "session-preflight",
     context: {
       tool: "tool.gmail.send_email",
       args: { to: "ops@example.com" },
@@ -169,6 +210,68 @@ test("withHelmBoundary fails closed on Kernel 401", async () => {
     (error: unknown) => error instanceof Error && error.message === "HELM preflight failed with HTTP 401",
   );
   assert.equal(dispatched, 0);
+});
+
+test("withHelmBoundary rejects ALLOW without a durable receipt reference", async () => {
+  let dispatched = 0;
+  const wrapped = withHelmBoundary({
+    actionUrn: "tool.demo.missing_receipt",
+    sessionId: "session-missing-receipt",
+    tenantId: "tenant-missing-receipt",
+    principal: "principal-missing-receipt",
+    apiKey: "api-key-missing-receipt",
+    fetch: async () => response({ verdict: "ALLOW", decision_id: "decision-only" }),
+    tool: async () => {
+      dispatched += 1;
+      return "should-not-run";
+    },
+  });
+
+  await assert.rejects(wrapped({ value: 1 }), /ALLOW response is missing the durable receipt_id/);
+  assert.equal(dispatched, 0);
+});
+
+test("withHelmBoundary rejects malformed or conflicting evaluate evidence", async () => {
+  const malformed: Array<{
+    body: Record<string, unknown>;
+    headers: Record<string, string>;
+    error: RegExp;
+  }> = [
+    {
+      body: { verdict: "ALLOW", receipt_id: "receipt-body" },
+      headers: { "x-helm-receipt-id": "receipt-body", "x-helm-verdict": "DENY" },
+      error: /conflicting verdict values/,
+    },
+    {
+      body: { verdict: "ALLOW", receipt_id: "receipt-body" },
+      headers: { "x-helm-receipt-id": "receipt-header" },
+      error: /conflicting receipt_id values/,
+    },
+    {
+      body: { verdict: "ALLOW", receipt_id: "   " },
+      headers: {},
+      error: /missing the durable receipt_id/,
+    },
+  ];
+
+  for (const vector of malformed) {
+    let dispatched = 0;
+    const wrapped = withHelmBoundary({
+      actionUrn: "tool.demo.malformed",
+      sessionId: "session-malformed",
+      tenantId: "tenant-malformed",
+      principal: "principal-malformed",
+      apiKey: "api-key-malformed",
+      fetch: async () => response(vector.body, vector.headers),
+      tool: async () => {
+        dispatched += 1;
+        return "should-not-run";
+      },
+    });
+
+    await assert.rejects(wrapped({ value: 1 }), vector.error);
+    assert.equal(dispatched, 0);
+  }
 });
 
 test("preflightAction rejects missing auth, service credentials, and unsupported classifications", async () => {
@@ -264,49 +367,215 @@ test("Codex and Claude helpers preserve arguments and ignore caller classificati
   assert.equal(claude.principal, undefined);
 });
 
-test("Codex and Claude intents produce authenticated served Kernel requests", async () => {
-  const intents = [
-    fromCodexToolCall({
-      recipient_name: "functions.exec_command",
-      parameters: { cmd: "git status --short" },
-      session_id: "codex-session-2",
-    }),
-    fromClaudeToolCall({
-      tool_name: "Edit",
-      tool_input: { file_path: "README.md", old_string: "old", new_string: "new" },
-      session_id: "claude-session-2",
-    }),
+test("Codex and Claude compositions enforce verdicts and authenticate preflight EvidencePacks", async (t) => {
+  const connectors = [
+    {
+      name: "Codex",
+      intent: () => fromCodexToolCall({
+        recipient_name: "functions.exec_command",
+        parameters: { cmd: "git status --short" },
+        session_id: "codex-session-2",
+      }),
+    },
+    {
+      name: "Claude",
+      intent: () => fromClaudeToolCall({
+        tool_name: "Edit",
+        tool_input: { file_path: "README.md", old_string: "old", new_string: "new" },
+        session_id: "claude-session-2",
+      }),
+    },
   ];
 
-  for (const intent of intents) {
-    let posted: Record<string, unknown> = {};
-    await preflightAction({
-      actionUrn: intent.actionUrn,
-      input: intent.input,
-      sessionId: intent.sessionId ?? "",
-      tenantId: "tenant-conformance",
-      apiKey: "api-key-conformance",
-      principal: "principal-conformance",
-      riskClass: intent.riskClass,
-      effectClass: intent.effectClass,
-      metadata: intent.metadata,
-      fetch: async (_url, init) => {
-        posted = JSON.parse(init?.body ?? "{}");
+  for (const connector of connectors) {
+    await t.test(`${connector.name} ALLOW returns durable receipt and verified EvidencePack hash`, async () => {
+      const intent = connector.intent();
+      const pack = new TextEncoder().encode(`${connector.name} preflight EvidencePack`);
+      const packHash = sha256(pack);
+      const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+      let dispatches = 0;
+      const fetchImpl: FetchLike = async (url, init) => {
+        const body = JSON.parse(init?.body ?? "{}") as Record<string, unknown>;
+        requests.push({ url, body });
         assert.equal(init?.headers?.Authorization, "Bearer api-key-conformance");
         assert.equal(init?.headers?.["X-Helm-Tenant-ID"], "tenant-conformance");
         assert.equal(init?.headers?.["X-Helm-Principal-ID"], "principal-conformance");
-        return response({ verdict: "DENY", receipt_id: "receipt-conformance" });
-      },
+        assert.equal(init?.headers?.["X-Helm-Workspace-ID"], "workspace-conformance");
+        if (url.endsWith("/api/v1/evaluate")) {
+          return response({
+            verdict: "ALLOW",
+            decision_id: `${connector.name.toLowerCase()}-decision-allow`,
+            receipt_id: `${connector.name.toLowerCase()}-receipt-allow`,
+          });
+        }
+        assert.equal(url, "https://kernel.example.test/api/v1/evidence/export");
+        return evidenceResponse(pack, packHash);
+      };
+
+      const wrapped = withHelmBoundary({
+        actionUrn: intent.actionUrn,
+        sessionId: intent.sessionId ?? "",
+        tenantId: "tenant-conformance",
+        principal: "principal-conformance",
+        workspaceId: "workspace-conformance",
+        apiKey: "api-key-conformance",
+        helmUrl: "https://kernel.example.test",
+        riskClass: intent.riskClass,
+        effectClass: intent.effectClass,
+        metadata: intent.metadata,
+        exportEvidence: true,
+        fetch: fetchImpl,
+        tool: async (input: unknown) => {
+          dispatches += 1;
+          return { input };
+        },
+      });
+      const result = await wrapped(intent.input);
+
+      assert.equal(result.allowed, true);
+      assert.equal(result.dispatched, true);
+      assert.equal(dispatches, 1);
+      assert.equal(result.receipt?.receiptId, `${connector.name.toLowerCase()}-receipt-allow`);
+      assert.equal(result.evidencePack?.evidenceHash, packHash);
+      assert.deepEqual(result.evidencePack?.content, pack);
+      assert.equal(requests.length, 2);
+      assert.equal(requests[0]?.url, "https://kernel.example.test/api/v1/evaluate");
+      assert.equal(requests[0]?.body.action, "EXECUTE_TOOL");
+      assert.equal(requests[0]?.body.resource, intent.actionUrn);
+      assert.equal(requests[0]?.body.tool, "EXECUTE_TOOL");
+      assert.deepEqual(requests[0]?.body.args, intent.input);
+      assert.equal(requests[0]?.body.agent_id, "principal-conformance");
+      assert.equal(requests[0]?.body.effect_level, intent.actionUrn);
+      assert.equal(requests[0]?.body.session_id, intent.sessionId);
+      const context = requests[0]?.body.context as Record<string, unknown>;
+      assert.equal(context.tool, intent.actionUrn);
+      assert.deepEqual(context.args, intent.input);
+      assert.equal(context.effect_level, "E4");
+      assert.equal(context.session_id, intent.sessionId);
+      assert.deepEqual(requests[1]?.body, { session_id: intent.sessionId, format: "tar.gz" });
     });
-    assert.equal(posted.action, "EXECUTE_TOOL");
-    assert.equal(posted.resource, intent.actionUrn);
-    const context = posted.context as Record<string, unknown>;
-    assert.equal(context.tool, intent.actionUrn);
-    assert.deepEqual(context.args, intent.input);
-    assert.deepEqual(context.arguments, intent.input);
-    assert.equal(context.effect_level, "E4");
-    assert.equal(context.session_id, intent.sessionId);
+
+    await t.test(`${connector.name} DENY returns evidence and never dispatches`, async () => {
+      const intent = connector.intent();
+      const pack = new TextEncoder().encode(`${connector.name} denied preflight EvidencePack`);
+      let dispatches = 0;
+      const result = await withHelmBoundary({
+        actionUrn: intent.actionUrn,
+        sessionId: intent.sessionId ?? "",
+        tenantId: "tenant-conformance",
+        principal: "principal-conformance",
+        apiKey: "api-key-conformance",
+        exportEvidence: true,
+        fetch: async (url) => url.endsWith("/api/v1/evaluate")
+          ? response({ verdict: "DENY", receipt_id: `${connector.name}-receipt-deny` })
+          : evidenceResponse(pack, sha256(pack)),
+        tool: async () => {
+          dispatches += 1;
+          return "unexpected";
+        },
+      })(intent.input);
+
+      assert.equal(result.allowed, false);
+      assert.equal(result.dispatched, false);
+      assert.equal(result.receipt?.receiptId, `${connector.name}-receipt-deny`);
+      assert.equal(result.evidencePack?.evidenceHash, sha256(pack));
+      assert.equal(dispatches, 0);
+    });
+
+    await t.test(`${connector.name} Kernel error fails closed`, async () => {
+      const intent = connector.intent();
+      let dispatches = 0;
+      await assert.rejects(
+        withHelmBoundary({
+          actionUrn: intent.actionUrn,
+          sessionId: intent.sessionId ?? "",
+          tenantId: "tenant-conformance",
+          principal: "principal-conformance",
+          apiKey: "api-key-conformance",
+          exportEvidence: true,
+          fetch: async () => response({ error: "unavailable" }, {}, 503),
+          tool: async () => {
+            dispatches += 1;
+            return "unexpected";
+          },
+        })(intent.input),
+        /HELM preflight failed with HTTP 503/,
+      );
+      assert.equal(dispatches, 0);
+    });
+
+    await t.test(`${connector.name} tampered EvidencePack fails closed before dispatch`, async () => {
+      const intent = connector.intent();
+      const pack = new TextEncoder().encode(`${connector.name} tampered preflight EvidencePack`);
+      let dispatches = 0;
+      await assert.rejects(
+        withHelmBoundary({
+          actionUrn: intent.actionUrn,
+          sessionId: intent.sessionId ?? "",
+          tenantId: "tenant-conformance",
+          principal: "principal-conformance",
+          apiKey: "api-key-conformance",
+          exportEvidence: true,
+          fetch: async (url) => url.endsWith("/api/v1/evaluate")
+            ? response({ verdict: "ALLOW", receipt_id: `${connector.name}-receipt-tamper` })
+            : evidenceResponse(pack, `sha256:${"0".repeat(64)}`),
+          tool: async () => {
+            dispatches += 1;
+            return "unexpected";
+          },
+        })(intent.input),
+        /HELM evidence export hash mismatch/,
+      );
+      assert.equal(dispatches, 0);
+    });
   }
+});
+
+test("EvidencePack export HTTP failure preserves status and blocks dispatch", async () => {
+  const intent = fromCodexToolCall({
+    recipient_name: "functions.exec_command",
+    parameters: { cmd: "git status --short" },
+    session_id: "codex-export-error",
+  });
+  let dispatches = 0;
+  const wrapped = withHelmBoundary({
+    actionUrn: intent.actionUrn,
+    sessionId: intent.sessionId ?? "",
+    tenantId: "tenant-export-error",
+    principal: "principal-export-error",
+    apiKey: "api-key-export-error",
+    exportEvidence: true,
+    fetch: async (url) => {
+      if (url.endsWith("/api/v1/evaluate")) {
+        return response({ verdict: "ALLOW", receipt_id: "receipt-export-error" });
+      }
+      return {
+        ok: false,
+        status: 503,
+        headers: { get: () => null },
+        async json() {
+          throw new SyntaxError("plaintext response");
+        },
+        async text() {
+          return "evidence service unavailable";
+        },
+      };
+    },
+    tool: async () => {
+      dispatches += 1;
+      return "should-not-run";
+    },
+  });
+
+  await assert.rejects(
+    wrapped(intent.input),
+    (error: unknown) => error instanceof Error
+      && "status" in error
+      && error.status === 503
+      && "body" in error
+      && error.body === "evidence service unavailable",
+  );
+  assert.equal(dispatches, 0);
 });
 
 test("new framework helpers normalize Browser Use and Composio calls", () => {

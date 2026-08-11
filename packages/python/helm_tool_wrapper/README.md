@@ -4,10 +4,13 @@ Thin Python wrapper for routing side-effectful tool calls through a local HELM
 AI Kernel boundary before dispatch.
 
 The wrapper sends a direct preflight request to `POST /api/v1/evaluate`.
+Each request binds the tool input through the served V5 top-level fields while
+retaining the matching legacy aliases for current policy compatibility.
 It dispatches the wrapped function only when the HELM verdict is `ALLOW`.
 `DENY`, `ESCALATE`, and `PENDING` return a non-dispatched result with decision
 and receipt metadata. The current served route requires the admin bearer key
-plus explicit tenant and principal binding headers.
+plus explicit tenant and principal binding headers. Set `workspace_id` when
+the Kernel runtime requires an authenticated workspace binding.
 
 ```python
 import os
@@ -19,19 +22,33 @@ from helm_tool_wrapper import with_helm_boundary
     api_key=os.environ["HELM_ADMIN_API_KEY"],
     tenant_id="local-demo",
     principal="demo-agent",
+    workspace_id="workspace-demo",
     session_id="demo-session-1",
     action_urn="tool.gmail.send_email",
     risk_class="T2",
     effect_class="E4",
+    export_evidence=True,
 )
 def send_email(payload: dict[str, str]):
     return {"provider_id": "msg_123", **payload}
 
 result = send_email({"to": "ops@example.com", "subject": "Review"})
+print(result.receipt.receipt_id, result.evidence_pack.evidence_hash)
 ```
 
 This package does not define HELM verdict semantics. It only calls the kernel
 boundary and follows the returned verdict.
+
+`export_evidence=True` is opt-in. After the evaluate response returns a real
+`receipt_id`, the wrapper calls the authenticated `POST /api/v1/evidence/export`
+route for that session, verifies the source-defined `X-Helm-Evidence-Hash`
+against the returned bytes, and only then permits an `ALLOW` dispatch. Export
+failure, a missing receipt, or a hash mismatch fails closed before dispatch.
+Even without export enabled, an `ALLOW` response must carry a durable
+`receipt_id` before the wrapper dispatches.
+The returned pack is preflight evidence only: it contains the receipts
+available before tool execution and does not reconcile or attest to the later
+provider result.
 
 TinyFish helpers normalize Search, Fetch, Browser, and Agent proposals before
 the same HELM preflight:

@@ -18,9 +18,21 @@ export interface HelmReceiptRef {
   [key: string]: unknown;
 }
 
+/**
+ * A content-addressed EvidencePack returned by the authenticated Kernel export
+ * route immediately after preflight. It contains the receipts available at
+ * that point; it does not attest to the later tool output.
+ */
+export interface HelmEvidencePackRef {
+  evidenceHash: string;
+  content: Uint8Array;
+  contentType?: string;
+}
+
 export interface HelmPreflightResult {
   decision: HelmDecision;
   receipt?: HelmReceiptRef;
+  evidencePack?: HelmEvidencePackRef;
   raw: unknown;
 }
 
@@ -31,6 +43,7 @@ export interface HelmBoundaryAllowed<Output> {
   output: Output;
   decision: HelmDecision;
   receipt?: HelmReceiptRef;
+  evidencePack?: HelmEvidencePackRef;
   raw: unknown;
 }
 
@@ -40,6 +53,7 @@ export interface HelmBoundaryBlocked {
   verdict: Exclude<HelmVerdict, "ALLOW">;
   decision: HelmDecision;
   receipt?: HelmReceiptRef;
+  evidencePack?: HelmEvidencePackRef;
   raw: unknown;
 }
 
@@ -64,6 +78,7 @@ export type FetchLike = (
   headers: { get(name: string): string | null };
   json(): Promise<unknown>;
   text(): Promise<string>;
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }>;
 
 export interface HelmBoundaryConfig<Input, Output> {
@@ -72,12 +87,14 @@ export interface HelmBoundaryConfig<Input, Output> {
   sessionId: string;
   tenantId: string;
   principal: string;
+  workspaceId?: string;
   apiKey?: string;
   serviceToken?: string;
   helmUrl?: string;
   riskClass?: string;
   effectClass?: string;
   metadata?: Record<string, unknown>;
+  exportEvidence?: boolean;
   timeoutMs?: number;
   fetch?: FetchLike;
 }
@@ -88,12 +105,26 @@ export interface HelmPreflightOptions<Input> {
   sessionId: string;
   tenantId: string;
   principal: string;
+  workspaceId?: string;
   apiKey?: string;
   serviceToken?: string;
   helmUrl?: string;
   riskClass?: string;
   effectClass?: string;
   metadata?: Record<string, unknown>;
+  exportEvidence?: boolean;
+  timeoutMs?: number;
+  fetch?: FetchLike;
+}
+
+export interface HelmEvidenceExportOptions {
+  sessionId: string;
+  tenantId: string;
+  principal: string;
+  workspaceId?: string;
+  apiKey?: string;
+  serviceToken?: string;
+  helmUrl?: string;
   timeoutMs?: number;
   fetch?: FetchLike;
 }
@@ -175,14 +206,28 @@ function canonicalVerdict(verdict: unknown): HelmVerdict {
   if (typeof verdict !== "string") {
     return "DENY";
   }
-  return verdict.toUpperCase();
+  return verdict.trim().toUpperCase() || "DENY";
+}
+
+function normalizedString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value.trim() || undefined;
 }
 
 function headersToReceipt(headers: { get(name: string): string | null }): HelmReceiptRef | undefined {
-  const receiptId = headers.get("x-helm-receipt-id") ?? undefined;
-  const decisionId = headers.get("x-helm-decision-id") ?? undefined;
-  const reasonCode = headers.get("x-helm-reason-code") ?? undefined;
-  const status = headers.get("x-helm-verdict") ?? headers.get("x-helm-status") ?? undefined;
+  const receiptId = normalizedString(headers.get("x-helm-receipt-id"));
+  const decisionId = normalizedString(headers.get("x-helm-decision-id"));
+  const reasonCode = normalizedString(headers.get("x-helm-reason-code"));
+  const verdict = normalizedString(headers.get("x-helm-verdict"));
+  const responseStatus = normalizedString(headers.get("x-helm-status"));
+  if (verdict && responseStatus && canonicalVerdict(verdict) !== canonicalVerdict(responseStatus)) {
+    throw new HelmBoundaryTransportError(
+      "HELM evaluate response has conflicting verdict header values",
+    );
+  }
+  const status = verdict ?? responseStatus;
   if (!receiptId && !decisionId && !reasonCode && !status) {
     return undefined;
   }
@@ -200,39 +245,131 @@ function extractDecision(payload: unknown): HelmDecision {
   return {
     ...nested,
     verdict,
-    id: typeof nested.id === "string" ? nested.id : undefined,
-    decision_id: typeof nested.decision_id === "string"
-      ? nested.decision_id
-      : typeof body.decision_id === "string"
-        ? body.decision_id
-        : undefined,
-    reason: typeof nested.reason === "string"
-      ? nested.reason
-      : typeof body.reason === "string"
-        ? body.reason
-        : undefined,
-    reason_code: typeof nested.reason_code === "string"
-      ? nested.reason_code
-      : typeof body.reason_code === "string"
-        ? body.reason_code
-        : undefined,
-    receipt_id: typeof nested.receipt_id === "string"
-      ? nested.receipt_id
-      : typeof body.receipt_id === "string"
-        ? body.receipt_id
-        : undefined,
+    id: normalizedString(nested.id),
+    decision_id: normalizedString(nested.decision_id) ?? normalizedString(body.decision_id),
+    reason: normalizedString(nested.reason) ?? normalizedString(body.reason),
+    reason_code: normalizedString(nested.reason_code) ?? normalizedString(body.reason_code),
+    receipt_id: normalizedString(nested.receipt_id) ?? normalizedString(body.receipt_id),
   };
 }
 
 function mergeReceipt(decision: HelmDecision, headerReceipt?: HelmReceiptRef): HelmReceiptRef | undefined {
-  const receiptId = headerReceipt?.receiptId ?? decision.receipt_id;
-  const decisionId = headerReceipt?.decisionId ?? decision.decision_id ?? decision.id;
-  const reasonCode = headerReceipt?.reasonCode ?? decision.reason_code;
-  const status = headerReceipt?.status ?? decision.verdict;
-  if (!receiptId && !decisionId && !reasonCode && !status) {
+  const headerReceiptId = normalizedString(headerReceipt?.receiptId);
+  const bodyReceiptId = normalizedString(decision.receipt_id);
+  if (headerReceiptId && bodyReceiptId && headerReceiptId !== bodyReceiptId) {
+    throw new HelmBoundaryTransportError("HELM evaluate response has conflicting receipt_id values");
+  }
+  const headerStatus = normalizedString(headerReceipt?.status);
+  if (headerStatus && canonicalVerdict(headerStatus) !== canonicalVerdict(decision.verdict)) {
+    throw new HelmBoundaryTransportError("HELM evaluate response has conflicting verdict values");
+  }
+  const receiptId = headerReceiptId ?? bodyReceiptId;
+  const decisionId = normalizedString(headerReceipt?.decisionId)
+    ?? normalizedString(decision.decision_id)
+    ?? normalizedString(decision.id);
+  const reasonCode = normalizedString(headerReceipt?.reasonCode)
+    ?? normalizedString(decision.reason_code);
+  const status = headerStatus ? canonicalVerdict(headerStatus) : canonicalVerdict(decision.verdict);
+  if (!receiptId) {
     return undefined;
   }
   return { ...headerReceipt, receiptId, decisionId, reasonCode, status };
+}
+
+function authenticatedHeaders(
+  authToken: string,
+  tenantId: string,
+  principal: string,
+  workspaceId: string | undefined,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${authToken}`,
+    "Content-Type": "application/json",
+    "X-Helm-Tenant-ID": tenantId,
+    "X-Helm-Principal-ID": principal,
+  };
+  const normalizedWorkspaceId = workspaceId?.trim();
+  if (normalizedWorkspaceId) {
+    headers["X-Helm-Workspace-ID"] = normalizedWorkspaceId;
+  }
+  return headers;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Export the current session's EvidencePack through the authenticated Kernel
+ * route and verify its source-defined content hash before returning it.
+ */
+export async function exportEvidencePack(
+  options: HelmEvidenceExportOptions,
+): Promise<HelmEvidencePackRef> {
+  const fetchImpl = options.fetch ?? globalThis.fetch as FetchLike | undefined;
+  if (!fetchImpl) {
+    throw new HelmBoundaryTransportError("No fetch implementation is available");
+  }
+  if (!globalThis.crypto?.subtle) {
+    throw new HelmBoundaryTransportError("Web Crypto is required to verify HELM EvidencePack exports");
+  }
+
+  const authToken = resolveEvaluateApiKey(options.apiKey, options.serviceToken);
+  const sessionId = requireValue(options.sessionId, "sessionId");
+  const tenantId = requireValue(options.tenantId, "tenantId");
+  const principal = requireValue(options.principal, "principal");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
+
+  try {
+    const response = await fetchImpl(`${normalizeBaseUrl(options.helmUrl)}/api/v1/evidence/export`, {
+      method: "POST",
+      headers: authenticatedHeaders(authToken, tenantId, principal, options.workspaceId),
+      body: JSON.stringify({ session_id: sessionId, format: "tar.gz" }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      let body: unknown = responseText;
+      try {
+        body = JSON.parse(responseText);
+      } catch {
+        // Preserve the plaintext error body and the Kernel status.
+      }
+      throw new HelmBoundaryTransportError(
+        `HELM evidence export failed with HTTP ${response.status}`,
+        response.status,
+        body,
+      );
+    }
+    if (!response.arrayBuffer) {
+      throw new HelmBoundaryTransportError("HELM evidence export response is not binary-readable");
+    }
+
+    const content = new Uint8Array(await response.arrayBuffer());
+    const evidenceHash = response.headers.get("x-helm-evidence-hash")?.trim().toLowerCase();
+    if (!evidenceHash || !/^sha256:[0-9a-f]{64}$/.test(evidenceHash)) {
+      throw new HelmBoundaryTransportError("HELM evidence export is missing a valid X-Helm-Evidence-Hash");
+    }
+    const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", content));
+    const actualHash = `sha256:${bytesToHex(digest)}`;
+    if (evidenceHash !== actualHash) {
+      throw new HelmBoundaryTransportError(
+        "HELM evidence export hash mismatch",
+        response.status,
+        { expected: evidenceHash, actual: actualHash },
+      );
+    }
+
+    return {
+      evidenceHash,
+      content,
+      contentType: response.headers.get("content-type") ?? undefined,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function preflightAction<Input>(
@@ -266,6 +403,11 @@ export async function preflightAction<Input>(
     principal,
     action: "EXECUTE_TOOL",
     resource: actionUrn,
+    tool: "EXECUTE_TOOL",
+    args: options.input,
+    agent_id: principal,
+    effect_level: actionUrn,
+    session_id: sessionId,
     context: {
       tool: actionUrn,
       args: options.input,
@@ -283,12 +425,7 @@ export async function preflightAction<Input>(
   try {
     const response = await fetchImpl(`${normalizeBaseUrl(options.helmUrl)}/api/v1/evaluate`, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-        "X-Helm-Tenant-ID": tenantId,
-        "X-Helm-Principal-ID": principal,
-      },
+      headers: authenticatedHeaders(authToken, tenantId, principal, options.workspaceId),
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -309,9 +446,30 @@ export async function preflightAction<Input>(
     }
 
     const decision = extractDecision(body);
+    const receipt = mergeReceipt(decision, headersToReceipt(response.headers));
+    let evidencePack: HelmEvidencePackRef | undefined;
+    if (options.exportEvidence) {
+      if (!receipt?.receiptId) {
+        throw new HelmBoundaryTransportError(
+          "HELM evidence export requires a receipt_id from the evaluate response",
+        );
+      }
+      evidencePack = await exportEvidencePack({
+        sessionId,
+        tenantId,
+        principal,
+        workspaceId: options.workspaceId,
+        apiKey: options.apiKey,
+        serviceToken: options.serviceToken,
+        helmUrl: options.helmUrl,
+        timeoutMs: options.timeoutMs,
+        fetch: fetchImpl,
+      });
+    }
     return {
       decision,
-      receipt: mergeReceipt(decision, headersToReceipt(response.headers)),
+      receipt,
+      evidencePack,
       raw: body,
     };
   } finally {
@@ -329,12 +487,14 @@ export function withHelmBoundary<Input, Output>(
       sessionId: config.sessionId,
       tenantId: config.tenantId,
       principal: config.principal,
+      workspaceId: config.workspaceId,
       apiKey: config.apiKey,
       serviceToken: config.serviceToken,
       helmUrl: config.helmUrl,
       riskClass: config.riskClass,
       effectClass: config.effectClass,
       metadata: config.metadata,
+      exportEvidence: config.exportEvidence,
       timeoutMs: config.timeoutMs,
       fetch: config.fetch,
     });
@@ -346,8 +506,15 @@ export function withHelmBoundary<Input, Output>(
         verdict: preflight.decision.verdict as Exclude<HelmVerdict, "ALLOW">,
         decision: preflight.decision,
         receipt: preflight.receipt,
+        evidencePack: preflight.evidencePack,
         raw: preflight.raw,
       };
+    }
+
+    if (!preflight.receipt?.receiptId) {
+      throw new HelmBoundaryTransportError(
+        "HELM ALLOW response is missing the durable receipt_id required before dispatch",
+      );
     }
 
     const output = await config.tool(input);
@@ -358,6 +525,7 @@ export function withHelmBoundary<Input, Output>(
       output,
       decision: preflight.decision,
       receipt: preflight.receipt,
+      evidencePack: preflight.evidencePack,
       raw: preflight.raw,
     };
   };

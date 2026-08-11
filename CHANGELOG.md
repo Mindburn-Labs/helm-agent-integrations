@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added opt-in authenticated, content-hash-verified preflight EvidencePack
+  exports to the TypeScript and Python tool wrappers, with workspace binding
+  support, V5 input binding, and fail-closed Codex/Claude composition coverage.
 - Added Daytona sandbox normalizers (`from_daytona_sandbox_create`,
   `from_daytona_process_exec`, `from_daytona_ssh_grant`) with fail-closed
   network normalization (`normalize_daytona_network`).
