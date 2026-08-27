@@ -10,8 +10,10 @@
 
 export const ACP_PROTOCOL_VERSION = 1;
 
-/** Supported embedded coding engines. */
-export type CodingAgent = "claude" | "codex";
+/** Supported coding agents behind the governed ACP boundary. */
+export type BridgedCodingAgent = "claude" | "codex";
+export type NativeAcpCodingAgent = "gemini" | "kimi" | "opencode";
+export type CodingAgent = BridgedCodingAgent | NativeAcpCodingAgent;
 
 /** Outcome kinds an agent may offer on a permission request. */
 export type PermissionOptionKind =
