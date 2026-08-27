@@ -1,7 +1,8 @@
 # @mindburn/helm-acp-connector
 
-HELM-governed ACP (Agent Client Protocol) connector for embedded coding
-engines (Claude Code, Codex).
+HELM-governed ACP (Agent Client Protocol) connector for coding agents. Claude
+Code and Codex run through their ACP bridge executables; Gemini CLI, Kimi CLI,
+and OpenCode expose ACP directly (`gemini --acp`, `kimi acp`, `opencode acp`).
 
 The positioning matches this repository: engines propose and orchestrate
 work; HELM governs execution and produces evidence. The connector drives
@@ -67,7 +68,8 @@ routing every interactive permission decision through the HELM boundary.
 ```ts
 import {
   AcpSessionManager, SessionStore, FsGuard, HelmKernelEvaluator,
-  buildAdapterLaunchSpec, ensureEngine, getProvisionedEnginePath,
+  buildAdapterLaunchSpec, buildNativeAcpLaunchSpec, ensureEngine,
+  getProvisionedEnginePath,
 } from "@mindburn/helm-acp-connector";
 
 // 1. Provision the engine (up front — never mid-session).
@@ -91,6 +93,21 @@ const result = await manager.runPrompt({
   onEvent: (e) => console.log(e),
 });
 ```
+
+For a native ACP CLI, keep the same manager and change only the launch factory:
+
+```ts
+launchSpecFor: (agent) => {
+  if (agent === "gemini" || agent === "kimi" || agent === "opencode") {
+    return buildNativeAcpLaunchSpec({ agent });
+  }
+  return buildAdapterLaunchSpec({ agent, adapterEntry: "/path/to/vendor-acp-bridge.js" });
+},
+```
+
+The executable must already be installed and authenticated. HELM does not copy
+ambient credentials into the child; pass any non-interactive credential
+explicitly through `extraEnv`.
 
 ## Contract notes
 

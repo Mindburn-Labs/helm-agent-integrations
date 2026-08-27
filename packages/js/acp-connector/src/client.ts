@@ -15,9 +15,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type {
   AcpRunEvent,
+  BridgedCodingAgent,
   CodingAgent,
   InitializeResponse,
   NewSessionResponse,
+  NativeAcpCodingAgent,
   PromptResponse,
   ReadTextFileRequest,
   RequestPermissionRequest,
@@ -67,7 +69,7 @@ function adapterBaseEnv(): NodeJS.ProcessEnv {
  * (CLAUDE_CODE_EXECUTABLE / CODEX_PATH decouple the engine from the adapter).
  */
 export function buildAdapterLaunchSpec(opts: {
-  agent: CodingAgent;
+  agent: BridgedCodingAgent;
   adapterEntry: string;
   engineExecutablePath?: string;
   extraEnv?: NodeJS.ProcessEnv;
@@ -80,6 +82,26 @@ export function buildAdapterLaunchSpec(opts: {
     if (opts.agent === "codex") env.CODEX_PATH = opts.engineExecutablePath;
   }
   return { command: process.execPath, args: [opts.adapterEntry], env };
+}
+
+const NATIVE_ACP_LAUNCH: Record<NativeAcpCodingAgent, AdapterLaunchSpec> = {
+  gemini: { command: "gemini", args: ["--acp"] },
+  kimi: { command: "kimi", args: ["acp"] },
+  opencode: { command: "opencode", args: ["acp"] },
+};
+
+/** Launch a CLI that exposes ACP natively, without a vendor bridge package. */
+export function buildNativeAcpLaunchSpec(opts: {
+  agent: NativeAcpCodingAgent;
+  command?: string;
+  extraEnv?: NodeJS.ProcessEnv;
+}): AdapterLaunchSpec {
+  const spec = NATIVE_ACP_LAUNCH[opts.agent];
+  return {
+    command: opts.command ?? spec.command,
+    args: [...spec.args],
+    env: { ...adapterBaseEnv(), ...opts.extraEnv },
+  };
 }
 
 // Deadline for the startup phases (initialize / session create+load) only.

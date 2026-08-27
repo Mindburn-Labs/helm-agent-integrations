@@ -4,7 +4,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GovernedAcpClient, buildAdapterLaunchSpec } from "./client.js";
+import { GovernedAcpClient, buildAdapterLaunchSpec, buildNativeAcpLaunchSpec } from "./client.js";
 import { GovernedPermissionBroker } from "./permission.js";
 import { AcpSessionManager } from "./manager.js";
 import { SessionStore } from "./session-store.js";
@@ -41,6 +41,27 @@ test("adapter launch inherits only runtime basics; credentials require explicit 
       extraEnv: { HELM_TEST_AMBIENT_SECRET: "explicit" },
     });
     assert.equal(delegated.env?.HELM_TEST_AMBIENT_SECRET, "explicit");
+  } finally {
+    if (previous === undefined) delete process.env.HELM_TEST_AMBIENT_SECRET;
+    else process.env.HELM_TEST_AMBIENT_SECRET = previous;
+  }
+});
+
+test("native ACP agents use their official stdio commands without ambient credentials", () => {
+  const previous = process.env.HELM_TEST_AMBIENT_SECRET;
+  process.env.HELM_TEST_AMBIENT_SECRET = "must-not-leak";
+  try {
+    assert.deepEqual(buildNativeAcpLaunchSpec({ agent: "gemini" }).args, ["--acp"]);
+    assert.deepEqual(buildNativeAcpLaunchSpec({ agent: "kimi" }).args, ["acp"]);
+    assert.deepEqual(buildNativeAcpLaunchSpec({ agent: "opencode" }).args, ["acp"]);
+    const delegated = buildNativeAcpLaunchSpec({
+      agent: "gemini",
+      command: "/managed/gemini",
+      extraEnv: { GEMINI_API_KEY: "explicit" },
+    });
+    assert.equal(delegated.command, "/managed/gemini");
+    assert.equal(delegated.env?.GEMINI_API_KEY, "explicit");
+    assert.equal(delegated.env?.HELM_TEST_AMBIENT_SECRET, undefined);
   } finally {
     if (previous === undefined) delete process.env.HELM_TEST_AMBIENT_SECRET;
     else process.env.HELM_TEST_AMBIENT_SECRET = previous;
