@@ -1,0 +1,18 @@
+{
+  "pack_id": "helm-76-local-kernel-v1",
+  "label": "HELM-76 local Kernel connector proof",
+  "version": 1,
+  "runtime_actions": [
+    {
+      "action": "tool.codex.functions.exec_command",
+      "enabled": false,
+      "description": "Explicit default-deny vector; the callback must not dispatch"
+    },
+    {
+      "action": "tool.claude.Read",
+      "enabled": true,
+      "expression": "true",
+      "description": "One bounded in-process callback after preflight evidence verification"
+    }
+  ]
+}

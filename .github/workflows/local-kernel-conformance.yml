@@ -1,0 +1,53 @@
+name: Local Kernel Conformance
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/local-kernel-conformance.yml
+      - conformance/helm-76-local-kernel/**
+      - packages/js/helm-tool-wrapper/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/local-kernel-conformance.yml
+      - conformance/helm-76-local-kernel/**
+      - packages/js/helm-tool-wrapper/**
+
+jobs:
+  codex-claude-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out integrations
+        uses: actions/checkout@v5
+        with:
+          path: helm-agent-integrations
+          persist-credentials: false
+
+      - name: Check out current Kernel source
+        uses: actions/checkout@v5
+        with:
+          repository: Mindburn-Labs/helm-ai-kernel
+          path: helm-ai-kernel
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: helm-agent-integrations/packages/js/helm-tool-wrapper/package-lock.json
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: helm-ai-kernel/core/go.mod
+          cache-dependency-path: helm-ai-kernel/core/go.sum
+
+      - name: Prove Codex DENY and bounded Claude ALLOW
+        working-directory: helm-agent-integrations
+        env:
+          HELM_KERNEL_ROOT: ${{ github.workspace }}/helm-ai-kernel
+        run: ./conformance/helm-76-local-kernel/test.sh
