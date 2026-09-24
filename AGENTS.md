@@ -25,8 +25,10 @@ or EvidencePack verification rules. Those remain owned by
 Run:
 
 ```bash
-make validate
+make check
 ```
+
+CI runs the same target (required check `ci / gate`).
 
 If dependency installation is unavailable, run the focused checks that do not
 need network:

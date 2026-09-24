@@ -2,7 +2,8 @@ repo_type: integration-examples
 owners:
   team: architecture-platform
 commands:
-  setup: make validate
+  check: make check
+  setup: make setup
   lint: make samples
   test: make test-python
   build: make package
@@ -13,4 +14,4 @@ risk:
     - samples/**
     - policies/**
 agent_entrypoints:
-  default_task: make validate
+  default_task: make check

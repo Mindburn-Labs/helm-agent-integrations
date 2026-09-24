@@ -1,4 +1,8 @@
-name: HELM Boundary Check
+# Python 3.9 compatibility. `make check` (ci.yml, required check `ci / gate`)
+# runs every gate on Python 3.12. The Python package declares
+# requires-python >= 3.9, so this non-required workflow reruns the Python
+# gates on 3.9.
+name: HELM Boundary Check (Python 3.9)
 
 on:
   pull_request:
@@ -6,106 +10,30 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate:
+  python-39:
     timeout-minutes: 20
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.9", "3.12"]
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: |
-            packages/js/helm-tool-wrapper/package-lock.json
-            packages/js/acp-connector/package-lock.json
+          persist-credentials: false
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.9"
 
-      - name: Install TypeScript package dependencies
-        run: npm ci
-        working-directory: packages/js/helm-tool-wrapper
+      - name: Lint, test and run the Python examples and sample checks
+        run: make lint test-python examples-python samples verify-samples
 
-      - name: Test TypeScript wrapper
-        run: npm test
-        working-directory: packages/js/helm-tool-wrapper
-
-      - name: Install channel bridge dependencies
-        run: npm install
-        working-directory: packages/js/helm-channel-bridge
-
-      - name: Test channel bridge
-        run: npm test
-        working-directory: packages/js/helm-channel-bridge
-
-      - name: Install opencode-governance dependencies
-        run: npm install
-        working-directory: packages/opencode-governance
-
-      - name: Typecheck and test opencode-governance
-        run: npm run typecheck && npm test
-        working-directory: packages/opencode-governance
-
-      - name: Install Python wrapper check dependencies
-        run: python -m pip install --disable-pip-version-check ".[dev]"
-        working-directory: packages/python/helm_tool_wrapper
-
-      - name: Install ACP connector package dependencies
-        run: npm ci
-        working-directory: packages/js/acp-connector
-
-      - name: Test ACP connector
-        run: npm test
-        working-directory: packages/js/acp-connector
-
-      - name: Test Python wrapper
-        run: python -m unittest discover packages/python/helm_tool_wrapper/tests
-
-      - name: Type-check and lint Python wrapper
-        run: python -m mypy --python-version 3.9 helm_tool_wrapper && python -m ruff check helm_tool_wrapper && python -m ruff format --check helm_tool_wrapper/examples
-        working-directory: packages/python/helm_tool_wrapper
-
-      - name: Run twelve framework helper examples
-        run: make examples
-
-      - name: Verify helper examples survive package assembly
-        run: |
-          (
-            cd packages/js/helm-tool-wrapper
-            package_dir="$PWD"
-            npm pack --json > /tmp/helm-tool-wrapper-npm-pack.json
-            node -e 'const fs = require("node:fs"); const pack = JSON.parse(fs.readFileSync("/tmp/helm-tool-wrapper-npm-pack.json", "utf8")); const files = new Set(pack[0].files.map((file) => file.path)); for (const path of ["dist/framework_helpers_example.js", "dist/framework_helpers_example.d.ts"]) { if (!files.has(path)) throw new Error("missing " + path + " from npm package"); }'
-            tarball="$(node -e 'const fs = require("node:fs"); const pack = JSON.parse(fs.readFileSync("/tmp/helm-tool-wrapper-npm-pack.json", "utf8")); process.stdout.write(pack[0].filename)')"
-            consumer_dir="$(mktemp -d)"
-            trap 'rm -rf "$consumer_dir"' EXIT
-            cd "$consumer_dir"
-            npm init --yes >/dev/null
-            npm install --ignore-scripts --no-audit --no-fund "$package_dir/$tarball"
-            node --input-type=module -e 'import assert from "node:assert/strict"; import { frameworkHelperExamples, verifyFrameworkHelperExamples, verifyFrameworkHelperPreflightContract } from "@mindburn/helm-tool-wrapper/examples/framework-helpers"; assert.equal(frameworkHelperExamples().length, 12); assert.equal(verifyFrameworkHelperExamples().length, 12); assert.equal((await verifyFrameworkHelperPreflightContract()).length, 12);'
-          )
-          (
-            cd packages/python/helm_tool_wrapper
-            python -m build --wheel
-            python -c 'import glob, zipfile; wheels = glob.glob("dist/*.whl"); assert len(wheels) == 1, f"expected one wheel, got {wheels}"; names = set(zipfile.ZipFile(wheels[0]).namelist()); required = {"helm_tool_wrapper/examples/__init__.py", "helm_tool_wrapper/examples/framework_helpers.py"}; missing = required - names; assert not missing, f"missing {missing} from wheel"'
-            wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
-            consumer_dir="$(mktemp -d)"
-            trap 'rm -rf "$consumer_dir"' EXIT
-            python -m venv "$consumer_dir/venv"
-            "$consumer_dir/venv/bin/python" -m pip install --no-index --no-deps "$PWD/$wheel"
-            "$consumer_dir/venv/bin/python" -m helm_tool_wrapper.examples.framework_helpers
-          )
-
-      - name: Verify generated samples
+      - name: Verify generated samples through the composite action
         uses: ./.github/actions/helm-boundary-check
         with:
           repo: .

@@ -16,7 +16,7 @@ Mindburn Labs publisher identity.
 ```bash
 python3 -m pip install "packages/python/helm_tool_wrapper[dev]"
 make clean
-make validate
+make check
 make package
 ```
 
