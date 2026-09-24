@@ -1,4 +1,7 @@
-.PHONY: setup lint test validate test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package build clean
+.PHONY: check setup lint test test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package package-assembly markdown build clean
+
+# The CI gate (.github/workflows/ci.yml runs `make check`).
+check: lint test package-assembly markdown
 
 setup:
 	cd packages/python/helm_tool_wrapper && python3 -m pip install --disable-pip-version-check ".[dev]"
@@ -7,12 +10,10 @@ lint: setup typecheck-python lint-python
 
 test: setup test-js test-python examples samples verify-samples
 
-validate: lint test
-
 test-js:
 	cd packages/js/helm-tool-wrapper && npm ci && npm test
-	cd packages/js/helm-channel-bridge && npm install && npm test
-	cd packages/opencode-governance && npm install && npm test
+	cd packages/js/helm-channel-bridge && npm ci && npm test
+	cd packages/opencode-governance && npm ci && npm run typecheck && npm test
 	cd packages/js/acp-connector && npm ci && npm test
 
 test-python:
@@ -45,6 +46,13 @@ package-python:
 	cd packages/python/helm_tool_wrapper && python3 -m build && python3 -m twine check dist/*
 
 package: package-js package-python
+
+# The npm tarball and the wheel both carry the framework helper examples.
+package-assembly: setup
+	bash scripts/check_package_assembly.sh
+
+markdown:
+	ruby scripts/check-markdown.rb
 
 build: setup package
 

@@ -184,12 +184,15 @@ contracts and conformance.
 ## Validation
 
 ```bash
-make validate
+make check
 ```
 
-The validation target runs TypeScript build/tests, Python tests plus strict
+`make check` runs TypeScript build/tests, Python tests plus strict
 Python 3.9-targeted type/lint checks, both packaged helper examples, sample
-regeneration checks, and sample integrity checks.
+regeneration checks, sample integrity checks, a packaging round trip that
+installs the npm tarball and the wheel into clean consumers, and relative
+Markdown link checks. CI runs it as the required check `ci / gate`, and reruns
+the Python gates on Python 3.9.
 
 ## Source Truth
 
