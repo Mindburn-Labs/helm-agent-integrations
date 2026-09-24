@@ -13,7 +13,7 @@ dev = [
   "build==1.4.0",
   "mypy==1.18.1",
   "packaging==25.0",
-  "pytest==8.4.2",
+  "pytest==9.1.1",
   "ruff==0.13.0",
   "tomli==2.4.1; python_version < '3.11'",
   "twine==6.2.0",
