@@ -1,10 +1,4 @@
 # CI v2 caller. The required status check is `ci / gate`, so keep the job id `ci`.
-#
-# This repository is public and platform-actions is internal. GitHub does not let
-# a public repository call a reusable workflow from an internal one, so `ci-v2.yml`
-# is a byte-identical copy of Mindburn-Labs/platform-actions
-# .github/workflows/ci.yml at tag v2 (6d84391e40ef265dfcaf8485090c6a9dbf15eed4).
-# Refresh it from there; do not edit it here.
 name: CI
 
 on:
@@ -22,4 +16,4 @@ concurrency:
 
 jobs:
   ci:
-    uses: ./.github/workflows/ci-v2.yml
+    uses: Mindburn-Labs/platform-actions/.github/workflows/ci.yml@v2
