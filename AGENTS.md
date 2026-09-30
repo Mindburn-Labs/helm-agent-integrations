@@ -28,7 +28,9 @@ Run:
 make check
 ```
 
-CI runs the same target (required check `ci / gate`).
+CI runs the same target (required check `ci / gate`), then `make workers-conformance`. That one
+needs Docker: it runs the worker conformance kit (`workers/conformance`) against every worker
+image on an isolated network. Run it before opening a PR that touches `workers/`.
 
 If dependency installation is unavailable, run the focused checks that do not
 need network:

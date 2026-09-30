@@ -1,0 +1,29 @@
+[project]
+name = "helm-worker-conformance"
+version = "0.1.0"
+description = "Black-box conformance kit for HELM agent worker images (A2A v1.0, helm.episode.v1)"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Mindburn Labs", email = "oss@mindburn.org" }]
+# The host-side orchestrator (python -m helm_worker_conformance) uses only the standard library;
+# the in-network runner also imports helm-worker-contract to validate worker output.
+dependencies = ["helm-worker-contract==0.1.0"]
+
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["helm_worker_conformance*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:helm:schema:report:v1",
+  "title": "helm.report.v1",
+  "description": "Data of an artifact named helm.report: a mirror of the helm_work_report call the agent made. The helm.work.report effect is the record, not this artifact.",
+  "type": "object",
+  "required": ["schema", "status", "summary"],
+  "properties": {
+    "schema": { "const": "helm.report.v1" },
+    "status": { "enum": ["done", "blocked", "failed"] },
+    "summary": { "type": "string" },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

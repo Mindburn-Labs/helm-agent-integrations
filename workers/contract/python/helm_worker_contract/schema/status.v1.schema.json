@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:helm:schema:episode-status:v1",
+  "title": "helm.episode.status.v1",
+  "description": "Machine-readable detail a worker attaches to a status update: what an INPUT_REQUIRED episode is waiting on, why a FAILED or REJECTED episode ended, or the applied report of a COMPLETED one. Carried as a data part (media type application/vnd.helm.episode.status.v1+json) of status.message and mirrored, member by member, in the event metadata.",
+  "type": "object",
+  "required": ["schema"],
+  "properties": {
+    "schema": { "const": "helm.episode.status.v1" },
+    "waiting_on": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "description": "Present on INPUT_REQUIRED. Every key present must be satisfied before the continuation starts.",
+      "properties": {
+        "attempts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Gateway attempt ids that returned ESCALATED for this episode."
+        },
+        "children": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Work item ids delegated by this episode. Empty when the delegate results did not name them; the control plane knows the children it created for the episode."
+        },
+        "input": {
+          "type": "object",
+          "required": ["question"],
+          "properties": {
+            "question": { "type": "string", "minLength": 1 },
+            "options": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "description": "Present on FAILED and REJECTED.",
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_EPISODE",
+            "MISSING_CREDENTIAL",
+            "UNSUPPORTED_MODEL_API",
+            "NO_REPORT",
+            "MODEL_ERROR",
+            "TOOL_ERROR",
+            "MAX_TURNS",
+            "DEADLINE_EXCEEDED",
+            "INTERNAL"
+          ]
+        },
+        "message": { "type": "string" }
+      }
+    },
+    "report": {
+      "type": "object",
+      "required": ["status", "summary"],
+      "description": "Present on COMPLETED: the helm_work_report arguments the gateway applied.",
+      "properties": {
+        "status": { "enum": ["done", "blocked", "failed"] },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.mypy_cache
+**/.ruff_cache
+**/*.egg-info
+**/build

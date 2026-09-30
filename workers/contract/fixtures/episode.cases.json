@@ -1,0 +1,985 @@
+{
+  "valid": {
+    "full": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "minimal": {
+      "schema": "helm.episode.v1",
+      "episode_id": "e-min",
+      "work_item_id": "w-min",
+      "seat": {
+        "id": "s",
+        "key": "k",
+        "principal_id": "agt:s",
+        "instructions": ""
+      },
+      "goal": "Say hello.",
+      "tools": {
+        "mcp_url": "http://mcp.example.test:8080/mcp",
+        "allowed": [
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "http://model.example.test:8081",
+        "api": "openai-chat-completions",
+        "model": "gpt-6-sol",
+        "max_output_tokens": 1024
+      },
+      "deadline": "2026-10-01T12:00:00.5+03:00",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "responses_api": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443/",
+        "api": "openai-responses",
+        "model": "gpt-6-sol",
+        "max_output_tokens": 4096
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      },
+      "extra_field_from_a_newer_control_plane": {
+        "anything": true
+      }
+    }
+  },
+  "invalid": {
+    "wrong_schema": {
+      "schema": "helm.episode.v2",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "missing_goal": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "empty_goal": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "unknown_api": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-legacy",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "bad_mcp_url": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "ftp://gateway/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "bad_env_name": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "helm_episode_token"
+      }
+    },
+    "duplicate_tools": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "helm_work_report",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "dotted_tool_name": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "helm.work.report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "unparsable_deadline": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "tomorrow",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "deadline_without_offset": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "zero_max_tokens": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 0
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
+    },
+    "missing_credentials": {
+      "schema": "helm.episode.v1",
+      "episode_id": "6f1d1c52-7c3a-4b8e-9f0a-2d5e8f7a1b01",
+      "work_item_id": "0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+      "continuation": 2,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-9c2",
+        "key": "engineer_1",
+        "principal_id": "agt:seat-9c2",
+        "role": "Engineer",
+        "team": "Maintenance",
+        "instructions": "Keep the sandbox repository healthy. Prefer small, reviewable changes."
+      },
+      "goal": "Open a draft pull request that fixes the failing lint job.",
+      "context": {
+        "brief": "The lint job on main has been red since Monday.",
+        "prior_episodes": [
+          {
+            "episode_id": "e-1",
+            "outcome": "input_required"
+          }
+        ],
+        "attempt_results": [
+          {
+            "attempt_id": "att-1",
+            "effect_type": "github.branch.create_from_changes",
+            "decision": "approved"
+          }
+        ],
+        "children": []
+      },
+      "acceptance": {
+        "criteria": "A draft pull request exists and CI is green.",
+        "required_effects": [
+          "github.pull_request.create_draft"
+        ]
+      },
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "github_repository_get",
+          "github_pull_request_create_draft",
+          "helm_work_report"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "budget": {
+        "allotment": [
+          {
+            "unit": "usd_micros",
+            "value": 2000000
+          }
+        ]
+      },
+      "deadline": "2026-10-01T12:00:00Z"
+    },
+    "not_an_object": [
+      "helm.episode.v1"
+    ]
+  }
+}
