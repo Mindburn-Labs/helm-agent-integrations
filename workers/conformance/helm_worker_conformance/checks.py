@@ -189,6 +189,10 @@ def stream_problems(run: Run, stream: Stream, final: set[str]) -> list[str]:
         problems.append("no TASK_STATE_WORKING progress update")
     if not stream.wait_closed(5.0):
         problems.append("the stream stayed open after the last state (it must close)")
+    elif stream.t_closed is not None:
+        final_events = [e for e in events if e.state in TERMINAL_STATES | INTERRUPTED_STATES]
+        if final_events and stream.t_closed - final_events[0].t > 5.0:
+            problems.append("the stream closed more than 5s after its final state")
     return problems
 
 
