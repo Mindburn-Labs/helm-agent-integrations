@@ -88,20 +88,35 @@ class Sinkhole:
             self.events.append(SinkEvent(time.monotonic(), kind, detail))
 
     def start(self) -> None:
+        if self._sockets:
+            return
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        udp.bind((self.bind, self.dns_port))
         self._sockets.append(udp)
+        try:
+            udp.bind((self.bind, self.dns_port))
+        except OSError:
+            self.stop()
+            raise
+        self.dns_port = udp.getsockname()[1]
         threading.Thread(target=self._dns_loop, args=(udp,), daemon=True, name="sink-dns").start()
+        bound_ports = []
         for port in self.tcp_ports:
             tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            tcp.bind((self.bind, port))
-            tcp.listen(16)
             self._sockets.append(tcp)
+            try:
+                tcp.bind((self.bind, port))
+            except OSError:
+                self.stop()
+                raise
+            port = tcp.getsockname()[1]
+            bound_ports.append(port)
+            tcp.listen(16)
             threading.Thread(
                 target=self._tcp_loop, args=(tcp, port), daemon=True, name=f"sink-{port}"
             ).start()
+        self.tcp_ports = tuple(bound_ports)
 
     def stop(self) -> None:
         self._closed.set()

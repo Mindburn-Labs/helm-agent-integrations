@@ -202,6 +202,17 @@ class ModelStubTests(unittest.TestCase):
         status, _, data = post(self.port, path, body)
         return status, data
 
+    def test_warming_probe_does_not_consume_the_inference_prompt(self) -> None:
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("HEAD", "/api/hello")
+        response = conn.getresponse()
+        response.read()
+        conn.close()
+        self.ask("/v1/messages", self.anthropic())
+        probes, inference = self.world.model_calls
+        self.assertEqual(probes.dialect, "other")
+        self.assertIn('"content": "go"', inference.text)
+
     # -- anthropic
 
     def anthropic(self, **extra: Any) -> dict[str, Any]:

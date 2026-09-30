@@ -1,4 +1,4 @@
-.PHONY: check setup lint test test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package package-assembly markdown build clean workers-check workers-setup workers-contract-check workers-contract-sync workers-lint workers-test workers-conformance workers-conformance-reference
+.PHONY: check setup lint test test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package package-assembly markdown build clean workers-check workers-setup workers-contract-check workers-contract-sync workers-lint workers-test workers-conformance workers-conformance-reference workers-images workers-adapters-check workers-conformance-claude-agent-sdk workers-conformance-openai-agents workers-conformance-langgraph
 
 # The CI gate (.github/workflows/ci.yml runs `make check`).
 check: lint test package-assembly markdown workers-check
@@ -103,4 +103,26 @@ workers-check: workers-lint workers-test
 workers-conformance-reference:
 	cd workers/conformance && PYTHONPATH=. python3 -m helm_worker_conformance --image helm-worker-conformance-runner:local --logs ../../.workers-logs/reference --report ../../.workers-logs/reference/report.json -- python -m helm_worker_conformance.reference_worker
 
-workers-conformance: workers-conformance-reference
+workers-images:
+	docker build -f workers/claude-agent-sdk/Dockerfile -t helm-worker-claude-agent-sdk:local workers
+	docker build -f workers/openai-agents/Dockerfile -t helm-worker-openai-agents:local workers
+	docker build -f workers/langgraph/Dockerfile -t helm-worker-langgraph:local workers
+
+workers-adapters-check:
+	python3 -m ruff check workers/runtime workers/claude-agent-sdk/helm_claude_worker workers/openai-agents workers/langgraph workers/conformance/tests/sdk_sweep.py
+	python3 -m ruff format --check workers/runtime workers/claude-agent-sdk/helm_claude_worker workers/openai-agents workers/langgraph workers/conformance/tests/sdk_sweep.py
+	cd workers/claude-agent-sdk && npm ci --ignore-scripts && npm run check
+	PYTHONPATH=workers/contract/python:workers/runtime python3 -m unittest discover -s workers/runtime/tests
+
+workers-conformance-claude-agent-sdk:
+	cd workers/conformance && PYTHONPATH=. python3 -m helm_worker_conformance --image helm-worker-claude-agent-sdk:local --logs ../../.workers-logs/claude-agent-sdk --report ../../.workers-logs/claude-agent-sdk/report.json
+
+workers-conformance-openai-agents:
+	cd workers/conformance && PYTHONPATH=. python3 -m helm_worker_conformance --image helm-worker-openai-agents:local --logs ../../.workers-logs/openai-agents --report ../../.workers-logs/openai-agents/report.json
+
+workers-conformance-langgraph:
+	cd workers/conformance && PYTHONPATH=. python3 -m helm_worker_conformance --image helm-worker-langgraph:local --logs ../../.workers-logs/langgraph --report ../../.workers-logs/langgraph/report.json
+
+workers-check: workers-adapters-check
+
+workers-conformance: workers-images workers-conformance-reference workers-conformance-claude-agent-sdk workers-conformance-openai-agents workers-conformance-langgraph

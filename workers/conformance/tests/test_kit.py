@@ -201,7 +201,8 @@ class Mutants(unittest.TestCase):
             missed = sorted(name for name in must_fail if got.get(name) != "fail")
             if missed:
                 problems.append(
-                    f"defect {defect} in {scenario}/{api} was not caught by {missed}; statuses: {got}"
+                    f"defect {defect} in {scenario}/{api} was not caught by {missed}; "
+                    f"statuses: {got}; harness error: {result.get('error')}"
                 )
         self.assertEqual(problems, [])
 

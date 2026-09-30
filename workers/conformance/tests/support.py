@@ -27,10 +27,11 @@ def run_reference(
     supported_apis: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """One scenario against a fresh reference worker; returns the runner's JSON result."""
-    sink_port = free_port()
-    sinkhole = Sinkhole(
-        "127.0.0.1", bind="127.0.0.1", dns_port=free_port(socket.SOCK_DGRAM), tcp_ports=(sink_port,)
-    )
+    sinkhole = Sinkhole("127.0.0.1", bind="127.0.0.1", dns_port=0, tcp_ports=(0,))
+    # Bind once and keep ownership. A free-port lookup followed by a later bind races
+    # the parallel reference/model servers, occasionally hiding a mutant behind a harness error.
+    sinkhole.start()
+    sink_port = sinkhole.tcp_ports[0]
     kwargs: dict[str, Any] = {}
     if supported_apis is not None:
         kwargs["supported_apis"] = supported_apis

@@ -1,0 +1,33 @@
+name: Release worker images
+
+on:
+  push:
+    tags: ['v*-workers.*']
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [claude-agent-sdk, openai-agents, langgraph]
+    uses: Mindburn-Labs/platform-actions/.github/workflows/release-image.yml@v2
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      image: ghcr.io/mindburn-labs/helm-worker-${{ matrix.adapter }}
+      context: workers
+      dockerfile: workers/${{ matrix.adapter }}/Dockerfile
+      platforms: linux/amd64,linux/arm64
+      verify-commands: |
+        python3 -m venv /tmp/helm-worker-verify
+        /tmp/helm-worker-verify/bin/pip install workers/contract/python workers/conformance
+        PYTHONPATH=workers/conformance /tmp/helm-worker-verify/bin/python -m helm_worker_conformance \
+          --image "${RELEASE_IMAGE}@${RELEASE_DIGEST}" \
+          --logs .workers-logs/release-${{ matrix.adapter }} \
+          --report .workers-logs/release-${{ matrix.adapter }}/report.json

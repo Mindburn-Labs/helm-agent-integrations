@@ -496,7 +496,10 @@ def make_handler(world: World) -> Handler:
             stream=bool(body.get("stream")),
             turn=assistant_turns(dialect, body),
             has_mcp_servers=bool(body.get("mcp_servers")) or any(t["type"] == "mcp" for t in tools),
-            text=req.body.decode("utf-8", "replace") if not world.model_calls else "",
+            # A connection-warming HEAD must not consume the retained inference prompt.
+            text=req.body.decode("utf-8", "replace")
+            if not any(c.dialect != "other" for c in world.model_calls)
+            else "",
         )
         world.record_model(call)
         step = world.script[call.turn] if call.turn < len(world.script) else DEFAULT_STEP
