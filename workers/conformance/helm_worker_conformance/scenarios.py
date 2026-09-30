@@ -654,6 +654,31 @@ for _structured in (True, False):
     )
 _add(
     Scenario(
+        "escalated_batch_stops",
+        "An escalated first tool suppresses the remaining calls in a model tool batch",
+        [
+            {
+                "tools": [
+                    {
+                        "name": "github_pull_request_create_draft",
+                        "arguments": {"repo": "org/repo", "title": "Escalation probe"},
+                    },
+                    report_call(),
+                ]
+            },
+            {"tools": [report_call()]},
+        ],
+        lambda run: drive_parks(
+            run,
+            tool="github_pull_request_create_draft",
+            key="attempts",
+            expected=_first_attempt,
+            stop_after="an escalated result in a tool batch",
+        ),
+    )
+)
+_add(
+    Scenario(
         "delegate_parks_children",
         "A successful helm_work_delegate parks the episode on the child",
         [

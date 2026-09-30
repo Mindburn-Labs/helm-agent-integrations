@@ -46,6 +46,7 @@ MANIFEST: dict[str, set[str]] = {
     },
     "escalated_parks": PARKS,
     "escalated_parks_text_only": PARKS,
+    "escalated_batch_stops": PARKS,
     "delegate_parks_children": PARKS,
     "request_input_parks_input": PARKS,
     "no_report_fails": COMMON | {"fails_with_no_report"},
@@ -133,6 +134,7 @@ class ReferenceSweep(unittest.TestCase):
 
 # (defect, scenario, api, checks that must fail because of it)
 MUTANTS: list[tuple[str, str, str, set[str]]] = [
+    ("ignore_escalation", "escalated_batch_stops", "openai-responses", {"stops_the_loop"}),
     ("no_auth", "ingress_auth", "openai-chat-completions", {"ingress_auth"}),
     ("no_extension_check", "extension_required", "openai-chat-completions", {"extension_required"}),
     (

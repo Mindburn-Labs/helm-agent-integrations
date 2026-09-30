@@ -400,6 +400,8 @@ class ReferenceWorker:
                     self.artifact(record, "helm.report", observation.report)
                 results.append((call, result))
                 stop = stop or observation.stop
+                if stop and not ({"ignore_escalation", "continue_after_report"} & self.mutations):
+                    break
             if stop and not ({"ignore_escalation", "continue_after_report"} & self.mutations):
                 break
             if stop and "continue_after_report" in self.mutations and tracker.attempts:

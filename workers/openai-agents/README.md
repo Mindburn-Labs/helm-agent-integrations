@@ -5,6 +5,10 @@ episode's Responses gateway. `MCPServerStreamableHttp` forwards the episode bear
 the catalog to its allowed tools. The custom `tool_use_behavior` ends the vendor loop after a
 parking result or an applied report; another tool cannot start after that result.
 
+MCP calls are serialized before checking the outcome, including when a model returns multiple
+tool calls despite the requested `parallel_tool_calls=False`. Remaining calls are suppressed
+locally after parking or a report, without another request to the gateway.
+
 Tracing, provider retries, hosted tools and parallel tool calls are disabled. The SDK's
 stream and HTTP clients are canceled when the A2A task is canceled or its deadline passes.
 
