@@ -1,0 +1,62 @@
+{
+  "name": "{{name}}",
+  "description": "{{description}}",
+  "version": "{{version}}",
+  "supportedInterfaces": [
+    {
+      "url": "{{url}}",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "provider": {
+    "organization": "Mindburn Labs",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "extendedAgentCard": false,
+    "extensions": [
+      {
+        "uri": "urn:helm:a2a:episode:v1",
+        "description": "HELM episode protocol. The first message carries a helm.episode.v1 data part; progress and mirrors stream back; an INPUT_REQUIRED status parks the episode; the episode ends COMPLETED only after helm_work_report was applied.",
+        "required": true,
+        "params": {
+          "schema": "helm.episode.v1",
+          "media_type": "application/vnd.helm.episode.v1+json",
+          "status_media_type": "application/vnd.helm.episode.status.v1+json",
+          "model_apis": "{{model_apis}}"
+        }
+      }
+    ]
+  },
+  "securitySchemes": {
+    "episodeBearer": {
+      "httpAuthSecurityScheme": {
+        "scheme": "Bearer",
+        "description": "Per-episode secret placed in the sandbox environment (HELM_A2A_BEARER_TOKEN). It authenticates the control plane to this worker; the episode token for the model gateway is a different secret."
+      }
+    }
+  },
+  "securityRequirements": [
+    {
+      "schemes": {
+        "episodeBearer": { "list": [] }
+      }
+    }
+  ],
+  "defaultInputModes": ["text/plain", "application/vnd.helm.episode.v1+json"],
+  "defaultOutputModes": ["text/plain", "application/json", "application/vnd.helm.episode.status.v1+json"],
+  "skills": [
+    {
+      "id": "helm-episode",
+      "name": "HELM episode",
+      "description": "Runs one bounded episode of a HELM organization seat: the agent works only through the HELM MCP tools and model gateway named in the episode, and reports through helm_work_report.",
+      "tags": ["helm", "episode", "governed"],
+      "examples": [],
+      "inputModes": ["text/plain", "application/vnd.helm.episode.v1+json"],
+      "outputModes": ["text/plain", "application/json", "application/vnd.helm.episode.status.v1+json"]
+    }
+  ]
+}

@@ -1,0 +1,620 @@
+[
+  {
+    "name": "report completes",
+    "calls": [
+      {
+        "tool": "github_repository_get",
+        "arguments": {
+          "repo": "r"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      },
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "status": "done",
+          "summary": "All good.",
+          "outputs": [
+            {
+              "kind": "pr",
+              "ref": "1"
+            }
+          ]
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        },
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reported"
+        }
+      ],
+      "outcome": {
+        "state": "completed",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "report": {
+            "status": "done",
+            "summary": "All good."
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "escalated structured result parks",
+    "calls": [
+      {
+        "tool": "github_pull_request_create_draft",
+        "arguments": {
+          "title": "t"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "escalated",
+            "attempt_id": "att_1"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "escalated",
+          "stop": true,
+          "reason": "escalated"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "attempts": [
+              "att_1"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "escalated in text content parks",
+    "calls": [
+      {
+        "tool": "github_pull_request_create_draft",
+        "arguments": {
+          "title": "t"
+        },
+        "result": {
+          "is_error": false,
+          "text": "{\"status\":\"Escalated\",\"attempt_id\":\"att_7\"}"
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "escalated",
+          "stop": true,
+          "reason": "escalated"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "attempts": [
+              "att_7"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "escalated without an attempt id is an error",
+    "calls": [
+      {
+        "tool": "github_pull_request_create_draft",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "escalated"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "two escalations keep both attempts once",
+    "calls": [
+      {
+        "tool": "github_branch_create_from_changes",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "escalated",
+            "attempt_id": "att_1"
+          }
+        }
+      },
+      {
+        "tool": "github_pull_request_create_draft",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "escalated",
+            "attempt_id": "att_2"
+          }
+        }
+      },
+      {
+        "tool": "github_pull_request_create_draft",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "escalated",
+            "attempt_id": "att_2"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "escalated",
+          "stop": true,
+          "reason": "escalated"
+        },
+        {
+          "kind": "escalated",
+          "stop": true,
+          "reason": "escalated"
+        },
+        {
+          "kind": "escalated",
+          "stop": true,
+          "reason": "escalated"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "attempts": [
+              "att_1",
+              "att_2"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "an escalation beats an applied report",
+    "calls": [
+      {
+        "tool": "github_pull_request_create_draft",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "escalated",
+            "attempt_id": "att_1"
+          }
+        }
+      },
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "status": "done",
+          "summary": "Done."
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "escalated",
+          "stop": true,
+          "reason": "escalated"
+        },
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reported"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "attempts": [
+              "att_1"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "no report fails",
+    "calls": [
+      {
+        "tool": "github_repository_get",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "no tool calls at all fails",
+    "calls": [],
+    "expect": {
+      "observations": [],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "a report that errored does not count",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "status": "done",
+          "summary": "x"
+        },
+        "result": {
+          "is_error": true,
+          "text": "denied by policy"
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "a report the gateway denied does not count",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "status": "done",
+          "summary": "x"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "DENIED",
+            "reason": "scope"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "a report with an unknown status does not count",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "status": "finished",
+          "summary": "x"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "tool error then report completes",
+    "calls": [
+      {
+        "tool": "github_repository_get",
+        "arguments": {},
+        "result": {
+          "is_error": true,
+          "text": "boom"
+        }
+      },
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "status": "failed",
+          "summary": "Could not read the repository."
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": false
+        },
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reported"
+        }
+      ],
+      "outcome": {
+        "state": "completed",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "report": {
+            "status": "failed",
+            "summary": "Could not read the repository."
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "delegate parks on children",
+    "calls": [
+      {
+        "tool": "helm_work_team",
+        "arguments": {},
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      },
+      {
+        "tool": "helm_work_delegate",
+        "arguments": {
+          "target": "seat:engineer",
+          "goal": "g"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded",
+            "work_id": "child-1"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        },
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "delegated"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "children": [
+              "child-1"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "delegate without a child id still parks",
+    "calls": [
+      {
+        "tool": "helm_work_delegate",
+        "arguments": {
+          "goal": "g"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "delegated"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "children": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "a failed delegation does not park",
+    "calls": [
+      {
+        "tool": "helm_work_delegate",
+        "arguments": {
+          "goal": "g"
+        },
+        "result": {
+          "is_error": true,
+          "text": "no such seat"
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "request input parks on input",
+    "calls": [
+      {
+        "tool": "helm_work_request_input",
+        "arguments": {
+          "question": "Which repo?",
+          "options": [
+            "a",
+            "b"
+          ]
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "input_requested"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "input": {
+              "question": "Which repo?",
+              "options": [
+                "a",
+                "b"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+]

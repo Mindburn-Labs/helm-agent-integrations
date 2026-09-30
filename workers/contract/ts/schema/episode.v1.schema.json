@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:helm:schema:episode:v1",
+  "title": "helm.episode.v1",
+  "description": "One bounded worker run (an episode), sent by the control plane as the data part (media type application/vnd.helm.episode.v1+json) of the first A2A message. The episode token is never part of this document: it is read from the environment variable named by credentials.env. Workers accept unknown members (a newer control plane may add fields) but reject an unknown schema value.",
+  "type": "object",
+  "required": ["schema", "episode_id", "work_item_id", "seat", "goal", "tools", "model", "credentials", "deadline"],
+  "properties": {
+    "schema": { "const": "helm.episode.v1" },
+    "episode_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "work_item_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "continuation": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many earlier episodes this one continues; 0 for the first."
+    },
+    "organization": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version_id": { "type": "string" }
+      }
+    },
+    "seat": {
+      "type": "object",
+      "required": ["id", "key", "principal_id", "instructions"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "principal_id": { "type": "string", "minLength": 1 },
+        "role": { "type": "string" },
+        "team": { "type": "string" },
+        "instructions": { "type": "string" }
+      }
+    },
+    "goal": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "properties": {
+        "brief": { "type": "string" },
+        "prior_episodes": { "type": "array", "items": { "type": "object" } },
+        "attempt_results": { "type": "array", "items": { "type": "object" } },
+        "children": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "criteria": { "type": "string" },
+        "required_effects": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "required": ["mcp_url", "allowed"],
+      "properties": {
+        "mcp_url": { "type": "string", "pattern": "^https?://[^\\s]+$" },
+        "allowed": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+          "description": "MCP tool names (as listed by the HELM MCP server) the agent may use. Nothing else is exposed to the model."
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["base_url", "api", "model", "max_output_tokens"],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$",
+          "description": "Origin of the model gateway, without a /v1 suffix. The API path is appended by the client for the chosen api."
+        },
+        "api": { "enum": ["anthropic-messages", "openai-responses", "openai-chat-completions"] },
+        "model": { "type": "string", "minLength": 1 },
+        "max_output_tokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "allotment": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["unit", "value"],
+            "properties": {
+              "unit": { "type": "string", "minLength": 1 },
+              "value": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "deadline": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 instant after which the worker must have stopped."
+    },
+    "credentials": {
+      "type": "object",
+      "required": ["env"],
+      "properties": {
+        "env": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]{0,63}$",
+          "description": "Name of the environment variable that holds the episode token."
+        }
+      }
+    }
+  }
+}

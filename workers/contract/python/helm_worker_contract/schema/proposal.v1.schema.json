@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:helm:schema:proposal:v1",
+  "title": "helm.proposal.v1",
+  "description": "Data of an artifact named helm.proposal: a mirror of one MCP tool call the agent made. The gateway attempt is the record, not this artifact.",
+  "type": "object",
+  "required": ["schema", "tool", "arguments", "status"],
+  "properties": {
+    "schema": { "const": "helm.proposal.v1" },
+    "tool": { "type": "string", "minLength": 1 },
+    "arguments": { "type": "object" },
+    "status": { "enum": ["succeeded", "escalated", "error"] },
+    "attempt_id": { "type": "string", "minLength": 1 }
+  }
+}

@@ -17,3 +17,8 @@ concurrency:
 jobs:
   ci:
     uses: Mindburn-Labs/platform-actions/.github/workflows/ci.yml@v2
+    with:
+      # `make check` is hermetic. The workers' conformance kit runs real containers on an
+      # isolated Docker network, so it runs right after `make check` inside the same
+      # required `ci / gate`.
+      extra-commands: make workers-conformance
