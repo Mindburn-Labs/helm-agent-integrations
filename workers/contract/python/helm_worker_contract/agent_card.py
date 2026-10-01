@@ -8,6 +8,8 @@ from collections.abc import Mapping, Sequence
 from importlib import resources
 from typing import Any
 
+from .control import control_capabilities
+
 
 def _template() -> dict[str, Any]:
     text = (
@@ -45,6 +47,7 @@ def render_agent_card(
         "version": version,
         "url": url,
         "model_apis": list(model_apis),
+        "episode_controls": control_capabilities(framework),
     }
     card: dict[str, Any] = _fill(_template(), values)
     return card

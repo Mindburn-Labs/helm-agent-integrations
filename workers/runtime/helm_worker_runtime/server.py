@@ -17,11 +17,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 from helm_worker_contract import (
+    CONTROL_EXTENSION_URI,
     EXTENSION_URI,
+    PAUSE,
+    RESUME,
+    STEER,
     Episode,
     EpisodeError,
     OutcomeTracker,
     ToolResult,
+    control_capabilities,
     episode_from_message,
     render_agent_card,
     require_supported_api,
@@ -227,9 +232,29 @@ class Worker:
             )
             return
 
-        def error(code: int, text: str) -> None:
-            req.respond_json(
-                200, {"jsonrpc": "2.0", "id": ident, "error": {"code": code, "message": text}}
+        def error(code: int, text: str, data: dict[str, Any] | None = None) -> None:
+            detail: dict[str, Any] = {"code": code, "message": text}
+            if data is not None:
+                detail["data"] = data
+            req.respond_json(200, {"jsonrpc": "2.0", "id": ident, "error": detail})
+
+        def unavailable(verb: str, task_id: Any) -> None:
+            if not isinstance(task_id, str) or not task_id:
+                error(-32602, "Retained taskId required")
+                return
+            if task_id not in self.tasks:
+                error(-32001, "Task not found")
+                return
+            declaration = control_capabilities(self.framework)["verbs"][verb]
+            error(
+                -32010,
+                "Episode control unavailable",
+                {
+                    "extension": CONTROL_EXTENSION_URI,
+                    "verb": verb,
+                    "taskId": task_id,
+                    **declaration,
+                },
             )
 
         if EXTENSION_URI not in [s.strip() for s in req.header("A2A-Extensions").split(",")]:
@@ -238,10 +263,28 @@ class Worker:
         if req.header("A2A-Version") not in ("", "1.0"):
             error(-32009, "Unsupported protocol version")
             return
+        if method in ("SendMessage", "message/send"):
+            message = params.get("message")
+            if not isinstance(message, dict):
+                error(-32602, "Invalid message")
+                return
+            # This is retained-task steering, never a second first-message path.
+            unavailable(STEER, message.get("taskId"))
+            return
+        if method in (PAUSE, RESUME):
+            task_id = params.get("taskId", params.get("id"))
+            if "taskId" in params and "id" in params and params["taskId"] != params["id"]:
+                error(-32602, "Conflicting task identity")
+                return
+            unavailable(method, task_id)
+            return
         if method == "SendStreamingMessage":
             message = params.get("message") or {}
             if not isinstance(message, dict):
                 error(-32602, "Invalid message")
+                return
+            if "taskId" in message:
+                unavailable(STEER, message["taskId"])
                 return
             with self.lock:
                 if self.tasks:

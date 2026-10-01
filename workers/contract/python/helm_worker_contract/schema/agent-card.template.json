@@ -28,6 +28,12 @@
           "status_media_type": "application/vnd.helm.episode.status.v1+json",
           "model_apis": "{{model_apis}}"
         }
+      },
+      {
+        "uri": "urn:helm:a2a:episode-control:v1",
+        "description": "HELM retained-task controls. Each verb declares actual support and an unavailable reason. Cancel is terminal and never represents pause.",
+        "required": false,
+        "params": "{{episode_controls}}"
       }
     ]
   },

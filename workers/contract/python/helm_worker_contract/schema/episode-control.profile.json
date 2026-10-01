@@ -1,0 +1,12 @@
+{
+  "schema": "helm.episode.control.capabilities.v1",
+  "uri": "urn:helm:a2a:episode-control:v1",
+  "verbs": ["helm/episode.steer", "helm/episode.pause", "helm/episode.resume"],
+  "default_reason": "No retained-task control handler is installed for this worker.",
+  "unsupported": {
+    "claude-agent-sdk": "This adapter has no retained steering channel or resumable checkpoint for its isolated Claude query.",
+    "openai-agents": "This adapter runs Runner.run without a retained steering channel or resumable tool-boundary checkpoint.",
+    "langgraph": "This adapter has no retained-task update channel or persistent graph checkpointer.",
+    "openclaw": "This adapter runs the Agent core in a one-shot isolated child process without a bidirectional steering or checkpoint channel."
+  }
+}

@@ -22,6 +22,7 @@ from .constants import (
     STATUS_MEDIA_TYPE,
     STATUS_SCHEMA,
 )
+from .control import CONTROL_EXTENSION_URI, PAUSE, RESUME, STEER, control_capabilities
 from .episode import (
     Episode,
     EpisodeError,
@@ -41,6 +42,7 @@ from .tools import Observation, Outcome, OutcomeTracker, ToolResult, result_payl
 
 __all__ = [
     "A2A_VERSION",
+    "CONTROL_EXTENSION_URI",
     "DEFAULT_TOKEN_ENV",
     "DELEGATE_TOOL",
     "EPISODE_MEDIA_TYPE",
@@ -53,6 +55,9 @@ __all__ = [
     "MODEL_API_CHAT",
     "MODEL_API_RESPONSES",
     "PROPOSAL_SCHEMA",
+    "PAUSE",
+    "RESUME",
+    "STEER",
     "REJECTED_CODES",
     "REPORT_SCHEMA",
     "REPORT_TOOL",
@@ -69,6 +74,7 @@ __all__ = [
     "ToolResult",
     "Tools",
     "build_prompts",
+    "control_capabilities",
     "episode_from_message",
     "find_episode_part",
     "find_status_payload",

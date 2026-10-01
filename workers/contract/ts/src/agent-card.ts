@@ -1,6 +1,7 @@
 // Render the worker AgentCard (with the required episode extension) from the shared template.
 
 import { readFileSync } from "node:fs";
+import { controlCapabilities } from "./control.js";
 
 type Json = Record<string, unknown>;
 
@@ -40,5 +41,6 @@ export function renderAgentCard(fields: {
     version: fields.version,
     url: fields.url,
     model_apis: [...fields.modelApis],
+    episode_controls: controlCapabilities(fields.framework),
   }) as Json;
 }

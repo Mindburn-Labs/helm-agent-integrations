@@ -212,7 +212,9 @@ class AgentCardTests(unittest.TestCase):
             interface,
             {"url": "http://worker:8080/", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"},
         )
-        (extension,) = card["capabilities"]["extensions"]
+        extension = next(
+            item for item in card["capabilities"]["extensions"] if item["uri"] == EXTENSION_URI
+        )
         self.assertEqual(extension["uri"], EXTENSION_URI)
         self.assertIs(extension["required"], True)
         self.assertEqual(
