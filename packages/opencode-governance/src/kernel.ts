@@ -16,7 +16,7 @@
  * preflightAction). Direct reuse was rejected deliberately: the wrapper's
  * preflight throws on transport failure, whereas a permission hook needs a
  * non-throwing, locally-typed outcome that can never be confused with signed
- * kernel evidence (see research/opencode-study/26 §3.1 gem #1).
+ * kernel evidence (see Mindburn-Labs/docs:research/opencode-study/26 §3.1 gem #1).
  */
 
 import { execFile } from "node:child_process";
