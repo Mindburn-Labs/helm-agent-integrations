@@ -1,0 +1,14 @@
+{
+  "name": "@mindburn/helm-worker-openclaw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24.16.0 <25 || >=26.1.0"},
+  "scripts": {"check": "node --check engine.mjs && node --check adapter.mjs && node --test --test-timeout=10000 boundary.test.mjs adapter.test.mjs native-provider.test.mjs"},
+  "dependencies": {
+    "openclaw": "2026.9.6",
+    "@openclaw/ai": "2026.9.6",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "@mindburn/helm-worker-contract": "file:../contract/ts"
+  }
+}

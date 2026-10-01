@@ -18,18 +18,19 @@ starts episodes lives in its own repository.
 | [`claude-agent-sdk/`](claude-agent-sdk/README.md) | Claude Agent SDK with Anthropic Messages and HELM MCP tools. |
 | [`openai-agents/`](openai-agents/README.md) | OpenAI Agents SDK with Responses and HELM MCP tools. |
 | [`langgraph/`](langgraph/README.md) | LangGraph with Chat Completions or Anthropic Messages and HELM MCP tools. |
+| [`openclaw/`](openclaw/README.md) | Native public OpenClaw Agent core with Responses and HELM MCP tools. |
 
 ## Commands
 
 ```bash
 make workers-check          # lint and unit tests, no Docker (part of `make check`)
 make workers-conformance    # the kit in Docker mode (needs Docker; CI runs it after `make check`)
-make workers-images         # build all three adapter images locally
+make workers-images         # build adapter images locally
 ```
 
 To run the kit against one image, see [`conformance/README.md`](conformance/README.md).
 
-Release tags `vMAJOR.MINOR.PATCH-workers.N` publish the three `helm-worker-*` images using
+Release tags `vMAJOR.MINOR.PATCH-workers.N` publish the `helm-worker-*` images using
 the shared platform release workflow. It builds amd64 and arm64, qualifies the pushed digest
 with the worker kit, signs and attests it, then creates the immutable version tag. Deployed
 workers must use the returned digest. Image publication and a live CP-driven QA episode are

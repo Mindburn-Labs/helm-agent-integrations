@@ -30,6 +30,10 @@ def run_one(framework: str, scenario: str, api: str) -> dict[str, Any]:
         from helm_langgraph_worker.engine import run
 
         apis = ("openai-chat-completions", "anthropic-messages")
+    elif framework == "openclaw":
+        from helm_openclaw_worker.engine import run
+
+        apis = ("openai-responses",)
     else:
         from helm_claude_worker.engine import run
 
@@ -77,7 +81,9 @@ def run_one(framework: str, scenario: str, api: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--framework", action="append", choices=["claude-agent-sdk", "openai-agents", "langgraph"]
+        "--framework",
+        action="append",
+        choices=["claude-agent-sdk", "openai-agents", "langgraph", "openclaw"],
     )
     parser.add_argument("--scenario", action="append", choices=list(SCENARIOS))
     parser.add_argument("--report", type=Path, required=True)
@@ -85,12 +91,17 @@ def main() -> int:
     os.environ.setdefault(
         "HELM_CLAUDE_ENGINE", str(Path(__file__).parents[2] / "claude-agent-sdk/engine.mjs")
     )
+    os.environ.setdefault(
+        "HELM_OPENCLAW_ENGINE", str(Path(__file__).parents[2] / "openclaw/engine.mjs")
+    )
     jobs = []
-    for framework in args.framework or ["claude-agent-sdk", "openai-agents", "langgraph"]:
+    frameworks = args.framework or ["claude-agent-sdk", "openai-agents", "langgraph", "openclaw"]
+    for framework in frameworks:
         apis = {
             "claude-agent-sdk": ("anthropic-messages",),
             "openai-agents": ("openai-responses",),
             "langgraph": ("openai-chat-completions", "anthropic-messages"),
+            "openclaw": ("openai-responses",),
         }[framework]
         for sid in args.scenario or SCENARIOS:
             for api in apis[:1] if SCENARIOS[sid].api_independent else apis:

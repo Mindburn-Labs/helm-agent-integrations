@@ -1,0 +1,3 @@
+# Runtime/contract use the same canonical JSON-schema dependency closure as the
+# existing Node-backed worker; requirements.lock is copied from that lock.
+jsonschema==4.26.0
