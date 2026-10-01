@@ -10,6 +10,8 @@ from pathlib import Path
 from helm_worker_contract import ToolResult, build_prompts
 from helm_worker_runtime import Session
 
+from .ipc import IPCDecoder
+
 
 async def run(session: Session) -> None:
     episode = session.episode
@@ -51,9 +53,12 @@ async def run(session: Session) -> None:
             )
             await process.stdin.drain()
             process.stdin.close()
+            decoder = IPCDecoder()
             while line := await process.stdout.readline():
                 session.guard()
-                event = json.loads(line)
+                event = decoder.decode(line)
+                if event is None:
+                    continue
                 if event["type"] == "tool":
                     session.observe(
                         event["name"],
@@ -70,6 +75,7 @@ async def run(session: Session) -> None:
                     session.last_text = str(event.get("text") or "")
                 else:
                     raise RuntimeError("OpenClaw episode failed")
+            decoder.finish()
             if await process.wait() != 0:
                 raise RuntimeError("OpenClaw episode failed")
         finally:

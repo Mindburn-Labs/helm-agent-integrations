@@ -85,6 +85,17 @@ test("model-requested built-in tool has no executable implementation", async () 
   assert.equal(modelCalls.length, 2);
 });
 
+test("one native model turn cannot dispatch an unbounded sequential MCP batch", async () => {
+  const input = config(["helm_work_get"]), dispatched = [], modelCalls = [];
+  await assert.rejects(runEpisode(input, {
+    client: catalog(input.allowed, async (request) => { dispatched.push(request); return result("applied"); }),
+    emit: () => {}, stream: scriptedStream([Array.from({length: 257}, () =>
+      call("helm_work_get", {work_item_id: randomUUID()}))], modelCalls),
+  }));
+  assert.equal(dispatched.length, 256);
+  assert.equal(modelCalls.length, 1);
+});
+
 test("cancellation aborts native MCP work and prevents the next tool in its batch", async () => {
   const input = config(["helm_work_get", "helm_work_report"]);
   const controller = new AbortController();

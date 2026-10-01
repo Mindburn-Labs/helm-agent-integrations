@@ -115,6 +115,7 @@ workers-adapters-check:
 	python3 -m ruff format --check workers/runtime workers/claude-agent-sdk/helm_claude_worker workers/openai-agents workers/langgraph workers/openclaw workers/conformance/tests/sdk_sweep.py
 	cd workers/claude-agent-sdk && npm ci --ignore-scripts && npm run check
 	cd workers/openclaw && npm ci --ignore-scripts --engine-strict && npm run check
+	PYTHONPATH=workers/openclaw python3 -m unittest discover -s workers/openclaw/tests
 	PYTHONPATH=workers/contract/python:workers/runtime python3 -m unittest discover -s workers/runtime/tests
 
 workers-conformance-claude-agent-sdk:

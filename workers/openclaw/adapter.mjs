@@ -1,7 +1,8 @@
 import {Agent} from "openclaw/plugin-sdk/agent-core";
-import {streamSimple, createAssistantMessageEventStream} from "openclaw/plugin-sdk/llm";
+import {createAssistantMessageEventStream} from "openclaw/plugin-sdk/llm";
 import {OutcomeTracker} from "@mindburn/helm-worker-contract";
-import {discoverTools, enforcePayload, normalizeResult, validateConfiguration} from "./boundary.mjs";
+import {discoverTools, enforcePayload, gatewayFetch, normalizeResult, validateConfiguration} from "./boundary.mjs";
+import {createGatewayStream} from "./transport.mjs";
 
 function refusedStream(model) {
   const output = createAssistantMessageEventStream();
@@ -19,8 +20,9 @@ function refusedStream(model) {
 // its native Responses provider; tests inject native SDK event streams, not a
 // second agent implementation. No CLI, built-in shell tools, plugins or fallback
 // model registry are selected by this adapter.
-export async function runEpisode(raw, {client, emit, signal, stream = streamSimple}) {
+export async function runEpisode(raw, {client, emit, signal, stream, fetch}) {
   const config = validateConfiguration(raw);
+  stream ??= createGatewayStream(config, fetch ?? gatewayFetch(config, globalThis.fetch.bind(globalThis), signal));
   const allowed = new Set(config.allowed);
   const tracker = new OutcomeTracker();
   const catalog = await discoverTools(client, config.allowed, signal);
@@ -33,6 +35,8 @@ export async function runEpisode(raw, {client, emit, signal, stream = streamSimp
     cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
   });
   let turns = 0;
+  let toolCalls = 0;
+  let boundaryFailed = false;
   let agent;
   const tools = catalog.map((tool) => ({
     name: tool.name, label: tool.name, description: tool.description ?? "HELM gateway tool",
@@ -41,6 +45,11 @@ export async function runEpisode(raw, {client, emit, signal, stream = streamSimp
       signal?.throwIfAborted();
       toolSignal?.throwIfAborted();
       if (!allowed.has(tool.name) || tracker.stopped) throw new Error("HELM tool boundary");
+      if (toolCalls++ >= 256) {
+        boundaryFailed = true;
+        agent.abort();
+        throw new Error("HELM episode tool-call limit");
+      }
       const signals = [signal, toolSignal].filter(Boolean);
       const result = normalizeResult(await client.callTool({name: tool.name, arguments: args},
         undefined, {signal: signals.length ? AbortSignal.any(signals) : undefined, timeout: 60000}));
@@ -56,7 +65,7 @@ export async function runEpisode(raw, {client, emit, signal, stream = streamSimp
     transport: "sse", maxRetryDelayMs: 0, toolExecution: "sequential",
     getApiKey: () => config.token,
     streamFn: (selected, context, options) => {
-      if (tracker.stopped || signal?.aborted || options?.signal?.aborted || turns >= 20
+      if (tracker.stopped || boundaryFailed || signal?.aborted || options?.signal?.aborted || turns >= 20
           || Date.now() >= config.deadline_ms || selected.api !== model.api
           || selected.provider !== model.provider || selected.id !== model.id || selected.baseUrl !== model.baseUrl) {
         return refusedStream(model);
@@ -70,11 +79,11 @@ export async function runEpisode(raw, {client, emit, signal, stream = streamSimp
         onPayload: (payload) => enforcePayload(config, allowed, payload),
       });
     },
-    beforeToolCall: ({toolCall}) => allowed.has(toolCall.name) && !tracker.stopped && !signal?.aborted
+    beforeToolCall: ({toolCall}) => allowed.has(toolCall.name) && !tracker.stopped && !boundaryFailed && !signal?.aborted
       ? undefined : {block: true, reason: "HELM tool boundary"},
     afterToolCall: ({result, isError}) => ({isError: result.details?.helm?.isError ?? isError, terminate: tracker.stopped}),
-    afterToolOutcome: () => ({terminate: tracker.stopped}),
-    prepareNextTurn: () => { if (tracker.stopped || turns >= 20) agent.abort(); },
+    afterToolOutcome: () => ({terminate: tracker.stopped || boundaryFailed}),
+    prepareNextTurn: () => { if (tracker.stopped || boundaryFailed || turns >= 20) agent.abort(); },
   });
   const abort = () => agent.abort();
   signal?.addEventListener("abort", abort, {once: true});
@@ -90,7 +99,7 @@ export async function runEpisode(raw, {client, emit, signal, stream = streamSimp
     signal?.throwIfAborted();
     await agent.prompt(config.user);
     signal?.throwIfAborted();
-    if (!tracker.stopped && (turns >= 20 || agent.state.errorMessage)) throw new Error("OpenClaw episode failed");
+    if (boundaryFailed || (!tracker.stopped && (turns >= 20 || agent.state.errorMessage))) throw new Error("OpenClaw episode failed");
     return tracker;
   } finally {
     signal?.removeEventListener("abort", abort);
