@@ -7,7 +7,7 @@
  * to DENY. Locally synthesized outcomes carry reason codes that cannot be
  * confused with kernel-signed evidence (pattern stolen from
  * svc-helm-control-plane/internal/kernel/evaluate_client.go, see
- * research/opencode-study/26-helm-map-kernel-governance.md §3.1).
+ * Mindburn-Labs/docs:research/opencode-study/26-helm-map-kernel-governance.md §3.1).
  */
 
 export const KERNEL_VERDICTS = ["ALLOW", "DENY", "ESCALATE"] as const;
