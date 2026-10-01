@@ -1,0 +1,6 @@
+# Optional .rules representation of the requirements-owned command rules.
+# The requirements rules are the admin policy; this copy grants no permission.
+prefix_rule(pattern = ["git", "push"], decision = "forbidden", justification = "Use the HELM gateway git push effect.")
+prefix_rule(pattern = ["gh", "pr", "merge"], decision = "forbidden", justification = "Use the HELM gateway merge effect with the expected head SHA.")
+prefix_rule(pattern = [["kubectl", "flux"]], decision = "forbidden", justification = "Deployment is an owner-approved gitops merge through HELM and Flux.")
+prefix_rule(pattern = ["linear", ["create", "update", "delete", "archive", "comment", "write"]], decision = "forbidden", justification = "Use HELM Linear effects.")

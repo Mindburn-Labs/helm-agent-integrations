@@ -1,0 +1,54 @@
+{
+  "schema": "helm.executor.codex.qa-plan.v1",
+  "acceptance_ids": ["T48", "T87", "T97", "T100", "T103"],
+  "result": "NOT_RUN",
+  "scope": "local managed Codex executor; Codex Cloud excluded",
+  "required_boundaries": [
+    "installed Codex version and supported schema",
+    "admin-managed requirements readback in the dedicated executor environment",
+    "core device auth and work-item-bound external episode",
+    "executor edge /v1/responses and /mcp",
+    "gateway custody and actual sandbox network enforcement",
+    "source-owned attempt, decision, receipt and deployed build digests"
+  ],
+  "scenarios": [
+    {
+      "name": "gateway-model-and-mcp",
+      "assertions": [
+        "The model request uses the configured HELM /v1/responses route and an episode token supplied by core.",
+        "The live local HELM MCP connection uses header-helper Authorization, with no static or OAuth credential taking precedence.",
+        "An expired or stopped core session cannot continue using a gateway model or effect route.",
+        "The effective requirements retain the provider pin and forbid danger-full-access."
+      ]
+    },
+    {
+      "name": "governed-push-pr-escalated-merge",
+      "assertions": [
+        "Raw push, merge, kubectl, flux and direct Linear writes are locally denied and hook actions are observed-only.",
+        "A governed push and PR creation dispatch only after a gateway ALLOW.",
+        "An ESCALATE merge does not dispatch until the designated owner approves the same intent and expected head.",
+        "The merged head and merge SHA are read back from the gateway-owned effect observation.",
+        "Actual sandbox traffic cannot reach direct GitHub or Linear write endpoints; template inspection alone is insufficient."
+      ]
+    },
+    {
+      "name": "claude-code-to-codex-switch",
+      "assertions": [
+        "Core opens a new Codex external episode on the same work item.",
+        "Existing attempts, UNKNOWN states and holds survive the executor switch.",
+        "Stopping the old episode does not cancel or reissue the underlying effect."
+      ]
+    },
+    {
+      "name": "D8-lost-tool-response",
+      "assertions": [
+        "Inject loss after the provider applies the effect but before the first tool response is delivered.",
+        "Retry the same canonical target and intent from Codex, including after switching from Claude Code.",
+        "Effect identity remains derived from work_item_id, effect_type, canonical target and intent digest; never from hook call, request or episode ids.",
+        "The retry resolves to the same attempt and causes no second provider dispatch.",
+        "Reconciliation establishes the external result before accepting the work; UNKNOWN is not counted as success."
+      ]
+    }
+  ],
+  "unit_test_limit": "Local tests use synthetic events and process doubles. They prove adapter handling only, never gateway or runtime conformance."
+}
