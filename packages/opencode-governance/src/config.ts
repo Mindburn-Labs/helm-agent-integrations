@@ -58,6 +58,7 @@ const SUPPORTED_RISK_CLASSES = new Set(["T0", "T1", "T2", "T3"]);
 const SUPPORTED_EFFECT_CLASSES = new Set(["E0", "E1", "E2", "E3", "E4"]);
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_TIMEOUT_MS = 60_000;
+let warnedLegacyApiKey = false;
 
 export interface ConfigSource {
   env: Record<string, string | undefined>;
@@ -100,7 +101,7 @@ function stringField(value: unknown, name: string): string | undefined {
   }
   if (typeof value !== "string") {
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: ${name} must be a string, got ${
+      `@mindburn/opencode-governance: ${name} must be a string, got ${
         Array.isArray(value) ? "array" : typeof value
       } (fail closed: type confusion is never silently ignored)`,
     );
@@ -111,7 +112,7 @@ function stringField(value: unknown, name: string): string | undefined {
 function requireValue(value: string | undefined, name: string): string {
   if (value === undefined || value === "") {
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: missing required configuration ${name} (fail closed: refusing to load)`,
+      `@mindburn/opencode-governance: missing required configuration ${name} (fail closed: refusing to load)`,
     );
   }
   return value;
@@ -129,18 +130,18 @@ function parseTimeout(raw: unknown): number {
     // (P2 PERMISSIVE_TIMEOUT_PARSE); malformed strings are a hard error.
     if (!/^\d+$/.test(raw)) {
       throw new GovernanceConfigError(
-        `@helm-ai/opencode-governance: HELM_TIMEOUT_MS must be a digits-only integer string, got ${JSON.stringify(raw)}`,
+        `@mindburn/opencode-governance: HELM_TIMEOUT_MS must be a digits-only integer string, got ${JSON.stringify(raw)}`,
       );
     }
     parsed = Number.parseInt(raw, 10);
   } else {
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: HELM_TIMEOUT_MS must be a number or numeric string, got ${typeof raw}`,
+      `@mindburn/opencode-governance: HELM_TIMEOUT_MS must be a number or numeric string, got ${typeof raw}`,
     );
   }
   if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > MAX_TIMEOUT_MS) {
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: HELM_TIMEOUT_MS must be an integer in 1..${MAX_TIMEOUT_MS}, got ${JSON.stringify(raw)}`,
+      `@mindburn/opencode-governance: HELM_TIMEOUT_MS must be an integer in 1..${MAX_TIMEOUT_MS}, got ${JSON.stringify(raw)}`,
     );
   }
   return parsed;
@@ -163,7 +164,7 @@ function parseStrictEvidence(raw: unknown): boolean {
     }
   }
   throw new GovernanceConfigError(
-    `@helm-ai/opencode-governance: HELM_EVIDENCE_STRICT must be a boolean, got ${JSON.stringify(raw)}`,
+    `@mindburn/opencode-governance: HELM_EVIDENCE_STRICT must be a boolean, got ${JSON.stringify(raw)}`,
   );
 }
 
@@ -177,7 +178,7 @@ function parseBinaryArgs(
       return fromOptions as string[];
     }
     throw new GovernanceConfigError(
-      "@helm-ai/opencode-governance: kernelBinaryArgs option must be an array of strings",
+      "@mindburn/opencode-governance: kernelBinaryArgs option must be an array of strings",
     );
   }
   if (typeof env.HELM_KERNEL_BINARY_ARGS === "string" && env.HELM_KERNEL_BINARY_ARGS.trim() !== "") {
@@ -195,7 +196,7 @@ function normalizeClassification(
   const normalized = value?.trim().toUpperCase() || fallback;
   if (!supported.has(normalized)) {
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: unsupported ${name} ${JSON.stringify(value)} (supported: ${[...supported].join(", ")})`,
+      `@mindburn/opencode-governance: unsupported ${name} ${JSON.stringify(value)} (supported: ${[...supported].join(", ")})`,
     );
   }
   return normalized;
@@ -211,7 +212,7 @@ export function assertSecureKernelUrl(rawUrl: string): string {
     parsed = new URL(rawUrl);
   } catch {
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: HELM_KERNEL_URL is not a valid URL: ${JSON.stringify(rawUrl)}`,
+      `@mindburn/opencode-governance: HELM_KERNEL_URL is not a valid URL: ${JSON.stringify(rawUrl)}`,
     );
   }
   if (parsed.protocol === "https:") {
@@ -228,19 +229,19 @@ export function assertSecureKernelUrl(rawUrl: string): string {
       return rawUrl.replace(/\/$/, "");
     }
     throw new GovernanceConfigError(
-      `@helm-ai/opencode-governance: HELM_KERNEL_URL ${JSON.stringify(rawUrl)} uses plaintext http for a ` +
+      `@mindburn/opencode-governance: HELM_KERNEL_URL ${JSON.stringify(rawUrl)} uses plaintext http for a ` +
         "non-loopback host; bearer credentials and verdicts must not traverse an interceptable path. " +
         "Use https (or a loopback address for a local kernel).",
     );
   }
   throw new GovernanceConfigError(
-    `@helm-ai/opencode-governance: HELM_KERNEL_URL must use https (or http on loopback), got protocol ${parsed.protocol}`,
+    `@mindburn/opencode-governance: HELM_KERNEL_URL must use https (or http on loopback), got protocol ${parsed.protocol}`,
   );
 }
 
 /**
  * Resolve plugin configuration. Precedence: explicit plugin options
- * (opencode.json `["@helm-ai/opencode-governance", { ... }]`) > environment
+ * (opencode.json `["@mindburn/opencode-governance", { ... }]`) > environment
  * variables > documented defaults. Required fields have no default.
  */
 export function resolveConfig(source: ConfigSource): GovernanceConfig {
@@ -257,7 +258,7 @@ export function resolveConfig(source: ConfigSource): GovernanceConfig {
   if (explicitMode !== undefined) {
     if (explicitMode !== "http" && explicitMode !== "binary") {
       throw new GovernanceConfigError(
-        `@helm-ai/opencode-governance: HELM_KERNEL_MODE must be "http" or "binary", got ${JSON.stringify(explicitMode)}`,
+        `@mindburn/opencode-governance: HELM_KERNEL_MODE must be "http" or "binary", got ${JSON.stringify(explicitMode)}`,
       );
     }
     mode = explicitMode;
@@ -267,22 +268,35 @@ export function resolveConfig(source: ConfigSource): GovernanceConfig {
     mode = "binary";
   } else if (kernelUrl !== undefined && kernelBinary !== undefined) {
     throw new GovernanceConfigError(
-      "@helm-ai/opencode-governance: both HELM_KERNEL_URL and HELM_KERNEL_BINARY are set; " +
+      "@mindburn/opencode-governance: both HELM_KERNEL_URL and HELM_KERNEL_BINARY are set; " +
         "set HELM_KERNEL_MODE=http|binary explicitly (fail closed: refusing to guess the authority)",
     );
   } else {
     throw new GovernanceConfigError(
-      "@helm-ai/opencode-governance: no kernel target configured; set HELM_KERNEL_URL (http) " +
+      "@mindburn/opencode-governance: no kernel target configured; set HELM_KERNEL_URL (http) " +
         "or HELM_KERNEL_BINARY (binary) (fail closed: refusing to load without an authority)",
     );
   }
 
-  const apiKey = stringField(pickRaw(options, env, "apiKey", "HELM_API_KEY"), "HELM_API_KEY");
+  const preferredApiKey = stringField(
+    pickRaw(options, env, "apiKey", "MINDBURN_HELM_API_KEY"),
+    "MINDBURN_HELM_API_KEY",
+  );
+  const legacyApiKey = preferredApiKey === undefined
+    ? stringField(pickRaw(options, env, "apiKey", "HELM_API_KEY"), "HELM_API_KEY")
+    : undefined;
+  const apiKey = preferredApiKey ?? legacyApiKey;
   let secureKernelUrl: string | undefined;
   if (mode === "http") {
     requireValue(kernelUrl, "HELM_KERNEL_URL");
-    requireValue(apiKey, "HELM_API_KEY");
+    requireValue(apiKey, "MINDBURN_HELM_API_KEY");
     secureKernelUrl = assertSecureKernelUrl(kernelUrl as string);
+    if (legacyApiKey !== undefined && !warnedLegacyApiKey) {
+      warnedLegacyApiKey = true;
+      console.warn(
+        "@mindburn/opencode-governance: HELM_API_KEY is deprecated; use MINDBURN_HELM_API_KEY.",
+      );
+    }
   } else {
     requireValue(kernelBinary, "HELM_KERNEL_BINARY");
   }

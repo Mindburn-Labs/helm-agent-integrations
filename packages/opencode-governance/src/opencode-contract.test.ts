@@ -30,7 +30,7 @@ const FAKE_INPUT: OpencodePluginInput = {
 
 const ENV_KEYS = [
   "HELM_KERNEL_URL",
-  "HELM_API_KEY",
+  "MINDBURN_HELM_API_KEY",
   "HELM_TENANT_ID",
   "HELM_PRINCIPAL",
   "HELM_EVIDENCE_DIR",
@@ -46,7 +46,7 @@ describe("opencode public plugin contract", () => {
     evidenceDir = await mkdtemp(join(tmpdir(), "helm-opencode-contract-"));
     savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
     process.env.HELM_KERNEL_URL = "http://127.0.0.1:7714";
-    process.env.HELM_API_KEY = "contract-test-key";
+    process.env.MINDBURN_HELM_API_KEY = "contract-test-key";
     process.env.HELM_TENANT_ID = "tenant-contract";
     process.env.HELM_PRINCIPAL = "agent-contract";
     process.env.HELM_EVIDENCE_DIR = evidenceDir;
@@ -76,7 +76,7 @@ describe("opencode public plugin contract", () => {
 
   it("exports the pinned @opencode-ai/plugin module contract", () => {
     const plugin = moduleContract;
-    assert.equal(plugin.id, "@helm-ai/opencode-governance");
+    assert.equal(plugin.id, "@mindburn/opencode-governance");
     assert.equal(typeof plugin.server, "function");
   });
 

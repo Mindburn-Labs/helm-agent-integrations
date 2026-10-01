@@ -58,7 +58,7 @@ const bridge = new ChannelBridge({
   transportName: "telegram",
   evaluator: createKernelEvaluator({
     tenantId: process.env.HELM_TENANT_ID!,
-    apiKey: process.env.HELM_API_KEY!,
+    apiKey: process.env.MINDBURN_HELM_API_KEY!,
   }),
   sessions: myGovernedSessions,     // ChannelSessions implementation
   turnEvents: myTurnEventBus,       // ChannelTurnEventSource implementation

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 import { GovernanceConfigError, resolveConfig } from "./config.js";
 
@@ -10,12 +11,41 @@ function envOf(entries: Record<string, string>): Record<string, string | undefin
 
 const BASE_ENV = envOf({
   HELM_KERNEL_URL: "http://127.0.0.1:7714",
-  HELM_API_KEY: "test-key",
+  MINDBURN_HELM_API_KEY: "test-key",
   HELM_TENANT_ID: "tenant-1",
   HELM_PRINCIPAL: "agent-1",
 });
 
 describe("resolveConfig", () => {
+  it("prefers the Mindburn key when both environment names are present", (t) => {
+    const preferred = randomUUID();
+    const legacy = randomUUID();
+    const warnings = t.mock.method(console, "warn", () => undefined);
+    const config = resolveConfig({
+      env: envOf({ ...BASE_ENV, MINDBURN_HELM_API_KEY: preferred, HELM_API_KEY: legacy }),
+      homeDir: HOME,
+    });
+    assert.equal(config.apiKey, preferred);
+    assert.equal(warnings.mock.calls.length, 0);
+  });
+
+  it("warns once for the deprecated fallback without revealing its value", (t) => {
+    const legacy = randomUUID();
+    const env = envOf({ ...BASE_ENV, HELM_API_KEY: legacy });
+    delete env.MINDBURN_HELM_API_KEY;
+    const warnings = t.mock.method(console, "warn", () => undefined);
+    for (let i = 0; i < 2; i++) {
+      assert.equal(resolveConfig({ env, homeDir: HOME }).apiKey, legacy);
+    }
+    assert.equal(warnings.mock.calls.length, 1);
+    const message = warnings.mock.calls[0].arguments[0];
+    assert.equal(
+      message,
+      "@mindburn/opencode-governance: HELM_API_KEY is deprecated; use MINDBURN_HELM_API_KEY.",
+    );
+    assert.ok(!String(message).includes(legacy));
+  });
+
   it("resolves a complete http configuration with defaults", () => {
     const config = resolveConfig({ env: BASE_ENV, homeDir: HOME });
     assert.equal(config.mode, "http");
@@ -34,7 +64,7 @@ describe("resolveConfig", () => {
     assert.throws(
       () =>
         resolveConfig({
-          env: envOf({ HELM_API_KEY: "k", HELM_TENANT_ID: "t", HELM_PRINCIPAL: "p" }),
+          env: envOf({ MINDBURN_HELM_API_KEY: "k", HELM_TENANT_ID: "t", HELM_PRINCIPAL: "p" }),
           homeDir: HOME,
         }),
       GovernanceConfigError,
@@ -54,8 +84,8 @@ describe("resolveConfig", () => {
 
   it("fails closed when http mode lacks an api key", () => {
     const env = { ...BASE_ENV };
-    delete env.HELM_API_KEY;
-    assert.throws(() => resolveConfig({ env, homeDir: HOME }), /HELM_API_KEY/);
+    delete env.MINDBURN_HELM_API_KEY;
+    assert.throws(() => resolveConfig({ env, homeDir: HOME }), /MINDBURN_HELM_API_KEY/);
   });
 
   it("fails closed on missing tenant or principal", () => {

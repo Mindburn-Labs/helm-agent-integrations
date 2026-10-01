@@ -1,5 +1,5 @@
 /**
- * @helm-ai/opencode-governance — fail-closed HELM governance plugin for
+ * @mindburn/opencode-governance — fail-closed HELM governance plugin for
  * opencode. Private/unpublished; see README.md for the threat model and the
  * list of things this plugin deliberately does NOT do.
  */

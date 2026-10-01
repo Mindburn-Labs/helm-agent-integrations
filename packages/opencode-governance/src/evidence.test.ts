@@ -121,7 +121,7 @@ describe("JsonlEvidenceSink", () => {
       const sink = new JsonlEvidenceSink(dir, () => new Date("2026-07-24T12:00:00Z"));
       const record: BoundaryOpenRecord = {
         record_type: BOUNDARY_OPEN_RECORD,
-        plugin: "@helm-ai/opencode-governance",
+        plugin: "@mindburn/opencode-governance",
         plugin_version: "0.1.0",
         session_id: "ses_1",
         call_id: "call_1",
