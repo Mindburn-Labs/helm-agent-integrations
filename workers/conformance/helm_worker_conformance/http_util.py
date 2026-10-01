@@ -58,6 +58,17 @@ class Request:
     def respond_json(self, status: int, payload: Any, **headers: str) -> None:
         self.respond(status, json.dumps(payload).encode(), "application/json", **headers)
 
+    def drop_response(self) -> None:
+        """Close an accepted request without sending its response (fault injection only)."""
+        self.responded = True
+        self._handler.close_connection = True
+        try:
+            self._handler.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            # A caller may already have disconnected; the response remains lost.
+            pass
+        self._handler.connection.close()
+
     def start_sse(self) -> None:
         self.responded = True
         h = self._handler
