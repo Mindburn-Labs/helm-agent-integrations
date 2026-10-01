@@ -3,7 +3,7 @@ import {randomUUID} from "node:crypto";
 import test from "node:test";
 import {boundedEmitter, discoverTools, enforcePayload, gatewayFetch, MAX_EVENT_BYTES,
   MAX_EPISODE_BYTES, MAX_MCP_RESPONSE_BYTES, MAX_MODEL_REQUEST_BYTES, MAX_RESPONSE_BYTES,
-  MAX_TOOL_EVENT_BYTES, normalizeResult, validateConfiguration} from "./boundary.mjs";
+  MAX_TOOL_EVENT_BYTES, normalizeResult, readBoundedJSON, validateConfiguration} from "./boundary.mjs";
 
 export function fixture() {
   return {api: "openai-responses", token: randomUUID(), model: "retained-model",
@@ -11,6 +11,19 @@ export function fixture() {
     max_output_tokens: 128, deadline_ms: Date.now() + 30000,
     allowed: ["helm_work_report"], system: "Bounded test agent", user: "Perform the retained work"};
 }
+
+test("private JSON input preserves code points split across reads and rejects malformed or excessive bytes", async () => {
+  const original = {text: "é🧭中文"}, raw = Buffer.from(JSON.stringify(original));
+  async function* oneByteReads() {
+    for (const byte of raw) yield new Uint8Array([byte]);
+  }
+  assert.deepEqual(await readBoundedJSON(oneByteReads(), raw.length), original);
+  await assert.rejects(readBoundedJSON(oneByteReads(), raw.length - 1));
+  const broken = [Buffer.from('{"text":"'), new Uint8Array([0xc3]), Buffer.from('"}')];
+  await assert.rejects(readBoundedJSON(broken, 1024));
+  // The bound counts UTF-8 wire bytes, rather than JavaScript code units.
+  await assert.rejects(readBoundedJSON([Buffer.from(JSON.stringify({text: "🧭".repeat(100)}))], 200));
+});
 
 test("native gateway fetch rejects credential, redirect, path and provider escapes before dispatch", async () => {
   const config = validateConfiguration(fixture());

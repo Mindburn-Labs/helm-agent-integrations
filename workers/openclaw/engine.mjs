@@ -1,7 +1,8 @@
 // Private stdin carries the episode token. Vendor logs never enter A2A stdout.
 import {Client} from "@modelcontextprotocol/sdk/client/index.js";
 import {StreamableHTTPClientTransport} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {boundedEmitter, gatewayFetch, validateConfiguration} from "./boundary.mjs";
+import {boundedEmitter, gatewayFetch, MAX_CONFIGURATION_BYTES, readBoundedJSON,
+  validateConfiguration} from "./boundary.mjs";
 
 const emit = boundedEmitter((line) => process.stdout.write(line));
 for (const method of ["log", "info", "debug", "warn", "error"]) console[method] = () => {};
@@ -10,12 +11,7 @@ process.on("SIGTERM", () => controller.abort());
 let client;
 let timer;
 try {
-  let input = "";
-  for await (const chunk of process.stdin) {
-    input += chunk;
-    if (input.length > 2 * 1024 * 1024) throw new Error("Unbounded episode configuration");
-  }
-  const config = validateConfiguration(JSON.parse(input));
+  const config = validateConfiguration(await readBoundedJSON(process.stdin, MAX_CONFIGURATION_BYTES));
   timer = setTimeout(() => controller.abort(), Math.min(config.deadline_ms - Date.now(), 3600000));
   const fetch = gatewayFetch(config, globalThis.fetch.bind(globalThis), controller.signal);
   // Global requests are fenced too. The native provider receives this fetch

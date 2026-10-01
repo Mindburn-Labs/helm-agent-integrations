@@ -35,6 +35,8 @@ pricing and context admission. Local SDK model metadata does not grant those.
 The episode token travels only through private stdin. The child receives an
 empty ephemeral home and a small environment preserving public private-CA trust
 paths; no ambient provider keys, proxy settings or Node options are inherited.
+Private configuration is bounded to 2 MiB of UTF-8 bytes and decoded after
+complete accumulation; split code points are preserved and malformed bytes fail.
 Model responses are capped at 1 MiB. MCP responses allow 4 MiB for a canonical
 1 MiB artifact plus its structured result and JSON text mirror, with 8 MiB of
 HTTP response bytes per episode. Model request context uses the gateway's
@@ -62,6 +64,11 @@ black-box kit qualifies the built image, including network and TLS/CA behavior.
 make workers-adapters-check
 make workers-conformance-openclaw
 ```
+
+`workers-adapters-check` first runs the contract checks, which build the local
+file-linked TypeScript contract. For a focused native check, explicitly run
+`npm ci --ignore-scripts && npm run build` in `workers/contract/ts` before
+`npm ci --ignore-scripts --engine-strict && npm run check` in `workers/openclaw`.
 
 The Node base is pinned to the enterprise runtime source's digest; engine-strict
 must verify its real version. The Python base and hash-locked JSON-schema closure

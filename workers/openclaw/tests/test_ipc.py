@@ -17,10 +17,9 @@ from helm_openclaw_worker.ipc import (
 
 WORKER = Path(__file__).resolve().parents[1]
 NODE_EMITTER = """
-import {boundedEmitter} from './boundary.mjs';
-let input = '';
-for await (const chunk of process.stdin) input += chunk;
-boundedEmitter((line) => process.stdout.write(line))(JSON.parse(input));
+import {boundedEmitter, MAX_TOOL_EVENT_BYTES, readBoundedJSON} from './boundary.mjs';
+const input = await readBoundedJSON(process.stdin, MAX_TOOL_EVENT_BYTES);
+boundedEmitter((line) => process.stdout.write(line))(input);
 """
 
 

@@ -110,7 +110,9 @@ workers-images:
 	docker build -f workers/langgraph/Dockerfile -t helm-worker-langgraph:local workers
 	docker build -f workers/openclaw/Dockerfile -t helm-worker-openclaw:local workers
 
-workers-adapters-check:
+# Contract tests build the local file-linked TS package before adapter imports.
+# This dependency also orders the build correctly under make -j.
+workers-adapters-check: workers-test
 	python3 -m ruff check workers/runtime workers/claude-agent-sdk/helm_claude_worker workers/openai-agents workers/langgraph workers/openclaw workers/conformance/tests/sdk_sweep.py
 	python3 -m ruff format --check workers/runtime workers/claude-agent-sdk/helm_claude_worker workers/openai-agents workers/langgraph workers/openclaw workers/conformance/tests/sdk_sweep.py
 	cd workers/claude-agent-sdk && npm ci --ignore-scripts && npm run check

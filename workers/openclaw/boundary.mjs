@@ -9,6 +9,23 @@ export const MAX_EPISODE_BYTES = 8 * 1024 * 1024;
 export const MAX_EVENT_BYTES = 512 * 1024;
 export const MAX_TOOL_EVENT_BYTES = MAX_MCP_RESPONSE_BYTES + MAX_RESPONSE_BYTES;
 export const TOOL_CHUNK_BYTES = 360 * 1024;
+export const MAX_CONFIGURATION_BYTES = 2 * 1024 * 1024;
+
+export async function readBoundedJSON(input, limit) {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid input bound");
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of input) {
+    if (!(chunk instanceof Uint8Array)) throw new Error("Private input must contain bytes");
+    bytes += chunk.byteLength;
+    if (bytes > limit) throw new Error("Private input exceeds its bound");
+    chunks.push(Buffer.from(chunk));
+  }
+  // A Buffer-to-string conversion per read replaces split UTF-8 code points.
+  // Decode exactly once after bounded accumulation; malformed bytes fail closed.
+  const text = new TextDecoder("utf-8", {fatal: true}).decode(Buffer.concat(chunks, bytes));
+  return JSON.parse(text);
+}
 
 export function boundedEmitter(write) {
   let total = 0;
