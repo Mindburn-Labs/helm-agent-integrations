@@ -72,6 +72,19 @@ Each seat still needs its real active mandate and model route/budget. Imported
 cards, decoded claims and this fixture grant no authority. The observer copies
 binding from the verified native handler, never from the episode body.
 
+The configured per-responsibility autonomy step remains authoritative: draft,
+propose-only, approval-required, constrained-live or certified-live. A plan does
+not grant a step. The producer must preserve real propose-only dispatch refusal
+and approval gates; the worker/driver cannot override them to obtain a dispatch
+count. Escalation/no-dispatch is a valid D8 fixture case with the same retained
+attempt and approval.
+
+A free inference route requires a provable worst-case input/output price bound,
+reservation before dispatch and actual settlement. The enforced input cap and
+clamped output cap enter that bound. Without it, the fixture uses no free route
+and introduces no provider-key or budget bypass. Those guarantees belong to the
+native gateway/configuration owners, not an estimate supplied by this driver.
+
 The fixture retains the first attempt snapshot independently before the later
 episode runs. It must prove the same attempt, one admission/dispatch, unchanged
 observation count and unchanged original episode/version/requester/intent. A

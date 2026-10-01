@@ -162,6 +162,15 @@ def _validate_probes(probes: Sequence[WorkerProbe], tool: str, required_framewor
             or worker.path
             or worker.query
             or worker.fragment
+            or any(
+                ord(c) < 33
+                for url in (
+                    probe.episode["model"]["base_url"],
+                    episode.tools.mcp_url,
+                    probe.worker_url,
+                )
+                for c in url
+            )
             or episode.episode_id in episode_ids
             or probe.worker_url in worker_urls
         ):
