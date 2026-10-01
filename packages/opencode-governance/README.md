@@ -128,4 +128,4 @@ Tests mock the kernel verdict source (fetch/spawn injected); no network or kerne
 - `src/plugin.ts` — hook bag (`permission.ask`, `tool.execute.before/after`), verdict cache, `HelmGovernanceDeny`.
 - `src/opencode-types.ts` — aliases for the pinned `@opencode-ai/plugin` public contract types.
 
-Evidence base: `research/opencode-study/26-helm-map-kernel-governance.md` (integration seams) and `17-pkg-plugin-codemode.md` (plugin loading/hook semantics).
+Evidence base: `Mindburn-Labs/docs:research/opencode-study/26-helm-map-kernel-governance.md` (integration seams) and `17-pkg-plugin-codemode.md` (plugin loading/hook semantics).

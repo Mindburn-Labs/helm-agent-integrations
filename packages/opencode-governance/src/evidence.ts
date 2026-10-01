@@ -5,7 +5,7 @@
  * kernel owns DecisionRecord/Receipt/ExecutionBoundaryRecord semantics
  * (helm-ai-kernel core/pkg/contracts); this plugin mints receipt *requests*
  * and boundary observations that a kernel-side ingester (e.g. the
- * svc-high-risk-loop-bridge pattern, research/opencode-study/26 §2.9) can
+ * svc-high-risk-loop-bridge pattern, Mindburn-Labs/docs:research/opencode-study/26 §2.9) can
  * later verify and project into ProofGraph. Record types are namespaced
  * `opencode.*` so they can never masquerade as kernel-signed artifacts.
  *
