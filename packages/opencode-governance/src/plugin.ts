@@ -52,7 +52,7 @@ import type {
 import type { NormalizedVerdict } from "./verdict.js";
 import { isAuthorized, verdictToPermissionStatus } from "./verdict.js";
 
-export const PLUGIN_ID = "@helm-ai/opencode-governance";
+export const PLUGIN_ID = "@mindburn/opencode-governance";
 export const PLUGIN_VERSION = "0.1.0";
 
 const VERDICT_CACHE_TTL_MS = 30_000;

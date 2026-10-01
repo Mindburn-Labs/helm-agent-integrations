@@ -1,5 +1,5 @@
 {
-  "name": "@helm-ai/opencode-governance",
+  "name": "@mindburn/opencode-governance",
   "version": "0.1.0",
   "description": "Fail-closed HELM governance plugin for opencode: kernel verdicts mapped onto permission.ask, boundary evidence taps on tool.execute.before/after",
   "private": true,

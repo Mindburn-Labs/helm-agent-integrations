@@ -1,4 +1,4 @@
-# @helm-ai/opencode-governance
+# @mindburn/opencode-governance
 
 **Private, unpublished.** Fail-closed [HELM](https://github.com/Mindburn-Labs) governance plugin for [opencode](https://opencode.ai). It maps HELM kernel verdicts onto opencode's `permission.ask` hook (ALLOW → allow, DENY → deny, ESCALATE → ask) and taps `tool.execute.before`/`tool.execute.after` to mint boundary evidence records.
 
@@ -35,7 +35,7 @@ Then reference it from `opencode.json` (once published internally or via a file 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@helm-ai/opencode-governance"]
+  "plugin": ["@mindburn/opencode-governance"]
 }
 ```
 
@@ -43,7 +43,7 @@ or with options:
 
 ```json
 {
-  "plugin": [["@helm-ai/opencode-governance", { "tenantId": "acme", "principal": "dev-agent" }]]
+  "plugin": [["@mindburn/opencode-governance", { "tenantId": "acme", "principal": "dev-agent" }]]
 }
 ```
 
@@ -54,7 +54,7 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 | Env var | Option key | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `HELM_KERNEL_URL` | `kernelUrl` | http mode | — | Kernel (or control-plane PEP façade) base URL. **https required; plaintext http is accepted for loopback literals only** (`127.0.0.0/8`, `::1`, `localhost`). |
-| `HELM_API_KEY` | `apiKey` | http mode | — | Bearer token for the tenant-scoped evaluate endpoint. |
+| `MINDBURN_HELM_API_KEY` | `apiKey` | http mode | — | Bearer token for the tenant-scoped evaluate endpoint. |
 | `HELM_KERNEL_BINARY` | `kernelBinary` | binary mode | — | Path to a local kernel binary. |
 | `HELM_KERNEL_BINARY_ARGS` | `kernelBinaryArgs` | no | `[]` | Argv between binary and payload (binary mode). |
 | `HELM_KERNEL_MODE` | `mode` | only if both targets set | inferred | `http` or `binary`. Both targets set without this = hard error. |
@@ -65,6 +65,8 @@ Precedence: plugin options > environment > documented defaults. **Missing requir
 | `HELM_TIMEOUT_MS` | `timeoutMs` | no | `5000` | Evaluation timeout; expiry = deny. |
 | `HELM_EVIDENCE_DIR` | `evidenceDir` | no | `~/.helm-ai-kernel/evidence/opencode` | JSONL sink directory. |
 | `HELM_EVIDENCE_STRICT` | `strictEvidence` | no | `1` | `0` relaxes evidence-failure handling to stderr warnings. In strict mode a pre-execution sink failure denies the call, and a post-execution sink failure arms a next-call deny gate. Development only. |
+
+`HELM_API_KEY` is a deprecated fallback when the preferred variable is absent. Selecting it emits one warning per process, containing only the variable names.
 
 ### Kernel targets
 
