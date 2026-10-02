@@ -215,7 +215,13 @@ test("binding changes during core token refresh prevent native model dispatch", 
     f.core.episodeToken = async () => { const token = await old(); f.episode.work_item_id = randomUUID(); return token; };
   });
   const result = await stream(f.runtime).result();
-  assert.equal(result.stopReason, "error");
+  // The binding guard aborts the whole runtime. The native provider's exact
+  // signal-aborted terminal is "aborted", with no response or successor call.
+  assert.equal(result.stopReason, "aborted");
+  assert.deepEqual(result.content, []);
+  assert.notEqual(f.runtime.binding().workItemId, f.episode.work_item_id);
+  assert.throws(() => stream(f.runtime), {name: "AbortError"});
+  assert.throws(() => f.runtime.factory(f.context), {name: "AbortError"});
   assert.equal(f.tokens.length, 1); assert.equal(f.requests.length, 0);
 });
 
