@@ -61,6 +61,8 @@ export interface FakeCp {
   close(): Promise<void>;
   /** Answer the next `times` requests whose "METHOD /path" contains `match` with `status` and an error body. */
   fail(match: string, status: number, times?: number, extra?: { retryAfter?: number; error?: string }): void;
+  /** Hold the answer to the next `times` requests whose "METHOD /path" contains `match` for `ms`, as a hung server would. */
+  delay(match: string, ms: number, times?: number): void;
   /** Make every access token issued so far answer 401. */
   revokeAccessTokens(): void;
   /** The episode a bearer episode token belongs to, or null when unknown, expired or stopped. */
@@ -124,6 +126,7 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
   const refresh = new Map<string, { used: boolean; expiresAt: number }>();
   const episodeTokens = new Map<string, { episodeId: string; expiresAt: number }>();
   const faults: { match: string; status: number; left: number; retryAfter?: number; error?: string }[] = [];
+  const holds: { match: string; ms: number; left: number }[] = [];
   let refreshes = 0;
   const byKey = new Map<string, string>();
 
@@ -181,6 +184,12 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
       fault.left--;
       send(res, fault.status, { error: fault.error ?? "injected_fault", error_description: "injected fault" }, fault.retryAfter ? { "Retry-After": String(fault.retryAfter) } : {});
       return;
+    }
+
+    const hold = holds.find((h) => h.left > 0 && `${method} ${path}`.includes(h.match));
+    if (hold) {
+      hold.left--;
+      await new Promise((resolve) => setTimeout(resolve, hold.ms));
     }
 
     const extra = options.routes?.[`${method} ${path}`];
@@ -326,6 +335,9 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
       }),
     fail(match, status, times = 1, extra) {
       faults.push({ match, status, left: times, retryAfter: extra?.retryAfter, error: extra?.error });
+    },
+    delay(match, ms, times = 1) {
+      holds.push({ match, ms, left: times });
     },
     revokeAccessTokens() {
       for (const rec of access.values()) rec.revoked = true;

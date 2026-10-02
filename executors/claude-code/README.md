@@ -83,6 +83,25 @@ backs the file up, refuses to overwrite a value or edit a file that is not JSON,
 and `--remove` undoes it. No other command writes to a user's settings. A test
 runs every command against a sentinel settings file and checks it is unchanged.
 
+## Starting a session
+
+Check the work item out before Claude Code makes its first model call. Until an
+episode exists `apiKeyHelper` fails closed, so a `claude -p` run started without one
+stops at its first request with "Your apiKeyHelper script is failing". An interactive
+session can start first and run `! helm-executor checkout …` itself.
+
+```bash
+helm-executor checkout <work-item-id> --client claude-code     # --wait 900 if a stopped episode still holds it
+eval "$(helm-executor env --format shell)"                      # work item on the telemetry attributes
+claude …
+# at the end:
+helm-executor stop
+```
+
+A session whose episode ends (a stop, the deadline, a revoked credential) stops
+getting tokens; the last one it holds works for at most 15 minutes. Giving a work item
+to a different executor is `stop` here and `checkout` there.
+
 ## What the managed file sets
 
 | Key | Why |
