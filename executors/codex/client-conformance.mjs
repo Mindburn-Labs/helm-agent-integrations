@@ -10,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { createClientMcpTransport } from "./tests/mcp_client_routes.mjs";
 
 const adapter = dirname(fileURLToPath(import.meta.url));
 const pin = JSON.parse(await readFile(join(adapter, "core-contract.json"), "utf8"));
@@ -26,6 +27,7 @@ if (!values.core || !values.report || !Number.isInteger(budget) || budget < 1000
 const core = resolve(values.core), binary = resolve(values.codex), reportPath = resolve(values.report);
 const diagnosticsPath = reportPath + ".diagnostics.log", diagnosticSecrets = new Set();
 const children = new Set(), steps = [], clientDiagnostics = [], hookReadback = [];
+const toolReadback = new Map(), mcpTransport = createClientMcpTransport();
 let temporary, fake, provider, consumerSha, activeStep = "installed binary and source pins", binarySha, cancelled = false;
 class Failure extends Error {}
 function check(value, reason) { if (!value) throw new Failure(reason); }
@@ -46,10 +48,7 @@ function run(command, args, env, input = "", timeout = 10000) {
     children.add(child); child.stdin.on("error", () => {}); child.stdin.end(input);
   });
 }
-function diagnostics(label, result) {
-  let text = result.stderr.toString("utf8");
-  // Drop a possibly partial first line before redaction if the retained tail was capped.
-  if (result.stderr_bytes > 65536) { const newline = text.indexOf("\n"); text = newline < 0 ? "" : text.slice(newline + 1); }
+function sanitizedText(text) {
   for (const secret of diagnosticSecrets) text = text.replaceAll(secret, "[redacted]");
   text = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "?")
     .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [redacted]")
@@ -58,6 +57,23 @@ function diagnostics(label, result) {
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted]")
     .replaceAll(resolve(homedir()), "[owner-home]");
   if (temporary) text = text.replaceAll(temporary, "[probe]");
+  return text;
+}
+function minimizedOutput(value) {
+  const wire = JSON.stringify(value ?? null), text = sanitizedText(typeof value === "string" ? value : wire);
+  return { wire_shape: Array.isArray(value) ? "content-items" : typeof value, wire_sha256: digest(wire), wire_bytes: Buffer.byteLength(wire),
+    content_types: Array.isArray(value) ? value.slice(0, 16).map(p => sanitizedText(String(p?.type ?? typeof p)).slice(0, 64)) : [], text_truncated: text.length > 8192, text_sanitized: text.slice(0, 8192) };
+}
+function feedbackText(value) {
+  if (typeof value === "string") return value;
+  check(Array.isArray(value) && value.every(p => p?.type === "input_text" && typeof p.text === "string"), "Unexpected text-only tool result wire shape");
+  return value.map(p => p.text).join("\n");
+}
+function diagnostics(label, result) {
+  let text = result.stderr.toString("utf8");
+  // Drop a possibly partial first line before redaction if the retained tail was capped.
+  if (result.stderr_bytes > 65536) { const newline = text.indexOf("\n"); text = newline < 0 ? "" : text.slice(newline + 1); }
+  text = sanitizedText(text);
   clientDiagnostics.push({ label, exit_code: result.code ?? null, signal: result.signal ?? null,
     spawn_error: result.spawn_error ?? null, terminated_by_probe: result.terminated_by_probe ?? false,
     stderr_sha256: result.stderr_sha256 ?? digest(result.stderr), stderr_bytes: result.stderr_bytes ?? result.stderr.length,
@@ -138,7 +154,7 @@ async function probe() {
     const other = await run("git", ["-C", core, "ls-files", "--others", "--exclude-standard", "--", ":(top)executors/core"], gitEnv);
     check(other.code === 0 && other.stdout.length === 0, "Untracked core source cannot enter this run");
   });
-  const executor = join(bins, "helm-executor"), sentinel = join(temporary, "raw-tool-ran");
+  const executor = join(bins, "helm-executor"), sentinel = join(temporary, "raw-tool-ran"), allowedMarker = join(workspace, "allowed-tool-ran");
   // These fixtures turn an unexpected raw dispatch into a local sentinel; never a real write.
   for (const name of ["git", "gh", "kubectl", "flux", "linear"]) {
     const guard = name === "git" ? '[ "$1" = push ]' : name === "gh" ? '[ "$1" = pr ] && [ "$2" = merge ]' : "true";
@@ -146,7 +162,7 @@ async function probe() {
     await writeFile(join(bins, name), `#!/bin/sh\nif ${guard}; then /usr/bin/touch ${quote(sentinel)}; exit 97; fi\n${fallback}\n`, { mode: 0o700 });
   }
   const { startFakeCp } = await import(pathToFileURL(join(core, "dist/testing/fake-cp.js")));
-  fake = await startFakeCp({ pollsBeforeApproval: 0 });
+  fake = await startFakeCp({ pollsBeforeApproval: 0, routes: mcpTransport.routes });
   check(new URL(fake.url).hostname === "127.0.0.1", "The supplied fake CP must bind loopback");
   const env = { PATH: bins + ":" + gitEnv.PATH, HOME: home, CODEX_HOME: codexHome, TMPDIR: temporary, LANG: "en_US.UTF-8", TERM: "dumb",
     HELM_EXECUTOR_HOME: join(temporary, "executor"), HELM_EXECUTOR_CP_URL: fake.url, HELM_EXECUTOR_ORG: fake.orgId, HELM_EXECUTOR_CLIENT: "codex", HELM_EXECUTOR_SLOT: "installed-client-probe", HELM_EXECUTOR_OBSERVE_SUMMARY: "off" };
@@ -163,7 +179,7 @@ async function probe() {
     check(typeof authorization === "string" && authorization.length > 0, "Shared header helper omitted Authorization");
     diagnosticSecrets.add(authorization); const token = authorization.replace(/^Bearer /i, ""); if (token) diagnosticSecrets.add(token);
   });
-  const commands = ["printf 'helm-codex-client-ok'", "git push", "gh pr merge", "kubectl version", "flux version", "linear issue create"];
+  const commands = [`printf 'helm-codex-client-ok' | /usr/bin/tee ${quote(allowedMarker)}`, "git push", "gh pr merge", "kubectl version", "flux version", "linear issue create"];
   let requestCount = 0, catalogCount = 0; const feedback = new Map(), requestErrors = [];
   provider = createServer((req, res) => { void (async () => {
     try {
@@ -177,7 +193,11 @@ async function probe() {
       check(!req.headers["content-encoding"], "Fixture requires uncompressed Responses JSON");
       const chunks = []; let total = 0; for await (const chunk of req) { total += chunk.length; check(total < 4 * 1024 * 1024, "Fixture request exceeded its cap"); chunks.push(chunk); }
       const body = decode(Buffer.concat(chunks)); check(body.model === "gpt-6.1-sol" && body.reasoning?.effort === "max", "Probe model/effort changed");
-      for (const item of body.input ?? []) if (item.type === "function_call_output") feedback.set(item.call_id, String(item.output));
+      for (const item of body.input ?? []) if (item.type === "function_call_output") {
+        check(/^local-call-[0-5]$/.test(item.call_id), "Unexpected fixture tool result identity");
+        toolReadback.set(item.call_id, { call_id: item.call_id, ...minimizedOutput(item.output) });
+        feedback.set(item.call_id, feedbackText(item.output));
+      }
       const n = requestCount++; check(n <= commands.length, "Installed client exceeded the finite fixture sequence");
       if (n === 0) check((body.tools ?? []).some(t => t.name === "exec_command" || t.tools?.some(f => f.name === "exec_command")), "Installed client did not advertise the inspected exec_command tool");
       const id = `local-response-${n}`;
@@ -228,14 +248,18 @@ async function probe() {
     captured = await Promise.all((await readdir(captures)).map(async name => {
       const raw = await readFile(join(captures, name)), input = decode(raw);
       hookReadback.push({ raw_sha256: digest(raw), event: input.hook_event_name, tool: input.tool_name, use_id: input.tool_use_id,
-        input_keys: Object.keys(input.tool_input ?? {}).sort(), input_digest: "sha256:" + digest(JSON.stringify(canonical(input.tool_input))) });
+        input_keys: Object.keys(input.tool_input ?? {}).sort(), input_digest: "sha256:" + digest(JSON.stringify(canonical(input.tool_input))),
+        ...(input.hook_event_name === "PostToolUse" && input.tool_use_id === "local-call-0" ? { event_keys: Object.keys(input).sort().slice(0, 32), response_keys: input.tool_response && typeof input.tool_response === "object" && !Array.isArray(input.tool_response) ? Object.keys(input.tool_response).sort().slice(0, 32) : [], response: minimizedOutput(input.tool_response) } : {}) });
       return input;
     }));
     check(result.code === 0 && requestErrors.length === 0 && requestCount === commands.length + 1, "Installed client or fixture sequence failed; inspect the minimized diagnostics");
     check(fake.requests.some(r => r.path === "/mcp" && r.body?.method === "initialize") && fake.requests.some(r => r.path === "/mcp" && r.body?.method === "tools/list"), "Installed HELM MCP did not initialize and discover tools");
+    check(mcpTransport.diagnostics.unsupported_common_stream > 0 && mcpTransport.diagnostics.deleted === mcpTransport.diagnostics.initialized && mcpTransport.diagnostics.active_sessions === 0 && mcpTransport.diagnostics.rejected === 0, "Installed MCP session GET/DELETE did not complete against the explicit QA transport");
   });
   await step("allowed tool executes and five raw tools are denied before their sentinel fixtures", async () => {
     check(feedback.get("local-call-0")?.includes("helm-codex-client-ok"), "The allowed command did not execute");
+    check((await readdir(workspace)).includes("allowed-tool-ran"), "The allowed command did not write its private marker");
+    check((await readFile(allowedMarker, "utf8")) === "helm-codex-client-ok", "The allowed command did not write its private marker");
     const reasons = ["Raw git push", "Raw PR merge", "Raw cluster or Flux", "Raw cluster or Flux", "Raw Linear write"];
     for (let n = 1; n < commands.length; n++) check(feedback.get(`local-call-${n}`)?.includes(reasons[n - 1]), "A raw tool lacked the adapter's explicit deny feedback");
     check(!(await readdir(temporary)).includes("raw-tool-ran"), "A raw tool reached its local dispatch sentinel");
@@ -264,11 +288,13 @@ finally {
 }
 const report = { schema: "helm.executor.codex.installed-client-probe.v1", consumer_source_sha: consumerSha, core_source_sha: pin.source_sha,
   binary, binary_sha256: binarySha, inspected_version: inspected.version, local_result: failed ? "FAIL" : "PASS", steps, client_diagnostics: clientDiagnostics, diagnostics_log: diagnosticsPath, hook_readback: hookReadback,
+  tool_readback: [...toolReadback.values()], mcp_transport: mcpTransport.diagnostics, T100: "NOT_QUALIFIED",
   scope: "Installed local Codex user configuration/hook engine, actual shared core and loopback fake CP/MCP/Responses only",
   managed_configuration: "NOT_RUN", managed_hook_provenance: "NOT_RUN", deployed_E1_public_edge: "NOT_RUN", signed_D24_native_D8: "NOT_RUN",
   limitations: ["CODEX_HOME does not relocate Unix /etc/codex requirements or MDM/cloud policy. This probe refuses non-null managed requirements.",
     "The disposable profile copies hook commands from the template as user hooks and uses the documented trust flag for those vetted QA sources. This is not managed hook authority.",
     "Only the disposable profile substitutes loopback URLs and disables the production managed network proxy. Outer sandbox-exec permits loopback; writes are limited to its temporary directory and the /dev/null stdio sink.",
+    "MCP session GET/DELETE use explicit QA-only route extensions. Authentication and JSON-RPC delegate to the pinned shared fake; this is not public edge or E1 protocol qualification.",
     "No provider inference, paid usage, actual user credentials, real effects, deployed QA, public TLS/network custody, signed admission or native D8 reconciliation is qualified."] };
 const reportText = JSON.stringify(report, null, 2) + "\n", diagnosticsText = clientDiagnostics.map(d => JSON.stringify(d)).join("\n") + "\n";
 for (const secret of diagnosticSecrets) {

@@ -216,6 +216,19 @@ Probe credentials and owner home paths are redacted; the stderr hash and byte
 count identify the captured output without retaining it. Existing report or
 diagnostics paths are refused.
 
+Tool diagnostics also retain bounded sanitized Responses feedback and the
+allowed call's PostToolUse result. Feedback supports both string and structured
+text results from the pinned Codex protocol. The allowed command must produce
+its output and a private marker file; denied commands must produce no dispatch
+marker. No missing tool result is treated as success.
+
+The shared fake's optional routes supply a QA-only MCP session transport:
+authenticated POST delegates to its gateway, GET reports no SSE stream with
+`405`, and DELETE terminates the matching session. The runner checks that
+lifecycle explicitly. These routes fill the original fake's GET/DELETE `404`
+gaps for the local probe; real gateway protocol qualification remains pending.
+T100 still requires the installed managed client and actual edge/E1 evidence.
+
 This probe copies the template commands into disposable user hooks and uses the
 documented automation hook-trust flag for these reviewed sources. It requires
 macOS `sandbox-exec`, permits loopback traffic and permits writes only to its
