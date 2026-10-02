@@ -1,0 +1,57 @@
+{
+  "name": "@mindburn/helm-executor",
+  "version": "0.1.0",
+  "description": "HELM executor core: device-code login, episode checkout, short-lived episode tokens and observed-only hook reports for agent front-ends",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "helm-executor": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/fake-cp.d.ts",
+      "import": "./dist/testing/fake-cp.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.d.ts",
+    "schema",
+    "CONTRACT.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "helm",
+    "executor",
+    "claude-code",
+    "codex",
+    "episode",
+    "agents"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "executors/core"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "typescript": "^6.0.3"
+  }
+}
