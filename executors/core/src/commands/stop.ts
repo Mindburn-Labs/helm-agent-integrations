@@ -24,8 +24,9 @@ export async function stop(ctx: Ctx, opts: { local: boolean }): Promise<boolean>
       body: {},
       client: slot.client,
     });
-    // An episode the control plane no longer knows or has already ended is stopped as far as we care.
-    const gone = res.status === 404 || res.status === 409 || res.status === 410;
+    // An episode the control plane no longer knows (404) or reports ended (410) is stopped as far as we care. A 409 means
+    // the release is unresolved, so the slot stays and the failure is reported.
+    const gone = res.status === 404 || res.status === 410;
     if (!gone && (res.status < 200 || res.status >= 300)) failForStatus(res, "episode stop");
   });
   clearSlot(ctx);

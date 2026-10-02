@@ -66,8 +66,12 @@ export async function checkout(ctx: Ctx, opts: CheckoutOptions): Promise<Checkou
           client: opts.client,
         });
         if (res.status !== 200 && res.status !== 201) {
-          if (res.status === 404 || res.status === 409) {
+          if (res.status === 404) {
             throw new ExecutorError("rejected", `the control plane did not create an episode: ${errorDetail(res)}`);
+          }
+          if (res.status === 409) {
+            // The work item has a live episode, or a stopped one whose last token has not expired yet (15 minutes at most).
+            throw new ExecutorError("rejected", `the work item is not free: ${errorDetail(res)}; retry after an earlier episode's last token has expired`);
           }
           if (res.status === 403) {
             // Enrollment of a machine credential to a seat is server-side; login proves the credential and never enrolls it.

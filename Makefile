@@ -1,4 +1,4 @@
-.PHONY: check setup lint test test-js test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package package-assembly markdown build clean workers-check workers-setup workers-contract-check workers-contract-sync workers-lint workers-test workers-conformance workers-conformance-reference workers-images workers-adapters-check workers-conformance-claude-agent-sdk workers-conformance-openai-agents workers-conformance-langgraph
+.PHONY: check setup lint test test-js test-executors test-python typecheck-python lint-python examples examples-js examples-python samples verify-samples package-js package-python package package-assembly markdown build clean workers-check workers-setup workers-contract-check workers-contract-sync workers-lint workers-test workers-conformance workers-conformance-reference workers-images workers-adapters-check workers-conformance-claude-agent-sdk workers-conformance-openai-agents workers-conformance-langgraph
 .PHONY: workers-conformance-openclaw
 
 # The CI gate (.github/workflows/ci.yml runs `make check`).
@@ -9,13 +9,24 @@ setup:
 
 lint: setup typecheck-python lint-python
 
-test: setup test-js test-python examples samples verify-samples
+test: setup test-js test-python examples samples verify-samples test-executors
 
 test-js:
 	cd packages/js/helm-tool-wrapper && npm ci && npm test
 	cd packages/js/helm-channel-bridge && npm ci && npm test
 	cd packages/opencode-governance && npm ci && npm run typecheck && npm test
 	cd packages/js/acp-connector && npm ci && npm test
+
+# executors/ holds the HELM executor core and the front-end adapters. Core goes first: the adapters run its build.
+EXECUTOR_PACKAGES := core $(filter-out core,$(notdir $(patsubst %/,%,$(wildcard executors/*/))))
+
+test-executors:
+	@for p in $(EXECUTOR_PACKAGES); do \
+	  if [ -f executors/$$p/package.json ]; then \
+	    echo "==> executors/$$p"; \
+	    (cd executors/$$p && npm ci && npm test) || exit 1; \
+	  fi; \
+	done
 
 test-python:
 	python3 -m unittest discover packages/python/helm_tool_wrapper/tests
@@ -68,6 +79,8 @@ clean:
 	rm -rf packages/python/helm_tool_wrapper/helm_tool_wrapper.egg-info
 	rm -rf packages/python/helm_tool_wrapper/build
 	rm -rf packages/python/helm_tool_wrapper/dist
+	rm -rf executors/*/dist
+	rm -rf executors/*/node_modules
 	rm -rf workers/contract/ts/dist
 	rm -rf workers/contract/ts/node_modules
 

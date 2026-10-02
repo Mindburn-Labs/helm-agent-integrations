@@ -210,3 +210,24 @@ test("stop keeps the slot when the control plane cannot be reached, and --local 
     await w.close();
   }
 });
+
+test("stop: a 404 or 410 counts as stopped, a 409 or 403 keeps the slot and is rejected", async () => {
+  const w = await world();
+  try {
+    const ctx = await checkedOut(w);
+    for (const status of [409, 403]) {
+      w.fake.fail("/stop", status, 1);
+      await rejects(stop(ctx, { local: false }), "rejected");
+      assert.ok(loadSlot(ctx), `slot kept on ${status}`);
+    }
+    w.fake.fail("/stop", 410, 1);
+    assert.equal(await stop(ctx, { local: false }), true);
+    assert.equal(loadSlot(ctx), null);
+    const again = await checkedOut(w, "HELM-912");
+    w.fake.fail("/stop", 404, 1);
+    assert.equal(await stop(again, { local: false }), true);
+    assert.equal(loadSlot(again), null);
+  } finally {
+    await w.close();
+  }
+});

@@ -86,7 +86,10 @@ time on one machine must use different slots, so a launcher sets
 `HELM_EXECUTOR_SLOT` once and every helper in that session inherits it. The
 machine credential is shared by all slots. The control plane allows one live
 episode per work item, so changing executor on a work item (T100) is `stop` in
-the first session, then `checkout` of the same work item from the second.
+the first session, then `checkout` of the same work item from the second. After a
+stop the control plane keeps refusing a successor with 409 until the stopped
+episode's last issued token has expired, at most 15 minutes, and its attempts are
+read back. `checkout` reports that as `rejected`; try again later.
 
 **State.** Machine credential and episode state live under
 `HELM_EXECUTOR_HOME` in files of mode 0600, written atomically. Callers must
@@ -319,7 +322,7 @@ one-file change.
 | `POST /api/v1/auth/device/refresh` | none | `{"grant_type":"refresh_token","refresh_token"}` | same body as the token call. The refresh token rotates |
 | `POST {ORG}/work-items/{work_item_id}/executor-episodes` | machine | `{"client","idempotency_key"}` | 201 `{episode_id,work_item_id,token,token_expires_at,deadline}` |
 | `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/token` | machine | `{}` | 200 `{token,token_expires_at}`. `expires_in` seconds is accepted in place of `token_expires_at`, and the create body also fits |
-| `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/stop` | machine | `{}` | 200 or 204 |
+| `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/stop` | machine | `{}` | 204 (200 also accepted). Repeating it is acknowledged again |
 | `POST {ORG}/observations` | machine | [observation](schema/observation.schema.json) | 202 |
 
 `machine` is `Authorization: Bearer <access_token>` from the device-code flow.
@@ -332,16 +335,24 @@ Status mapping, which decides the exit code:
 |---|---|
 | 401 on a `{ORG}` call | the access token expired or was revoked. The client refreshes once and retries once. A refresh refused with `invalid_grant` is `not_logged_in` |
 | 410 on `…/token` | the episode was stopped or has expired: `episode_ended` |
-| 404 or 409 on `…/token` | the episode is not ours, or is gone: `episode_ended` |
-| 404, 409 or 410 on `…/stop` | already ended, or not ours; success |
-| 403 on `checkout` | no authority: the credential is not enrolled for the seat. `rejected` |
-| 409 on `checkout` | the work item already has a live episode. `rejected` |
-| 403, or any other 4xx | `rejected` |
+| 404 on `…/token` | the episode is not ours, or unknown: `episode_ended` |
+| 409 on `…/token` | the binding changed or is unresolved. A refusal, not an ending: `rejected`, and no cached token is printed |
+| 404 or 410 on `…/stop` | already gone; success |
+| 409 on `…/stop` | the release is unresolved: `rejected`, and the slot stays |
+| 403 on any call | no authority. At `checkout` the credential is not enrolled for the seat. `rejected` |
+| 409 on `checkout` | the work item has a live episode, or a stopped one whose last token has not expired. `rejected`; try again later |
+| any other 4xx | `rejected` |
 | 429, 5xx (503 is the usual one), a timeout or a network error | `unavailable` |
 
 Error bodies may be `{"error","error_description"}` (device-code routes) or
 `{"error","message","code"}` (console routes). The client prints a redacted,
 truncated message from either.
+
+The control plane also requires the machine credential to be a CLI credential
+(`client_type: cli`), which `login` sends, and the create body to hold exactly
+`client` and `idempotency_key`; any other field is a 400. The handlers are
+codex:cp-org's `internal/console/organization_executors.go`, unmerged when this
+was written.
 
 Identity, as the control plane keeps it. The episode token's `sub` and the
 episode's actor are `agt:<seat>`, the seat the machine credential is enrolled
@@ -351,12 +362,16 @@ create body is `claude-code`, `codex` or `openclaw`. Machine authorization on
 
 ## 8. Fake server for adapter tests
 
-`dist/testing/fake-cp.js` implements the device-code routes and the four `{ORG}`
-routes above with the same status codes, plus `GET /healthz`. It checks bearer
-tokens, rotates refresh tokens and expires tokens on an injectable clock.
+`dist/testing/fake-cp.js` implements the device-code routes and the `{ORG}` routes
+above with the same status codes, plus `GET /healthz` and a minimal MCP endpoint
+at `/mcp` that accepts episode tokens. It checks bearer tokens, rotates refresh
+tokens, allows one live episode per work item and expires tokens on an injectable
+clock.
 
-- Library: `startFakeCp(options)` returns `{ url, orgId, workspaceId, requests, close }`.
-  `options.routes` adds client-specific routes, such as a model endpoint.
+- Library: `startFakeCp(options)` returns `{ url, orgId, workspaceId, requests,
+  observations, episodes, close, fail, revokeAccessTokens, episodeForToken }`.
+  `options.routes` adds client-specific routes, such as a model endpoint, and
+  `fail(match, status, times)` injects errors.
 - Process: `node dist/testing/serve.js [--port N]` prints one JSON line on
   stdout, `{"cp_url":"…","org_id":"…","workspace_id":"…"}`, then serves until
   SIGTERM. The first device-code poll is pending and the second is approved.

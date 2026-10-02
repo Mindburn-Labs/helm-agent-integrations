@@ -1,0 +1,55 @@
+# helm-executor
+
+The one auth and observation client for HELM executor front-ends. An executor is
+an agent session, such as Claude Code or Codex, that does a work item's job while
+its external actions go through the HELM kernel gateway. This package is the
+part every front-end shares:
+
+- `login` authorizes the machine with the control plane (device code).
+- `checkout` opens an executor episode for one work item.
+- `token` and `headers` print the short-lived episode bearer token for an
+  `apiKeyHelper`, an MCP `headersHelper` or a Codex `auth.command`.
+- `observe` reports a client hook event, observed-only.
+- `stop`, `status` and `env` end an episode, show state and print OpenTelemetry
+  resource attributes for a launcher.
+
+The behavior, exit codes, hook envelope and control plane calls are specified in
+[CONTRACT.md](CONTRACT.md). The JSON Schemas are in [schema/](schema). The
+adapters call this CLI as a subprocess: [Claude Code](../claude-code/README.md).
+
+This package decides nothing and holds no provider, GitHub or Linear credential.
+The kernel gateway is the authority; `observe` is evidence that a hook saw a call,
+nothing more.
+
+## Build and test
+
+```bash
+npm ci
+npm test        # builds, then runs the node:test suite
+```
+
+Node 22 or newer, TypeScript, no runtime dependencies. The tests run the real
+executable against a fake control plane; no network and no credentials are
+involved.
+
+## State
+
+`HELM_EXECUTOR_HOME` (default `~/.config/helm-executor`) is a directory of mode
+0700. The machine credential and each slot's episode are files of mode 0600,
+written atomically. A rotating refresh token and an episode mint run under a lock
+file, so helpers that start at the same moment share one refresh and one mint.
+Nothing prints a credential except `token` and `headers`, and a credential never
+reaches a log, a stderr line or an observation. The client never follows a
+redirect, so a bearer token cannot be sent to another host.
+
+Limits, deliberate for now: macOS and Linux only; the credential is a file, not a
+keychain item; a stale lock left by a crash can, rarely, let two waiters both
+take over and cost one refused refresh.
+
+## Fake control plane
+
+`startFakeCp()` from `@mindburn/helm-executor/testing` serves the device-code
+routes and the executor routes of the contract on an injectable clock, and a
+minimal MCP endpoint that accepts episode tokens. `node dist/testing/serve.js`
+runs it as a process. Adapters use it for their own conformance runs until a real
+control plane and edge are reachable.

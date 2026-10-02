@@ -291,9 +291,9 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
         const episode = episodes.get(episodeId);
         if (!episode || episode.workItemId !== workItemId) return consoleError(res, 404, "episode not found", "episode_not_found");
         if (m[3] === "stop") {
-          if (episode.stopped) return consoleError(res, 409, "the episode is already stopped", "episode_stopped");
+          // Release is idempotent: a second stop is acknowledged too.
           episode.stopped = true;
-          return send(res, 200, {});
+          return send(res, 204, undefined);
         }
         if (episode.stopped) return consoleError(res, 410, "the episode is stopped", "episode_stopped");
         if (episode.deadlineMs <= now()) return consoleError(res, 410, "the episode deadline has passed", "episode_expired");

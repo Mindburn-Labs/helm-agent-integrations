@@ -152,3 +152,30 @@ test("headers is one Authorization key holding the same token", async () => {
     await w.close();
   }
 });
+
+test("a 409 is a refusal: rejected, no cached token is printed, and the episode is not marked ended", async () => {
+  const w = await world();
+  try {
+    const ctx = await checkedOut(w);
+    w.clock.advance(COALESCE_MS + 1_000);
+    w.fake.fail("/executor-episodes", 409, 1, { error: "binding_changed" });
+    await rejects(episodeToken(ctx), "rejected");
+    assert.equal(loadSlot(ctx)?.ended, undefined);
+    assert.ok(await episodeToken(ctx), "the next call mints normally once the control plane agrees");
+  } finally {
+    await w.close();
+  }
+});
+
+test("a 403 is rejected too", async () => {
+  const w = await world();
+  try {
+    const ctx = await checkedOut(w);
+    w.clock.advance(COALESCE_MS + 1_000);
+    w.fake.fail("/executor-episodes", 403, 1, { error: "enrollment_denied" });
+    await rejects(episodeToken(ctx), "rejected");
+    assert.equal(loadSlot(ctx)?.ended, undefined);
+  } finally {
+    await w.close();
+  }
+});

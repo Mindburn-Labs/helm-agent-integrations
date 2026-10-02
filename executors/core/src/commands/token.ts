@@ -57,7 +57,9 @@ export async function episodeToken(ctx: Ctx): Promise<string> {
         saveSlot(ctx, { ...slot, token: { value: grant.token, expires_at: grant.token_expires_at, minted_at: iso(ctx.now()) } });
         return grant.token;
       }
-      if (res.status === 404 || res.status === 409 || res.status === 410) {
+      // 410: stopped or expired. 404: not ours or unknown. A 409 (binding changed or unresolved) is a refusal, not an ending:
+      // it falls through to `rejected`, and no cached token is printed for it.
+      if (res.status === 404 || res.status === 410) {
         const { token: _dropped, ...rest } = slot;
         saveSlot(ctx, { ...rest, ended: { at: iso(ctx.now()), reason: `the control plane answered ${res.status}` } });
         throw new ExecutorError("episode_ended", `the control plane says the episode is gone (HTTP ${res.status})`);
