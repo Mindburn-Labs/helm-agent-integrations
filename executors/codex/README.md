@@ -20,10 +20,11 @@ remains separate from source presence and hash readback.
 
 ## Supported configuration
 
-The implementation was checked against installed Codex CLI 0.159.2 help and
-binary field symbols, then the official OpenAI source and documentation.
-Installed-client parsing and live QA still require qualification in the
-dedicated environment. The source references are:
+The initial schema review used Codex CLI 0.159.2 help/binary symbols and the
+official OpenAI source. The current ChatGPT-bundled binary is
+`0.159.0-alpha.12.1`; [installed-client.json](installed-client.json) records its
+read-only inspection and digest. Installed parsing/hooks and live QA require
+separate qualification. The source references are:
 
 - [Provider token command](https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/protocol/src/config_types.rs)
 - [Admin requirements](https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/config/src/config_requirements.rs)
@@ -178,3 +179,38 @@ reconciliation and deployed CP E1 remain separate gates. D24 expects
 `aud=helm-gateway-executor:<env>`, signed `helm_executor={client}` and the
 existing `helm_episode`, with a lifetime of at most 900 seconds. The adapter
 continues to treat the shared credential as opaque.
+
+### Installed client probe
+
+[installed-client.json](installed-client.json) records read-only inspection of
+the current ChatGPT-bundled CLI, version `0.159.0-alpha.12.1`, and its binary
+digest. [client-conformance.mjs](client-conformance.mjs) prepares a finite
+acceptance run for that exact binary. The parent runs it with the pinned built
+core, Node 22+ and Python 3.11+:
+
+```sh
+node executors/codex/client-conformance.mjs \
+  --core /absolute/qualified-checkout/executors/core \
+  --report /tmp/helm-codex-installed-client.json \
+  --timeout-ms 60000
+```
+
+The runner creates private `HOME`, `CODEX_HOME`, work and core-state directories.
+It checks strict configuration through the documented app-server read RPCs,
+then uses local Responses SSE fixtures to request one allowed command and five
+raw commands. Local sentinel executables catch an unexpected raw dispatch.
+The actual provider/header helpers and observation commands consume shared
+core. An extra QA hook captures the same client payload for sink correlation.
+The runner deletes its temporary files and writes one new report.
+
+This probe copies the template commands into disposable user hooks and uses the
+documented automation hook-trust flag for these reviewed sources. It requires
+macOS `sandbox-exec`, permits loopback traffic and denies writes outside its
+temporary directory. It uses no model inference or real credentials.
+
+The [managed configuration documentation](https://learn.chatgpt.com/docs/enterprise/managed-configuration)
+locates Unix requirements at `/etc/codex` or managed policy. `CODEX_HOME` isolates
+the user layer. The probe refuses non-null host requirements and reports managed
+configuration/provenance as `NOT_RUN`. Acceptance of `requirements.toml` needs a
+dedicated execution environment with its own system or managed policy. Ivan's
+profile and host configuration must not be used to install these templates.

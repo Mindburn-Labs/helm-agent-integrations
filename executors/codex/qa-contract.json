@@ -15,6 +15,16 @@
     "coverage": ["actual provider and MCP helpers", "two slots stop then checkout", "injected successor 409", "local raw-tool deny", "original Pre/Post observation JSON", "failed observation remains zero exit", "actual MCP response drop after fake application", "same-intent retry and retained-attempt readback across slots"],
     "limits": ["installed Codex managed hooks unrun", "native CP token/attempt drain barrier not modeled by shared fake", "public edge and signed D24 admission unrun", "one fake application is not native Kernel/provider D8 reconciliation proof", "deployed E1/edge QA unrun"]
   },
+  "installed_client_probe": {
+    "runner": "client-conformance.mjs",
+    "inspection": "installed-client.json",
+    "result": "NOT_RUN",
+    "command": "node executors/codex/client-conformance.mjs --core /absolute/qualified-checkout/executors/core --report /tmp/helm-codex-installed-client.json --timeout-ms 60000",
+    "dependency": "Parent supplies the pinned built core and inspected macOS CLI; sandbox-exec must support the process. No installs or real credentials are used.",
+    "coverage": ["installed strict config RPC readback", "actual provider token helper", "actual HELM MCP initialization/header helper", "installed Pre/Post user-hook engine", "allowed command and five raw-tool deny sentinels", "actual client input correlation through core to the fake sink"],
+    "limits": ["CODEX_HOME does not relocate Unix system requirements or MDM/cloud policy", "probe refuses non-null host managed requirements", "QA hooks use the documented trust flag in a disposable user profile; managed provenance remains unrun", "loopback Responses fixture is not real inference", "production TLS/network proxy, signed D24 admission, deployed E1 and native D8 remain unrun"],
+    "managed_need": "A dedicated execution environment with its own /etc/codex or supported managed policy must parse requirements.toml and establish managed hook/readback acceptance without changing Ivan's host."
+  },
   "stages": [
     { "name": "local-core-contract-fake-and-edge-smoke", "latest_marker": "2026-10-08", "result": "NOT_RUN" },
     { "name": "real-CP-E1-QA", "latest_marker": "2026-10-09", "result": "NOT_RUN" },
