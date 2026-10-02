@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
+import {configureAiTransportHost, getAiTransportHost} from "@openclaw/ai";
 import entry from "../src/index.mjs";
 import {createRuntime} from "../src/runtime.mjs";
 import {configuration, CONFIG_SCHEMA, RUNTIME_MARKER} from "../src/config.mjs";
@@ -237,4 +238,56 @@ test("concurrent native provider streams keep distinct core slots and do not sha
   assert.equal(new Headers(a.requests[0].options.headers).get("Authorization"), `Bearer ${a.tokens[0]}`);
   assert.equal(new Headers(b.requests[0].options.headers).get("Authorization"), `Bearer ${b.tokens[0]}`);
   assert.notEqual(a.tokens[0], b.tokens[0]);
+});
+
+test("native HELM transport preserves host redaction and unrelated concurrent session routes", async (t) => {
+  const original = getAiTransportHost(), unrelatedFetch = () => {}, delegated = [];
+  const sentinel = randomUUID(), retainedRedactor = () => "[redacted]";
+  configureAiTransportHost({...original,
+    buildModelFetch: (...args) => { delegated.push(args); return unrelatedFetch; },
+    requiresManagedTransport: () => false,
+    resolveSecretSentinel: () => sentinel,
+    redactModelVisibleSecrets: retainedRedactor,
+  });
+  const nativeHost = getAiTransportHost();
+  t.after(() => configureAiTransportHost(original));
+  const accepted = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  const f = await prepared(t, (f) => { f.fetch = async () => {
+    accepted.resolve(); await release.promise; return response();
+  }; });
+  const pending = stream(f.runtime).result();
+  await accepted.promise;
+  const host = getAiTransportHost();
+  for (const name of Object.keys(nativeHost)) {
+    if (["buildModelFetch", "requiresManagedTransport", "plugin"].includes(name)) continue;
+    assert.equal(host[name], nativeHost[name], name);
+  }
+  for (const name of Object.keys(nativeHost.plugin)) assert.equal(host.plugin[name], nativeHost.plugin[name], name);
+  assert.equal(host.resolveSecretSentinel("native-sentinel"), sentinel);
+  assert.equal(host.redactModelVisibleSecrets(sentinel), "[redacted]");
+  const unrelated = {provider: "native-unrelated", api: "openai-responses", id: "retained-unrelated"};
+  const timeout = 500, options = {method: "POST"};
+  assert.equal(host.requiresManagedTransport(unrelated), false);
+  assert.equal(host.buildModelFetch(unrelated, timeout, options), unrelatedFetch);
+  assert.deepEqual(delegated, [[unrelated, timeout, options]]);
+  assert.throws(() => host.buildModelFetch({...f.runtime.model(), id: f.profile.model}), /Unbound HELM/);
+  release.resolve();
+  const result = await pending;
+  assert.notEqual(result.stopReason, "error", result.errorMessage);
+  await stream(f.runtime).result();
+  assert.equal(getAiTransportHost(), host); // No host reinstallation on every turn.
+});
+
+test("host passthrough cannot admit a foreign provider inside the active HELM stream", async (t) => {
+  let refused = false;
+  const f = await prepared(t, (f) => { f.fetch = async () => {
+    assert.throws(() => getAiTransportHost().buildModelFetch({provider: "native-unrelated",
+      api: "openai-responses", id: "other", baseUrl: "https://unrelated.example.test/v1"}), /escaped/);
+    refused = true;
+    return response();
+  }; });
+  const result = await stream(f.runtime).result();
+  assert.notEqual(result.stopReason, "error", result.errorMessage);
+  assert.equal(refused, true);
 });

@@ -32,7 +32,9 @@ ephemeral episode alias prevents its session-less stream factory from
 selecting another retained route. The actual SDK request uses the retained
 model id. The published `configureAiTransportHost` port supplies guarded
 fetch to the real Responses provider; a global-fetch patch is insufficient.
-Async context separates concurrent streams. Model responses retain the worker
+Async context separates concurrent streams. The embedding wrapper preserves the
+native host redaction and provider ports, and delegates unrelated sessions to
+that original host outside the HELM scope. Model responses retain the worker
 1 MiB cap, MCP responses 4 MiB and the episode 8 MiB cap. Responses use SSE,
 bounded output, no store or provider-side tool/search fallback.
 

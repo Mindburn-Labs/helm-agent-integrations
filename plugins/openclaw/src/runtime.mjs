@@ -1,7 +1,7 @@
 import {AsyncLocalStorage} from "node:async_hooks";
 import {Client} from "@modelcontextprotocol/sdk/client/index.js";
 import {StreamableHTTPClientTransport} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {configureAiTransportHost} from "@openclaw/ai";
+import {configureAiTransportHost, getAiTransportHost} from "@openclaw/ai";
 import {getApiProvider} from "openclaw/plugin-sdk/llm";
 import * as executor from "../../../executors/core/dist/index.js";
 import {discoverTools, enforcePayload, gatewayFetch, normalizeResult, validateConfiguration,
@@ -14,20 +14,29 @@ const correlation = (value) => typeof value === "string" && value.length > 0 && 
   && !/[\x00-\x1f\x7f]/.test(value);
 const transmittedHeaders = new Set(["accept", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"]);
 
+let installedModelHost;
 function installModelTransport() {
-  // This is the published provider embedding port, not an ambient global-fetch
-  // replacement. Async context keeps concurrent native streams in their own slot.
-  configureAiTransportHost({
-    buildModelFetch: (model) => {
+  const previous = getAiTransportHost();
+  if (previous === installedModelHost) return;
+  // Native OpenClaw already owns redaction, secret sentinels and other provider
+  // ports. Preserve that host, including unrelated sessions outside this scope.
+  configureAiTransportHost({...previous,
+    buildModelFetch: (model, ...options) => {
       const active = currentModelRequest.getStore();
-      if (!active || model.api !== "openai-responses" || model.provider !== PROVIDER_ID
+      if (!active?.config) {
+        if (model.provider === PROVIDER_ID) throw new Error("Unbound HELM native model");
+        return previous.buildModelFetch(model, ...options);
+      }
+      if (model.api !== "openai-responses" || model.provider !== PROVIDER_ID
           || model.id !== active.config.model || model.baseUrl !== active.config.base_url + "/v1") {
         throw new Error("Native model escaped the HELM executor binding");
       }
       return active.fetch;
     },
-    requiresManagedTransport: () => true,
+    requiresManagedTransport: (model) => Boolean(currentModelRequest.getStore()?.config)
+      || model.provider === PROVIDER_ID || previous.requiresManagedTransport(model),
   });
+  installedModelHost = getAiTransportHost();
 }
 
 export function createRuntime(raw, dependencies = {}) {
