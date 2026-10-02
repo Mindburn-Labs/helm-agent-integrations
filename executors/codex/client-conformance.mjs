@@ -201,7 +201,7 @@ async function probe() {
   for (const event of ["PreToolUse", "PostToolUse"]) profile += `\n[[hooks.${event}]]\nmatcher = ".*"\n[[hooks.${event}.hooks]]\ntype = "command"\ncommand = ${JSON.stringify(captureCommand)}\nasync = true\ntimeout = 5\n`;
   await writeFile(join(codexHome, "config.toml"), profile, { mode: 0o600 });
   const ownerHome = resolve(homedir());
-  const sandbox = `(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "127.0.0.1:*")) (deny file-write* (require-not (subpath ${JSON.stringify(temporary)}))) (deny file-read* (subpath ${JSON.stringify(join(ownerHome, ".codex"))}) (subpath ${JSON.stringify(join(ownerHome, ".ssh"))}))`;
+  const sandbox = `(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*")) (deny file-write* (require-not (subpath ${JSON.stringify(temporary)}))) (deny file-read* (subpath ${JSON.stringify(join(ownerHome, ".codex"))}) (subpath ${JSON.stringify(join(ownerHome, ".ssh"))}))`;
   const sandboxArgs = ["-p", sandbox, binary];
   await step("installed strict config readback uses the isolated user layer with no managed requirements", async () => {
     const readback = await readConfiguration("/usr/bin/sandbox-exec", [...sandboxArgs, "app-server", "--strict-config", "--listen", "stdio://"], env);
