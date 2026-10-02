@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "helm": {
+      "type": "http",
+      "url": "{{EDGE_URL}}/mcp",
+      "headersHelper": "{{HELM_EXECUTOR_SH}} headers"
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "requiredMinimumVersion": "2.1.285",
+  "allowedProviders": ["customEndpoint"],
+  "env": {
+    "ANTHROPIC_BASE_URL": "{{EDGE_URL}}",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_AUTH_TOKEN": "",
+    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "240000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "HELM_EXECUTOR_CLIENT": "claude-code",
+    "HELM_EXECUTOR_CP_URL": "{{CP_URL}}",
+    "HELM_EXECUTOR_ORG": "{{ORG_ID}}"
+  },
+  "apiKeyHelper": "{{HELM_EXECUTOR_SH}} token",
+  "allowManagedHooksOnly": true,
+  "allowManagedMcpServersOnly": true,
+  "allowedMcpServers": [{ "serverUrl": "{{EDGE_URL}}/mcp" }],
+  "permissions": {
+    "deny": [
+      "Bash(git push *)",
+      "Bash(gh pr merge *)",
+      "Bash(kubectl *)",
+      "Bash(flux *)",
+      "WebSearch",
+      "WebFetch",
+      "mcp__*__save_*",
+      "mcp__*__create_*",
+      "mcp__*__update_*",
+      "mcp__*__delete_*",
+      "mcp__*__share_issue",
+      "mcp__*__unshare_issue",
+      "Read(~/.config/helm-executor/**)",
+      "Edit(~/.config/helm-executor/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|mcp__.*)$",
+        "hooks": [{ "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "PreToolUse"], "async": true }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|mcp__.*)$",
+        "hooks": [{ "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "PostToolUse"], "async": true }]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "^(Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|mcp__.*)$",
+        "hooks": [{ "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "PostToolUseFailure"], "async": true }]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "SessionStart"], "async": true }]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [{ "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "SessionEnd"], "timeout": 5 }]
+      }
+    ]
+  }
+}
