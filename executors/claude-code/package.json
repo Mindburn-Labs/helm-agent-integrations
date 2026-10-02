@@ -1,0 +1,19 @@
+{
+  "name": "@mindburn/helm-executor-claude-code",
+  "version": "0.1.0",
+  "description": "Claude Code adapter for HELM executors: managed settings template, installer and conformance run",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "executors/claude-code"
+  }
+}

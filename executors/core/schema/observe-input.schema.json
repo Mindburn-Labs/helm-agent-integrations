@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mindburn:helm:executor:observe-input:v1",
+  "title": "helm-executor observe: hook stdin envelope (v1)",
+  "description": "The JSON a client hook writes to the stdin of `helm-executor observe`, passed through unchanged. Claude Code and Codex hook inputs both satisfy this schema. Unknown fields are allowed and ignored. `tool_input` and `tool_response` are read only to compute a digest and a short summary (the shape of a Bash command, the path of a file tool); they are never sent whole.",
+  "type": "object",
+  "required": ["session_id"],
+  "anyOf": [
+    { "required": ["tool_name"] },
+    {
+      "required": ["hook_event_name"],
+      "properties": { "hook_event_name": { "enum": ["SessionStart", "SessionEnd"] } }
+    }
+  ],
+  "properties": {
+    "session_id": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Client session id. Claude Code and Codex send it on every event." },
+    "hook_event_name": { "type": "string", "maxLength": 64, "description": "Optional. `--event` on the command line wins when both are present." },
+    "tool_name": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Canonical tool name: Bash, Edit, Write, apply_patch, or mcp__<server>__<tool>." },
+    "tool_input": { "description": "Tool arguments. Any JSON value; an object in practice." },
+    "tool_response": { "description": "Tool result. Present on PostToolUse and PostToolUseFailure. Never sent." },
+    "tool_use_id": { "type": "string", "maxLength": 256 },
+    "cwd": { "type": "string", "maxLength": 4096, "description": "Read for the Bash/file summaries only. Never sent on its own." },
+    "permission_mode": { "type": "string", "maxLength": 64 },
+    "agent_id": { "type": "string", "maxLength": 256, "description": "Present only when the hook fires inside a subagent." },
+    "agent_type": { "type": "string", "maxLength": 256 },
+    "duration_ms": { "type": "integer", "minimum": 0, "description": "Claude Code PostToolUse only." },
+    "prompt_id": { "type": "string", "maxLength": 256, "description": "Claude Code only." },
+    "mcp_server": {
+      "type": "object",
+      "description": "Claude Code 2.1.274 and later, MCP tools only.",
+      "properties": { "name": { "type": "string", "maxLength": 128 }, "source": { "type": "string", "maxLength": 64 } }
+    },
+    "turn_id": { "type": "string", "maxLength": 256, "description": "Codex only." },
+    "model": { "type": "string", "maxLength": 256, "description": "Codex only. Read for nothing." },
+    "transcript_path": { "type": ["string", "null"], "description": "Read for nothing." }
+  },
+  "additionalProperties": true
+}

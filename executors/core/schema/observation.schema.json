@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mindburn:helm:executor:observation:v1",
+  "title": "HELM executor observation (v1)",
+  "description": "The body `helm-executor observe` posts to `POST {ORG}/observations`. It is evidence that a client hook saw a tool call. It is observed-only: it proves nothing about enforcement, and the client can drop, skip or fake it. The gateway's own records are the authority.",
+  "type": "object",
+  "required": ["schema", "coverage", "client", "event", "observed_at", "episode_id", "work_item_id", "session_id"],
+  "properties": {
+    "schema": { "const": "helm.executor.observation/v1" },
+    "coverage": { "const": "observed-only" },
+    "client": { "enum": ["claude-code", "codex"] },
+    "event": { "enum": ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd"] },
+    "observed_at": { "type": "string", "format": "date-time", "description": "When `observe` ran, UTC, millisecond precision. Not the client's event time." },
+    "episode_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "From the checked-out episode, never from the hook input." },
+    "work_item_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "From the checked-out episode, never from the hook input." },
+    "session_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "turn_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "prompt_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "agent_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "agent_type": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "permission_mode": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "tool": {
+      "type": "object",
+      "required": ["name", "phase", "input_digest"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "use_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "mcp_server": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "phase": { "enum": ["before", "after", "failed"], "description": "before = PreToolUse, after = PostToolUse, failed = PostToolUseFailure. No success or failure is inferred from tool_response." },
+        "input_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "SHA-256 of tool_input as JSON with object keys sorted and no whitespace." },
+        "input_summary": { "type": "string", "maxLength": 256, "description": "Optional. Bash: the shape of the command (programs and action words, no argument). Read, Edit, Write, MultiEdit, NotebookEdit and apply_patch: the path. Every other tool: omitted. Credential-shaped strings are also redacted." },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "if": { "properties": { "event": { "enum": ["PreToolUse", "PostToolUse", "PostToolUseFailure"] } } },
+  "then": { "required": ["tool"] },
+  "else": { "not": { "required": ["tool"] } },
+  "additionalProperties": false
+}
