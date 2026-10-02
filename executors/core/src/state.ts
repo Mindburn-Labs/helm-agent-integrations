@@ -15,6 +15,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -33,6 +34,8 @@ export interface Credentials {
   refresh_token: string;
   refresh_expires_at: string;
   logged_in_at: string;
+  /** Set when a renewal's answer never arrived, so the rotating refresh token may have been replaced without us. */
+  refresh_in_doubt_at?: string;
 }
 
 export interface CachedToken {
@@ -51,8 +54,25 @@ export interface SlotState {
   deadline: string;
   checked_out_at: string;
   token?: CachedToken;
-  /** Set when the control plane said the episode is gone. Later calls fail without the network. */
+  /** Set when the control plane said the episode is gone (410). Later calls fail without the network. */
   ended?: { at: string; reason: string };
+  /** How far the control plane's clock was ahead of this machine's at the last answer, when it was off by 5 s or more. */
+  clock_skew_ms?: number;
+}
+
+const SKEW_FLOOR_MS = 5_000;
+const SKEW_CEILING_MS = 24 * 3_600_000;
+
+/** The skew to remember from a response's `Date` header: zero unless this clock is clearly off. */
+export function skewFrom(serverDateMs: number | null, nowMs: number): number {
+  if (serverDateMs === null) return 0;
+  const skew = serverDateMs - nowMs;
+  return Math.abs(skew) < SKEW_FLOOR_MS || Math.abs(skew) > SKEW_CEILING_MS ? 0 : skew;
+}
+
+/** A timestamp from the control plane for this slot's episode, as a time on this machine's clock. */
+export function localMs(slot: Pick<SlotState, "clock_skew_ms">, serverTime: string): number {
+  return Date.parse(serverTime) - (slot.clock_skew_ms ?? 0);
 }
 
 export interface ObserveRecord {
@@ -91,7 +111,7 @@ export function writeJsonAtomic(path: string, value: unknown): void {
   }
 }
 
-export function readJson<T>(path: string): T | null {
+export function readJson<T>(path: string, corrupt?: (path: string) => ExecutorError): T | null {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -102,7 +122,7 @@ export function readJson<T>(path: string): T | null {
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new ExecutorError("internal", `state file ${path.split("/").pop()} is corrupt; remove it and retry`);
+    throw corrupt?.(path) ?? new ExecutorError("internal", `state file ${path} is corrupt; remove it and retry`);
   }
 }
 
@@ -115,6 +135,7 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/** A lock is stale when its owner process is gone, or when a live owner has stopped refreshing it. */
 function lockIsStale(lockPath: string, staleMs: number): boolean {
   let raw: string;
   let mtimeMs: number;
@@ -124,43 +145,105 @@ function lockIsStale(lockPath: string, staleMs: number): boolean {
   } catch {
     return false;
   }
-  if (Date.now() - mtimeMs > staleMs) return true;
   try {
     const pid = (JSON.parse(raw) as { pid?: unknown }).pid;
-    return typeof pid === "number" && !pidAlive(pid);
+    if (typeof pid === "number" && !pidAlive(pid)) return true;
   } catch {
-    return false;
+    // an unreadable owner record falls back to the age rule
+  }
+  return Date.now() - mtimeMs > staleMs;
+}
+
+/** A takeover guard is held for microseconds, so one this old was left by a process that died while holding it. */
+const GUARD_STALE_MS = 5_000;
+
+/**
+ * Remove a stale lock. Takeovers are serialized by a second lock file and staleness is judged again under it, so of
+ * several waiters that saw the same dead holder exactly one removes the lock, and none removes a new holder's.
+ */
+function takeOver(lockPath: string, staleMs: number): void {
+  const guard = `${lockPath}.takeover`;
+  let fd: number;
+  try {
+    fd = openSync(guard, "wx", 0o600);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    try {
+      if (Date.now() - statSync(guard).mtimeMs > GUARD_STALE_MS) rmSync(guard, { force: true });
+    } catch {
+      // already gone
+    }
+    return;
+  }
+  closeSync(fd);
+  try {
+    if (lockIsStale(lockPath, staleMs)) rmSync(lockPath, { force: true });
+  } finally {
+    rmSync(guard, { force: true });
   }
 }
 
-/** Run `fn` while holding an exclusive lock file. Waits up to `timeoutMs`, then fails as `unavailable`. */
-export async function withLock<T>(lockPath: string, timeoutMs: number, fn: () => Promise<T>): Promise<T> {
+export interface LockTiming {
+  /** How long a lock can go without being refreshed before a waiter takes it over. */
+  staleMs: number;
+  /** How often the holder refreshes it. */
+  heartbeatMs: number;
+}
+
+const LOCK_TIMING: LockTiming = { staleMs: 30_000, heartbeatMs: 5_000 };
+
+/** Remove the lock only when it is still ours: a waiter may have taken over a lock this process stopped refreshing. */
+function releaseLock(lockPath: string, owner: string): void {
+  try {
+    if (readFileSync(lockPath, "utf8") !== owner) return;
+  } catch {
+    return;
+  }
+  rmSync(lockPath, { force: true });
+}
+
+/**
+ * Run `fn` while holding an exclusive lock file. Waits up to `timeoutMs`, then fails as `unavailable`.
+ * The holder refreshes the lock's modification time while `fn` runs, so a long holder, such as `checkout --wait`,
+ * is never mistaken for a crashed one.
+ */
+export async function withLock<T>(lockPath: string, timeoutMs: number, fn: () => Promise<T>, timing: Partial<LockTiming> = {}): Promise<T> {
+  const { staleMs, heartbeatMs } = { ...LOCK_TIMING, ...timing };
   const deadline = Date.now() + timeoutMs;
+  const owner = JSON.stringify({ pid: process.pid, t: Date.now(), n: randomBytes(4).toString("hex") });
   for (;;) {
     try {
       const fd = openSync(lockPath, "wx", 0o600);
       try {
-        writeSync(fd, JSON.stringify({ pid: process.pid, t: Date.now() }));
+        writeSync(fd, owner);
       } finally {
         closeSync(fd);
       }
       break;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      // ponytail: two waiters can both judge a crashed holder's lock stale and both remove it. It needs a crash
-      // plus simultaneous waiters; the cost is one refused refresh, fixed by logging in again.
-      if (lockIsStale(lockPath, 30_000)) {
-        rmSync(lockPath, { force: true });
+      if (lockIsStale(lockPath, staleMs)) {
+        takeOver(lockPath, staleMs);
         continue;
       }
       if (Date.now() >= deadline) throw new ExecutorError("unavailable", "timed out waiting for another helm-executor process");
       await new Promise((resolve) => setTimeout(resolve, 20 + Math.floor(Math.random() * 40)));
     }
   }
+  const heartbeat = setInterval(() => {
+    try {
+      const now = new Date();
+      utimesSync(lockPath, now, now);
+    } catch {
+      // the lock is gone; the release below sees that
+    }
+  }, heartbeatMs);
+  heartbeat.unref();
   try {
     return await fn();
   } finally {
-    rmSync(lockPath, { force: true });
+    clearInterval(heartbeat);
+    releaseLock(lockPath, owner);
   }
 }
 
@@ -185,7 +268,17 @@ function ensureSlots(ctx: Ctx): void {
 // ---- credentials -------------------------------------------------------------------------------------------
 
 export function loadCredentials(ctx: Ctx): Credentials | null {
-  return readJson<Credentials>(credentialsPath(ctx));
+  return readJson<Credentials>(credentialsPath(ctx), (p) => new ExecutorError("not_logged_in", `the credentials file ${p} is corrupt; run \`helm-executor login\` to replace it`));
+}
+
+/** The stored credentials, or null when there are none or the file is unreadable. For `login`, which replaces them. */
+export function loadCredentialsLenient(ctx: Ctx): Credentials | null {
+  try {
+    return loadCredentials(ctx);
+  } catch (err) {
+    if (err instanceof ExecutorError && err.code === "not_logged_in") return null;
+    throw err;
+  }
 }
 
 export function saveCredentials(ctx: Ctx, credentials: Credentials): void {
@@ -196,7 +289,7 @@ export function saveCredentials(ctx: Ctx, credentials: Credentials): void {
 // ---- slot --------------------------------------------------------------------------------------------------
 
 export function loadSlot(ctx: Ctx): SlotState | null {
-  return readJson<SlotState>(slotPath(ctx));
+  return readJson<SlotState>(slotPath(ctx), (p) => new ExecutorError("no_episode", `the slot file ${p} is corrupt; run \`helm-executor stop --local\` and check out again`));
 }
 
 export function saveSlot(ctx: Ctx, state: SlotState): void {
@@ -207,6 +300,38 @@ export function saveSlot(ctx: Ctx, state: SlotState): void {
 export function clearSlot(ctx: Ctx): void {
   rmSync(slotPath(ctx), { force: true });
   rmSync(observePath(ctx), { force: true });
+  clearPendingCheckout(ctx);
+}
+
+/**
+ * The idempotency key of a checkout that has not been confirmed. It is kept across invocations: when every answer of one
+ * run was lost, the control plane may still have created the episode, and the same key makes the next run get it back.
+ */
+export interface PendingCheckout {
+  key: string;
+  work_item_id: string;
+  client: string;
+  org_id: string;
+  created_at: string;
+}
+
+const pendingPath = (ctx: Ctx): string => join(slotsDir(ctx), `${ctx.slot}.pending.json`);
+
+export function loadPendingCheckout(ctx: Ctx): PendingCheckout | null {
+  try {
+    return readJson<PendingCheckout>(pendingPath(ctx));
+  } catch {
+    return null;
+  }
+}
+
+export function savePendingCheckout(ctx: Ctx, pending: PendingCheckout): void {
+  ensureSlots(ctx);
+  writeJsonAtomic(pendingPath(ctx), pending);
+}
+
+export function clearPendingCheckout(ctx: Ctx): void {
+  rmSync(pendingPath(ctx), { force: true });
 }
 
 export function ensureSlotDir(ctx: Ctx): void {

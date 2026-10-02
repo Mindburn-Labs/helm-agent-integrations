@@ -1,11 +1,13 @@
 // Turn a client hook envelope into the observation body. Schemas: schema/observe-input.schema.json and
 // schema/observation.schema.json; CONTRACT.md section 5 is the spec.
-// Data minimization: the body carries a digest and a short redacted summary of the tool input, never the
-// input itself, never tool output, prompts, the transcript, the environment or the working directory.
+// Data minimization: the body carries a digest and a short summary of the tool input (the shape of a Bash command,
+// the path of a file tool), never the input itself, never tool output, prompts, the transcript, the environment or
+// the working directory.
 
 import { createHash } from "node:crypto";
 import { ExecutorError } from "./errors.js";
 import { redactSecrets } from "./redact.js";
+import { commandShape } from "./shape.js";
 import type { SlotState } from "./state.js";
 
 export const OBSERVE_CLIENTS = ["claude-code", "codex"] as const;
@@ -93,7 +95,8 @@ export function summarize(toolName: string, toolInput: unknown, cwd: unknown): s
   const input = isRecord(toolInput) ? toolInput : undefined;
   let raw: string | undefined;
   if (toolName === "Bash") {
-    raw = typeof input?.command === "string" ? input.command : undefined;
+    // The shape of the command, never its arguments: a command line is where credentials get typed.
+    raw = typeof input?.command === "string" ? commandShape(input.command) : undefined;
   } else if (PATH_TOOLS.has(toolName)) {
     const path = input?.file_path ?? input?.notebook_path ?? input?.path;
     raw = typeof path === "string" ? relativeTo(path, cwd) : undefined;

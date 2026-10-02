@@ -18,12 +18,22 @@ The tables below say which is which.
 | Model calls | `ANTHROPIC_BASE_URL` pinned to the executor edge, `apiKeyHelper` = `helm-executor token`, `allowedProviders: ["customEndpoint"]`. The gateway holds the provider key | enforced by the gateway; the managed file stops a session being re-pointed |
 | GitHub, Linear and deploy writes | HELM MCP tools only (`managed-mcp.json`, `allowManagedMcpServersOnly`). The gateway holds the tokens | enforced by the gateway |
 | Raw `git push`, `gh pr merge`, `kubectl`, `flux`, Linear write tools, `WebSearch`, `WebFetch` | `permissions.deny` rules | convenience: Claude Code documents Bash rules as not a security boundary. `git -C . push`, `/usr/bin/git push` and `sh -c '…'` get past them. Without a credential the call fails anyway |
-| What the session did | `observe` hooks on Bash, file edits, subagents, MCP calls and session start and end | observed-only. Lossy by design; nothing in it proves enforcement |
+| Reading the machine credential in `~/.config/helm-executor` | `Read` and `Edit` deny rules on that directory | convenience, and weaker than the rows above: the rules cover Claude's file tools and a few file commands it recognizes (`cat`, `head`, `sed`), not `base64`, `cp`, `tar` or a script. The control is the file mode (0600, directory 0700, one OS user) and revocation at the control plane. The gateway is not a second line here: a stolen refresh token mints episodes for the enrolled seat until the credential is revoked |
+| What the session did | `observe` hooks on Bash, file edits, subagents, MCP calls and session start and end | observed-only. Lossy by design; nothing in it proves enforcement. A Bash call is reported as its shape (`git push origin`), never its arguments |
 | Active time | OpenTelemetry metrics, see below | observation |
 
 Not covered here: other raw writes such as `gh pr create` or `gh api`, and
 `curl` to a provider API. They fail for lack of a credential, and GitHub
 rulesets are the second line.
+
+To make the credential directory unreadable for Bash commands at the operating
+system level, Claude Code's sandbox has a documented layer: `sandbox.enabled:
+true` with `sandbox.credentials.files` holding `{ "path":
+"~/.config/helm-executor", "mode": "deny" }`. It narrows what every Bash command
+can do (writes outside the working directory, network), so this profile does not
+turn it on and it has not been exercised here. With it on, run `helm-executor
+checkout` and `stop` from the launcher, not from the session. Keep an executor
+host single-purpose, and do not export OTLP headers for another collector on it.
 
 ## Profiles
 
@@ -52,7 +62,9 @@ did not write, refuses a Claude Code older than 2.1.285 (the policy would lock i
 out), and after installing runs the pieces the way Claude Code will: the wrapper,
 the `apiKeyHelper` and `headersHelper` command lines against an empty state
 directory (they must fail closed with nothing on stdout), and the observe hook.
-`uninstall` removes only what the manifest lists and keeps anything edited since.
+`uninstall` removes only what the manifest lists, only inside the installer's own
+locations (the library directory, the wrapper and the three policy files), and
+keeps anything edited since.
 Then, as each executor user, `helm-executor login --cp-url …`, start Claude Code
 and run `/status`: the setting sources line must show the managed settings file.
 A macOS MDM profile for Claude Code ranks above the file and hides it.
@@ -79,8 +91,10 @@ stop a session being re-pointed; the credentials in the gateway still do.
 
 **Owner telemetry, opt-in.** `install.mjs owner-otel --otel-endpoint … --yes` adds
 six telemetry variables to the `env` block of the owner's own Claude Code settings,
-backs the file up, refuses to overwrite a value or edit a file that is not JSON,
-and `--remove` undoes it. No other command writes to a user's settings. A test
+backs the file up, refuses to overwrite a value, to edit a file that is not JSON,
+or to touch one that already carries OTLP headers, client keys or an
+`otelHeadersHelper` (they would follow the endpoint to the HELM collector), and
+`--remove` undoes it. No other command writes to a user's settings. A test
 runs every command against a sentinel settings file and checks it is unchanged.
 
 ## Starting a session

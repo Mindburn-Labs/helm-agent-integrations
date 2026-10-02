@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { checkout } from "./commands/checkout.js";
+import { makeCtx } from "./ctx.js";
 import { otelResourceAttributes, renderEnv, renderStatus, statusReport } from "./commands/status.js";
 import { stop } from "./commands/stop.js";
 import { ExecutorError } from "./errors.js";
 import { checkedOut, loggedIn, world } from "./test-utils.js";
+import { credentialsPath, loadCredentials, saveCredentials, slotPath } from "./state.js";
+import { writeFileSync } from "node:fs";
 
 const rejects = (fn: () => unknown, code: string): void => assert.throws(fn, (e: unknown) => e instanceof ExecutorError && e.code === code);
 
@@ -77,6 +80,45 @@ test("status is honest about each state and never carries a credential", async (
 
     const text = JSON.stringify(live) + renderStatus(live);
     for (const secret of ["helm_at_", "helm_rt_", "eyJ"]) assert.ok(!text.includes(secret), secret);
+  } finally {
+    await w.close();
+  }
+});
+
+test("status reports what needs a person and never fails on it: a foreign control plane, a lost renewal, unreadable files", async () => {
+  const w = await world();
+  try {
+    const ctx = await checkedOut(w);
+    assert.deepEqual(statusReport(ctx).problems, []);
+
+    const foreign = w.ctx({ env: { HELM_EXECUTOR_CP_URL: "https://elsewhere.example.com" } });
+    const named = statusReport(foreign);
+    assert.equal(named.cp_url, w.fake.url, "it shows the control plane the machine logged in to");
+    assert.ok(named.problems.some((p) => p.includes("https://elsewhere.example.com") && p.includes(w.fake.url) && /run login/.test(p)));
+
+    saveCredentials(ctx, { ...loadCredentials(ctx)!, refresh_in_doubt_at: "2026-10-08T11:00:00.000Z" });
+    assert.ok(statusReport(ctx).problems.some((p) => /never arrived/.test(p)));
+    assert.match(renderStatus(statusReport(ctx)), /\nproblem: the answer to a credential renewal at 2026-10-08T11:00:00.000Z never arrived/);
+
+    writeFileSync(credentialsPath(ctx), "{");
+    writeFileSync(slotPath(ctx), "[");
+    const broken = statusReport(ctx);
+    assert.equal(broken.logged_in, false);
+    assert.equal(broken.episode, null);
+    assert.equal(broken.problems.length, 2);
+    assert.ok(broken.problems[0]?.includes("credentials.json") && broken.problems[1]?.includes("default.json"));
+  } finally {
+    await w.close();
+  }
+});
+
+test("the seconds left are counted on the control plane's clock when this machine's is far off", async () => {
+  const w = await world();
+  try {
+    const skewed = makeCtx(w.env(), { now: () => w.clock.now() + 20 * 60_000, sleep: w.clock.sleep, home: w.home, slot: "default" });
+    await loggedIn(w);
+    await checkout(skewed, { workItem: "HELM-910", client: "claude-code" });
+    assert.equal(statusReport(skewed).episode?.seconds_left, 3600);
   } finally {
     await w.close();
   }

@@ -24,3 +24,19 @@ test("a body that does not fit the contract is an internal error that names the 
   assert.throws(() => parseEpisodeGrant([]), (e: unknown) => e instanceof ExecutorError && e.code === "internal");
   assert.throws(() => parseEpisodeGrant(null), (e: unknown) => e instanceof ExecutorError && e.code === "internal");
 });
+
+test("expires_in is added to the control plane's clock, so the skew the caller measured is carried along", () => {
+  assert.deepEqual(parseEpisodeTokenGrant({ token: "t", expires_in: 900 }, NOW, 20 * 60_000), { token: "t", token_expires_at: "2026-10-08T12:35:00.000Z" });
+});
+
+test("a token with a line break, a space or a control character is refused, so stdout stays one line and a header stays one value", () => {
+  const unusable = (fn: () => unknown, field: string): void =>
+    assert.throws(fn, (e: unknown) => e instanceof ExecutorError && e.code === "internal" && e.message.includes(`"${field}"`) && /unusable/.test(e.message));
+  for (const bad of ["abc\ndef", "abc def", "abc\r", "abc\u0000", "abcé", "tok en"]) {
+    unusable(() => parseEpisodeTokenGrant({ token: bad, expires_in: 900 }, NOW), "token");
+    unusable(() => parseEpisodeGrant({ episode_id: "e", work_item_id: "w", token: bad, token_expires_at: "2026-10-08T12:15:00.000Z", deadline: "2026-10-08T13:00:00.000Z" }), "token");
+    unusable(() => parseMachineToken({ access_token: bad, expires_in: 900, refresh_token: "r", refresh_expires_in: 99, credential_id: "c", subject: "s", workspace_id: "w" }), "access_token");
+    unusable(() => parseMachineToken({ access_token: "a", expires_in: 900, refresh_token: bad, refresh_expires_in: 99, credential_id: "c", subject: "s", workspace_id: "w" }), "refresh_token");
+  }
+  assert.equal(parseEpisodeTokenGrant({ token: "eyJhbGciOiJub25lIn0.e30.c2ln-_~+/=", expires_in: 900 }, NOW).token, "eyJhbGciOiJub25lIn0.e30.c2ln-_~+/=");
+});

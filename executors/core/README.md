@@ -37,14 +37,22 @@ involved.
 `HELM_EXECUTOR_HOME` (default `~/.config/helm-executor`) is a directory of mode
 0700. The machine credential and each slot's episode are files of mode 0600,
 written atomically. A rotating refresh token and an episode mint run under a lock
-file, so helpers that start at the same moment share one refresh and one mint.
+file, so helpers that start at the same moment share one refresh and one mint. The
+holder refreshes the lock while it works, and a waiter takes a lock over only from
+a process that is gone or has stopped refreshing it, one waiter at a time.
 Nothing prints a credential except `token` and `headers`, and a credential never
 reaches a log, a stderr line or an observation. The client never follows a
-redirect, so a bearer token cannot be sent to another host.
+redirect, so a bearer token cannot be sent to another host, and the machine
+credential is sent only to the control plane that issued it: an environment that
+names another one is a usage error.
+
+A hook never renews the credential, and a renewal is not started with under 2.5
+seconds left, because a renewal cut off after the control plane rotated the refresh
+token loses the machine's login. Whatever the control plane does with a lost answer
+is its call; see "Open request" in CONTRACT.md section 7.
 
 Limits, deliberate for now: macOS and Linux only; the credential is a file, not a
-keychain item; a stale lock left by a crash can, rarely, let two waiters both
-take over and cost one refused refresh.
+keychain item.
 
 ## Fake control plane
 

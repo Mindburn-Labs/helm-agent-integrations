@@ -161,7 +161,7 @@ export async function runConformance(options) {
     }
 
     // ---- observation ----
-    const hook = (event, extra) => JSON.stringify({ session_id: "conformance-session", hook_event_name: event, cwd: tmp, tool_name: "Bash", tool_input: { command: "echo observe-probe" }, tool_use_id: "toolu_probe", ...extra });
+    const hook = (event, extra) => JSON.stringify({ session_id: "conformance-session", hook_event_name: event, cwd: tmp, tool_name: "Bash", tool_input: { command: "printf observe-probe" }, tool_use_id: "toolu_probe", ...extra });
     const pre = await cli(["observe", "--client", "claude-code", "--event", "PreToolUse"], { input: hook("PreToolUse") });
     const post = await cli(["observe", "--client", "claude-code", "--event", "PostToolUse"], { input: hook("PostToolUse", { tool_response: { stdout: "observe-probe" }, duration_ms: 3 }) });
     record("observe exits 0 and prints nothing", pre.code === 0 && post.code === 0 && pre.stdout === "" && post.stdout === "", `${pre.stderr.trim()}${post.stderr.trim()}`);
@@ -272,9 +272,10 @@ async function claudeSession({ options, fake, scripted, files, tmp, home, slot, 
   record("an allowed command still ran", allowed?.is_error !== true && textOf(allowed).includes("conformance-ok"), textOf(allowed).slice(0, 100));
   await sleep(600);
   const observed = fake.observations.map((o) => `${o.event}:${o.tool?.name ?? ""}:${o.tool?.input_summary ?? ""}`);
-  const wanted = ["SessionStart::", "PreToolUse:Bash:git push origin conformance-probe", "PreToolUse:Bash:echo conformance-ok"];
-  const lostAtTeardown = observed.includes("PostToolUse:Bash:echo conformance-ok") ? "" : "; the echo's PostToolUse did not arrive (claude -p stops async hooks at exit)";
-  record("the hooks reported the session start, the denied attempt and the allowed command as observed-only", wanted.every((w) => observed.includes(w)) && fake.observations.every((o) => o.coverage === "observed-only"), `${observed.filter((o) => !o.includes("observe-probe")).join(" | ").slice(0, 260)}${lostAtTeardown}`);
+  // The summary is the command's shape (programs and action words), so the probe above is `printf` and these are not.
+  const wanted = ["SessionStart::", "PreToolUse:Bash:git push origin", "PreToolUse:Bash:echo"];
+  const lostAtTeardown = observed.includes("PostToolUse:Bash:echo") ? "" : "; the echo's PostToolUse did not arrive (claude -p stops async hooks at exit)";
+  record("the hooks reported the session start, the denied attempt and the allowed command as observed-only", wanted.every((w) => observed.includes(w)) && fake.observations.every((o) => o.coverage === "observed-only"), `${observed.filter((o) => !o.endsWith(":printf")).join(" | ").slice(0, 260)}${lostAtTeardown}`);
   const mcpRequests = fake.requests.filter((r) => r.path === "/mcp");
   record("Claude Code connected to the HELM MCP server with the headersHelper token", mcpRequests.length > 0 && mcpRequests.every((r) => String(r.headers.authorization ?? "").startsWith("Bearer ")) && mcpRequests.some((r) => r.body?.method === "tools/list"), `${mcpRequests.length} MCP requests`);
 }

@@ -2,7 +2,8 @@
 
 import type { Ctx } from "../ctx.js";
 import { ExecutorError } from "../errors.js";
-import { loadCredentials, loadObserveRecord, loadSlot } from "../state.js";
+import { normalizeBaseUrl } from "../http.js";
+import { loadCredentials, loadObserveRecord, loadSlot, localMs, type Credentials, type SlotState } from "../state.js";
 
 export interface StatusReport {
   schema: "helm.executor.status/v1";
@@ -19,17 +20,49 @@ export interface StatusReport {
     ended: string | null;
   } | null;
   observe: { last_ok_at: string | null; last_error_at: string | null; last_error: string | null };
+  /** What needs a person's attention: an unreadable state file, an environment that disagrees with the login, a lost renewal. */
+  problems: string[];
+}
+
+/** A state file that cannot be read is a problem to report, not a reason for `status` to fail. */
+function tolerate<T>(problems: string[], read: () => T | null): T | null {
+  try {
+    return read();
+  } catch (err) {
+    problems.push(err instanceof ExecutorError ? err.message : "a state file could not be read");
+    return null;
+  }
+}
+
+function credentialProblems(ctx: Ctx, creds: Credentials): string[] {
+  const out: string[] = [];
+  const named = ctx.env.HELM_EXECUTOR_CP_URL?.trim();
+  try {
+    if (named && normalizeBaseUrl(named) !== normalizeBaseUrl(creds.cp_url)) {
+      out.push(`HELM_EXECUTOR_CP_URL names ${normalizeBaseUrl(named)}, but this machine logged in to ${normalizeBaseUrl(creds.cp_url)}; run login for the new one`);
+    }
+  } catch (err) {
+    if (err instanceof ExecutorError) out.push(err.message);
+  }
+  if (creds.refresh_in_doubt_at) out.push(`the answer to a credential renewal at ${creds.refresh_in_doubt_at} never arrived; if the next renewal is refused, log in again`);
+  return out;
+}
+
+function seconds(slot: SlotState, now: number): number {
+  return Math.max(0, Math.round((localMs(slot, slot.deadline) - now) / 1000));
 }
 
 export function statusReport(ctx: Ctx): StatusReport {
-  const creds = loadCredentials(ctx);
-  const slot = loadSlot(ctx);
+  const problems: string[] = [];
+  const creds = tolerate(problems, () => loadCredentials(ctx));
+  if (creds) problems.push(...credentialProblems(ctx, creds));
+  const slot = tolerate(problems, () => loadSlot(ctx));
   const observe = loadObserveRecord(ctx);
   return {
     schema: "helm.executor.status/v1",
     logged_in: creds !== null,
     workspace_id: creds?.workspace_id ?? null,
-    cp_url: ctx.env.HELM_EXECUTOR_CP_URL?.trim() || creds?.cp_url || null,
+    cp_url: creds?.cp_url ?? null,
     slot: ctx.slot,
     episode: slot
       ? {
@@ -37,11 +70,12 @@ export function statusReport(ctx: Ctx): StatusReport {
           work_item_id: slot.work_item_id,
           client: slot.client,
           deadline: slot.deadline,
-          seconds_left: Math.max(0, Math.round((Date.parse(slot.deadline) - ctx.now()) / 1000)),
+          seconds_left: seconds(slot, ctx.now()),
           ended: slot.ended?.reason ?? null,
         }
       : null,
     observe: { last_ok_at: observe.last_ok_at, last_error_at: observe.last_error_at, last_error: observe.last_error },
+    problems,
   };
 }
 
@@ -56,6 +90,7 @@ export function renderStatus(report: StatusReport): string {
   else lines.push(`episode: ${ep.work_item_id} (${ep.episode_id}, ${ep.client}), ${ep.seconds_left} s left before the deadline`);
   const o = report.observe;
   lines.push(`observe: last ok ${o.last_ok_at ?? "never"}${o.last_error_at ? `; last error ${o.last_error_at}: ${o.last_error}` : ""}`);
+  for (const problem of report.problems) lines.push(`problem: ${problem}`);
   return `${lines.join("\n")}\n`;
 }
 

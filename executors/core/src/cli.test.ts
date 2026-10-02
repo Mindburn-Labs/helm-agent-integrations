@@ -57,6 +57,17 @@ async function ready(name: string, extra: Record<string, string> = {}): Promise<
   return env;
 }
 
+// A session whose control plane then goes away. The credential belongs to the control plane that issued it, so "down"
+// has to be that very one.
+async function readyThenDown(name: string): Promise<Record<string, string>> {
+  const own = await startFakeCp();
+  const env = envFor(`${name}-${++n}`, { HELM_EXECUTOR_CP_URL: own.url, HELM_EXECUTOR_ORG: own.orgId });
+  assert.equal((await run(["login"], env)).code, 0);
+  assert.equal((await run(["checkout", `work-${n}`, "--client", "claude-code"], env)).code, 0);
+  await own.close();
+  return env;
+}
+
 function ageToken(env: Record<string, string>, slot = "default"): void {
   const file = join(env.HELM_EXECUTOR_HOME ?? "", "slots", `${slot}.json`);
   const state = JSON.parse(readFileSync(file, "utf8")) as { token: { minted_at: string } };
@@ -129,9 +140,12 @@ test("every failure prints exactly one stderr line, nothing on stdout, and its d
       code: 6,
       line: /^helm-executor: unavailable: /,
       go: async () => {
-        const env = envFor(`f${++n}`);
+        // The credential belongs to the control plane it was issued by, so the one that goes away is the one logged in to.
+        const gone = await startFakeCp();
+        const env = envFor(`f${++n}`, { HELM_EXECUTOR_CP_URL: gone.url, HELM_EXECUTOR_ORG: gone.orgId });
         await run(["login"], env);
-        return run(["checkout", "HELM-910", "--client", "claude-code"], { ...env, HELM_EXECUTOR_CP_URL: "http://127.0.0.1:9" });
+        await gone.close();
+        return run(["checkout", "HELM-910", "--client", "claude-code"], env);
       },
     },
     {
@@ -187,25 +201,29 @@ test("observe exits 0 and writes nothing to stdout whatever it is given", async 
   assert.equal(noState.code, 0);
   assert.equal(noState.stdout, "");
   assert.equal(noState.stderr, "", "no episode: silent");
-  const down = await run(["observe", "--client", "claude-code", "--event", "PostToolUse"], { ...env, HELM_EXECUTOR_CP_URL: "http://127.0.0.1:9" }, claudeHook);
+  const down = await run(["observe", "--client", "claude-code", "--event", "PostToolUse"], await readyThenDown("observe-down"), claudeHook);
   assert.equal(down.code, 0);
   assert.match(down.stderr, /^helm-executor: unavailable: /);
 });
 
 test("no command prints a credential except token and headers", async () => {
   const env = await ready("secrets");
+  const down = await readyThenDown("secrets-down");
   const secrets = new Set<string>();
   const home = env.HELM_EXECUTOR_HOME ?? "";
   const creds = JSON.parse(readFileSync(join(home, "credentials.json"), "utf8")) as { access_token: string; refresh_token: string };
   const slot = JSON.parse(readFileSync(join(home, "slots", "default.json"), "utf8")) as { token: { value: string } };
-  for (const s of [creds.access_token, creds.refresh_token, slot.token.value]) secrets.add(s);
+  const downHome = down.HELM_EXECUTOR_HOME ?? "";
+  const downCreds = JSON.parse(readFileSync(join(downHome, "credentials.json"), "utf8")) as { access_token: string; refresh_token: string };
+  const downSlot = JSON.parse(readFileSync(join(downHome, "slots", "default.json"), "utf8")) as { token: { value: string } };
+  for (const s of [creds.access_token, creds.refresh_token, slot.token.value, downCreds.access_token, downCreds.refresh_token, downSlot.token.value]) secrets.add(s);
   const outputs: Run[] = [
     await run(["status"], env),
     await run(["status", "--json"], env),
     await run(["env"], env),
     await run(["checkout", "HELM-910", "--client", "claude-code"], env),
     await run(["observe", "--client", "claude-code", "--event", "PostToolUse"], env, claudeHook),
-    await run(["observe", "--client", "claude-code", "--event", "PostToolUse"], { ...env, HELM_EXECUTOR_CP_URL: "http://127.0.0.1:9", HELM_EXECUTOR_DEBUG: "1" }, claudeHook),
+    await run(["observe", "--client", "claude-code", "--event", "PostToolUse"], { ...down, HELM_EXECUTOR_DEBUG: "1" }, claudeHook),
     await run(["checkout", "HELM-911", "--client", "claude-code"], env),
     await run(["bogus"], env),
     await run(["--help"], env),
@@ -260,4 +278,38 @@ test("--help and --version", async () => {
   const version = await run(["--version"], envFor("version"));
   assert.equal(version.stdout, `${PACKAGE.version}\n`);
   assert.equal((await run([], envFor("none"))).code, 2);
+});
+
+test("observe gives up on a stdin that never ends, and exits 0 although its stderr reader is gone", async () => {
+  const env = await ready("observe-io");
+
+  // A producer that keeps the pipe open and never closes it: the hook must not hang.
+  const held = await new Promise<{ code: number | null; stderr: string; ms: number }>((resolve, reject) => {
+    const started = Date.now();
+    const child = spawn(process.execPath, [CLI, "observe", "--client", "claude-code", "--event", "PreToolUse"], { env: { PATH: process.env.PATH ?? "", ...env }, stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stderr, ms: Date.now() - started }));
+    child.stdin.write('{"session_id":"s"');
+    const guard = setTimeout(() => child.kill("SIGKILL"), 8_000);
+    child.on("close", () => clearTimeout(guard));
+  });
+  assert.equal(held.code, 0, `exit ${held.code} after ${held.ms} ms`);
+  assert.ok(held.ms < 6_000, `took ${held.ms} ms`);
+  assert.match(held.stderr, /^helm-executor: rejected: hook input was larger than 8 MiB or did not end within 3 s; skipped\n$/);
+  const status = JSON.parse((await run(["status", "--json"], env)).stdout) as { observe: { last_error: string | null } };
+  assert.match(status.observe.last_error ?? "", /did not end within 3 s/);
+
+  // A reader that is gone: a failure line is written to a closed pipe, which must not turn into exit 1.
+  const piped = await new Promise<string>((resolve, reject) => {
+    const quoted = (v: string): string => `'${v.replace(/'/g, `'\\''`)}'`;
+    const command = `${quoted(process.execPath)} ${quoted(CLI)} observe --client vim --event PreToolUse < /dev/null 2>&1 >/dev/null | true; echo "exit:\${PIPESTATUS[0]}"`;
+    const child = spawn("bash", ["-c", command], { env: { PATH: process.env.PATH ?? "", ...env }, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.on("error", reject);
+    child.on("close", () => resolve(out));
+  });
+  assert.match(piped, /exit:0\n$/, piped);
 });

@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { MIN_CLAUDE_VERSION, renderManaged, renderOwnerOtel, renderSession, shellQuote } from "./render.mjs";
@@ -55,6 +55,26 @@ function readManifest(path) {
   } catch {
     return null;
   }
+}
+
+/** The file names of the three managed policy files, with the directory name the first two live in. */
+const POLICY_FILES = new Map([
+  ["50-helm-executor.json", "managed-settings.d"],
+  ["60-helm-executor-otel.json", "managed-settings.d"],
+  ["managed-mcp.json", null],
+]);
+
+/**
+ * Whether the installer could have written `path` under `prefix`: inside its library directory, the wrapper, or one of the
+ * three policy files. The manifest lists what to remove, and a manifest that names anything else is not believed.
+ */
+export function isInstallerPath(path, prefix) {
+  if (typeof path !== "string" || resolve(path) !== path) return false;
+  const root = resolve(prefix);
+  if (path === join(root, "bin", "helm-executor")) return true;
+  if (path.startsWith(join(root, "lib", "helm-executor") + sep)) return true;
+  const parent = POLICY_FILES.get(basename(path));
+  return parent !== undefined && (parent === null || basename(dirname(path)) === parent);
 }
 
 // ---- managed profile -------------------------------------------------------------------------------------
@@ -107,7 +127,7 @@ export function preflight(plan, opts = {}) {
   }
 
   const old = readManifest(plan.manifestPath);
-  const owned = new Map((old?.files ?? []).map((f) => [f.path, f.sha256]));
+  const owned = new Map((old?.files ?? []).filter((f) => isInstallerPath(f.path, plan.prefix)).map((f) => [f.path, f.sha256]));
   for (const f of plan.files) {
     if (!existsSync(f.path)) continue;
     const current = sha256(readFileSync(f.path));
@@ -152,7 +172,7 @@ export function applyPolicy(plan, previous) {
   const keep = new Set(plan.files.map((f) => f.path));
   for (const f of previous?.files ?? []) {
     // A file an earlier install wrote and this plan no longer has, such as the OTEL drop-in, goes away unless edited.
-    if (!keep.has(f.path) && existsSync(f.path) && sha256(readFileSync(f.path)) === f.sha256) rmSync(f.path);
+    if (!keep.has(f.path) && isInstallerPath(f.path, plan.prefix) && existsSync(f.path) && sha256(readFileSync(f.path)) === f.sha256) rmSync(f.path);
   }
   writeManifest(plan, plan.files);
 }
@@ -197,7 +217,12 @@ export function uninstallManaged(opts = {}) {
   if (!manifest) throw new Error(`no install manifest at ${manifestPath}; nothing to remove`);
   const removed = [];
   const kept = [];
+  const refused = [];
   for (const f of manifest.files) {
+    if (!isInstallerPath(f.path, prefix)) {
+      refused.push(f.path);
+      continue;
+    }
     if (!existsSync(f.path)) continue;
     if (!opts.force && sha256(readFileSync(f.path)) !== f.sha256) kept.push(f.path);
     else {
@@ -205,12 +230,12 @@ export function uninstallManaged(opts = {}) {
       removed.push(f.path);
     }
   }
-  if (kept.length === 0) {
+  if (kept.length === 0 && refused.length === 0) {
     rmSync(manifestPath);
     removed.push(manifestPath);
   }
   // Empty directories this installer created, deepest first. Never the prefix, the bin directory or the managed directory.
-  const dirs = new Set(manifest.files.flatMap((f) => [dirname(f.path), dirname(dirname(f.path))]));
+  const dirs = new Set(manifest.files.filter((f) => isInstallerPath(f.path, prefix)).flatMap((f) => [dirname(f.path), dirname(dirname(f.path))]));
   for (const dir of [...dirs].sort((a, b) => b.length - a.length)) {
     if (!/helm-executor|managed-settings\.d$/.test(dir)) continue;
     try {
@@ -219,7 +244,7 @@ export function uninstallManaged(opts = {}) {
       // not empty, or already gone
     }
   }
-  return { removed, kept };
+  return { removed, kept, refused };
 }
 
 // ---- session profile --------------------------------------------------------------------------------------
@@ -238,6 +263,8 @@ export function writeSession(opts) {
 const defaultUserSettings = () => join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
 const ownerManifestPath = () => join(process.env.HELM_EXECUTOR_HOME ?? join(homedir(), ".config", "helm-executor"), "owner-otel.json");
 
+const OTLP_CREDENTIAL_KEY = /^OTEL_EXPORTER_OTLP_(?:[A-Z]+_)?(?:HEADERS|CLIENT_KEY|CLIENT_CERTIFICATE)$/;
+
 /** What `owner-otel` would change in the settings file. Throws when it cannot do so without overwriting something. */
 export function planOwnerOtel(opts) {
   const file = resolve(opts.settingsFile ?? defaultUserSettings());
@@ -252,6 +279,11 @@ export function planOwnerOtel(opts) {
     if (current === null || typeof current !== "object" || Array.isArray(current)) throw new Error(`${file} is not a JSON object; nothing was changed`);
   }
   const env = current.env ?? {};
+  // Credentials for the owner's own collector must never follow the endpoint to the HELM collector.
+  const credentials = [...Object.keys(env).filter((k) => OTLP_CREDENTIAL_KEY.test(k)), ...("otelHeadersHelper" in current ? ["otelHeadersHelper"] : [])];
+  if (credentials.length > 0) {
+    throw new Error(`${file} already carries OTLP credentials (${credentials.join(", ")}); owner-otel would send them to the HELM collector. Remove them or send HELM telemetry through your own collector. Nothing was changed`);
+  }
   const conflicts = Object.keys(add).filter((k) => k in env && env[k] !== add[k]);
   if (conflicts.length > 0) throw new Error(`${file} already sets ${conflicts.join(", ")} to other values; remove them or merge by hand. Nothing was changed`);
   const next = { ...current, env: { ...env, ...add } };
@@ -376,10 +408,11 @@ export async function main(argv, io = { out: (t) => process.stdout.write(t), err
         return 0;
       }
       case "uninstall": {
-        const { removed, kept } = uninstallManaged({ prefix: v.prefix, force: v.force });
+        const { removed, kept, refused } = uninstallManaged({ prefix: v.prefix, force: v.force });
         for (const p of removed) io.out(`removed ${p}\n`);
         for (const p of kept) io.err(`kept ${p}: it changed since it was installed (use --force to remove it)\n`);
-        return kept.length > 0 ? 1 : 0;
+        for (const p of refused) io.err(`ignored ${p}: the manifest names it, but the installer never writes there\n`);
+        return kept.length > 0 || refused.length > 0 ? 1 : 0;
       }
       default:
         io.err(`unknown command "${command}"\n${USAGE}`);

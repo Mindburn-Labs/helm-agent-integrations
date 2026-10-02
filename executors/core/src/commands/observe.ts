@@ -14,9 +14,11 @@ import {
   type ObserveClient,
   type ObserveEvent,
 } from "../observation.js";
-import { loadObserveRecord, loadSlot, saveObserveRecord } from "../state.js";
+import { loadObserveRecord, loadSlot, localMs, saveObserveRecord } from "../state.js";
 
 export const MAX_INPUT_BYTES = 8 << 20;
+/** How long the hook's stdin may stay open. A hook writes its JSON and closes it at once. */
+export const STDIN_TIMEOUT_MS = 3_000;
 const BUDGET_MS = 5_000;
 const POST_TIMEOUT_MS = 3_000;
 const OK_RECORD_REFRESH_MS = 60_000;
@@ -24,7 +26,7 @@ const OK_RECORD_REFRESH_MS = 60_000;
 export interface ObserveOptions {
   client: string | undefined;
   event: string | undefined;
-  /** The raw hook stdin, or null when it exceeded MAX_INPUT_BYTES. */
+  /** The raw hook stdin, or null when it exceeded MAX_INPUT_BYTES or did not end within STDIN_TIMEOUT_MS. */
   input: string | null;
 }
 
@@ -33,7 +35,8 @@ export type ObserveOutcome =
   | { status: "skipped"; reason: string }
   | { status: "failed"; line: string };
 
-function recordFailure(ctx: Ctx, reason: string): void {
+/** Count a dropped observation in the slot's record, which `status` shows. Never throws. */
+export function recordFailure(ctx: Ctx, reason: string): void {
   try {
     const rec = loadObserveRecord(ctx);
     saveObserveRecord(ctx, { ...rec, last_error_at: iso(ctx.now()), last_error: reason.slice(0, 200), dropped: rec.dropped + 1 });
@@ -61,13 +64,13 @@ export async function observe(ctx: Ctx, opts: ObserveOptions): Promise<ObserveOu
   };
   try {
     const client = OBSERVE_CLIENTS.find((c) => c === opts.client) as ObserveClient | undefined;
-    if (!client) return { status: "failed", line: failureLine("usage", `--client must be one of ${OBSERVE_CLIENTS.join(", ")}`) };
+    if (!client) return fail("usage", `--client must be one of ${OBSERVE_CLIENTS.join(", ")}`);
 
     const slot = loadSlot(ctx);
     if (!slot) return { status: "skipped", reason: "no episode is checked out" };
-    if (slot.ended || ctx.now() >= Date.parse(slot.deadline)) return { status: "skipped", reason: "the episode has ended" };
+    if (slot.ended || ctx.now() >= localMs(slot, slot.deadline)) return { status: "skipped", reason: "the episode has ended" };
 
-    if (opts.input === null) return fail("rejected", "hook input is larger than 8 MiB; skipped");
+    if (opts.input === null) return fail("rejected", "hook input was larger than 8 MiB or did not end within 3 s; skipped");
     let envelope: unknown;
     try {
       envelope = JSON.parse(opts.input);
@@ -96,11 +99,15 @@ export async function observe(ctx: Ctx, opts: ObserveOptions): Promise<ObserveOu
       headers: key ? { "Idempotency-Key": key } : undefined,
       client,
       timeoutMs: POST_TIMEOUT_MS,
+      // A hook runs on every tool call and may be cut off at any moment; it must never be the one to rotate the refresh token.
+      renew: false,
     });
-    if (res.status >= 200 && res.status < 300) {
+    // Only the answer the contract names is delivery: any other 2xx is not the control plane's intake, such as a proxy's page.
+    if (res.status === 202) {
       recordSuccess(ctx);
       return { status: "posted" };
     }
+    if (res.status >= 200 && res.status < 300) return fail("rejected", `observation answered HTTP ${res.status}, not the 202 the contract names`);
     return fail(res.status === 429 || res.status >= 500 ? "unavailable" : "rejected", `observation not accepted: ${errorDetail(res)}`);
   } catch (err) {
     if (err instanceof ExecutorError) return fail(err.code, err.message);

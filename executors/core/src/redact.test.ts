@@ -13,6 +13,13 @@ test("redacts every credential shape and keeps the rest of the text", () => {
     [`aws ${fakeSecrets.aws}`, "aws [redacted]"],
     [`slack ${fakeSecrets.slack}`, "slack [redacted]"],
     [`jwt ${fakeSecrets.jwt}.`, "jwt [redacted]."],
+    [`stripe ${fakeSecrets.stripe}`, "stripe [redacted]"],
+    [`npm ${fakeSecrets.npm}`, "npm [redacted]"],
+    [`hf ${fakeSecrets.huggingface}`, "hf [redacted]"],
+    [`gitlab ${fakeSecrets.gitlab}`, "gitlab [redacted]"],
+    [`linear ${fakeSecrets.linear}`, "linear [redacted]"],
+    [`google ${fakeSecrets.google}`, "google [redacted]"],
+    [`vault ${fakeSecrets.vault}`, "vault [redacted]"],
     [`curl -H "Authorization: ${fakeSecrets.bearer}"`, 'curl -H "Authorization: [redacted]"'],
     ["git clone https://user:hunter2pass@example.com/r.git", "git clone https://[redacted]@example.com/r.git"],
     ["TOKEN=abc123 make", "TOKEN=[redacted] make"],
@@ -32,4 +39,14 @@ test("leaves ordinary commands alone", () => {
   for (const text of ["git status --short", "kubectl get pods -n kube-system", "npm run build", "cat README.md | head", "echo token"]) {
     assert.equal(redactSecrets(text), text);
   }
+});
+
+test("hostile input cannot make redaction slow: the work is bounded", () => {
+  for (const unit of ["TOKEN", "PASSWORD_", "a_TOKEN_", "eyJ", "://", "Bearer "]) {
+    const started = performance.now();
+    const out = redactSecrets(unit.repeat(150_000));
+    assert.ok(performance.now() - started < 1_000, `${unit} took ${Math.round(performance.now() - started)} ms`);
+    assert.ok(out.length <= 4096, `${unit}: ${out.length}`);
+  }
+  assert.equal(redactSecrets(`MY_API_KEY=abc ${"x".repeat(10)}`), `MY_API_KEY=[redacted] ${"x".repeat(10)}`);
 });

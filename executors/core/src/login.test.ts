@@ -7,6 +7,8 @@ import { makeCtx } from "./ctx.js";
 import { ExecutorError } from "./errors.js";
 import { credentialsPath, loadCredentials } from "./state.js";
 import { world } from "./test-utils.js";
+import { startFakeCp } from "./testing/fake-cp.js";
+import { writeFileSync } from "node:fs";
 
 const rejects = (p: Promise<unknown>, code: string): Promise<void> => assert.rejects(p, (e: unknown) => e instanceof ExecutorError && e.code === code);
 
@@ -104,6 +106,38 @@ test("a login with no organization anywhere stores none", async () => {
     const ctx = makeCtx({ HELM_EXECUTOR_HOME: join(w.home, "..", "bare"), HELM_EXECUTOR_CP_URL: w.fake.url }, { now: w.clock.now, sleep: w.clock.sleep });
     const creds = await login(ctx, { say: () => undefined });
     assert.equal("org_id" in creds, false);
+  } finally {
+    await w.close();
+  }
+});
+
+test("logging in to another control plane drops the stored organization; the same one keeps it", async () => {
+  const w = await world();
+  const other = await startFakeCp({ now: w.clock.now });
+  try {
+    const bare = (url: string): ReturnType<typeof makeCtx> => makeCtx({ HELM_EXECUTOR_HOME: w.home, HELM_EXECUTOR_CP_URL: url }, { now: w.clock.now, sleep: w.clock.sleep, home: w.home });
+    const first = await login(bare(w.fake.url), { org: "org-of-the-first", say: () => undefined });
+    assert.equal(first.org_id, "org-of-the-first");
+    const same = await login(bare(w.fake.url), { say: () => undefined });
+    assert.equal(same.org_id, "org-of-the-first", "the same control plane keeps its organization");
+    const moved = await login(bare(other.url), { say: () => undefined });
+    assert.equal("org_id" in moved, false, "the first control plane's organization does not follow the login to the second");
+    assert.equal(moved.cp_url, other.url);
+  } finally {
+    await other.close();
+    await w.close();
+  }
+});
+
+test("login replaces a credentials file that cannot be read", async () => {
+  const w = await world();
+  try {
+    const ctx = w.ctx();
+    await login(ctx, { say: () => undefined });
+    writeFileSync(credentialsPath(ctx), "{ torn");
+    const again = await login(ctx, { say: () => undefined });
+    assert.equal(again.workspace_id, w.fake.workspaceId);
+    assert.deepEqual(loadCredentials(ctx), again);
   } finally {
     await w.close();
   }

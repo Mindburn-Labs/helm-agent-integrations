@@ -63,6 +63,8 @@ export interface FakeCp {
   fail(match: string, status: number, times?: number, extra?: { retryAfter?: number; error?: string }): void;
   /** Hold the answer to the next `times` requests whose "METHOD /path" contains `match` for `ms`, as a hung server would. */
   delay(match: string, ms: number, times?: number): void;
+  /** Act on the next `times` matching requests as usual, then cut the connection instead of answering: a lost answer. */
+  dropResponse(match: string, times?: number): void;
   /** Make every access token issued so far answer 401. */
   revokeAccessTokens(): void;
   /** The episode a bearer episode token belongs to, or null when unknown, expired or stopped. */
@@ -127,6 +129,7 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
   const episodeTokens = new Map<string, { episodeId: string; expiresAt: number }>();
   const faults: { match: string; status: number; left: number; retryAfter?: number; error?: string }[] = [];
   const holds: { match: string; ms: number; left: number }[] = [];
+  const drops: { match: string; left: number }[] = [];
   let refreshes = 0;
   const byKey = new Map<string, string>();
 
@@ -309,7 +312,20 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
     void (async () => {
       try {
         const body = await readBody(req);
-        requests.push({ method: req.method ?? "GET", path: (req.url ?? "/").split("?")[0] ?? "/", headers: { ...req.headers }, body });
+        const method = req.method ?? "GET";
+        const path = (req.url ?? "/").split("?")[0] ?? "/";
+        requests.push({ method, path, headers: { ...req.headers }, body });
+        // The server's clock, as a real one sends it, so a client can tell when its own is off.
+        res.setHeader("Date", new Date(now()).toUTCString());
+        const drop = drops.find((d) => d.left > 0 && `${method} ${path}`.includes(d.match));
+        if (drop) {
+          drop.left--;
+          res.writeHead = (() => res) as typeof res.writeHead;
+          res.end = (() => {
+            req.socket.destroy();
+            return res;
+          }) as typeof res.end;
+        }
         await handle(req, res, body);
       } catch (err) {
         if (!res.headersSent) send(res, 500, { error: "fake_cp_error", error_description: err instanceof Error ? err.message : "error" });
@@ -338,6 +354,9 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
     },
     delay(match, ms, times = 1) {
       holds.push({ match, ms, left: times });
+    },
+    dropResponse(match, times = 1) {
+      drops.push({ match, left: times });
     },
     revokeAccessTokens() {
       for (const rec of access.values()) rec.revoked = true;

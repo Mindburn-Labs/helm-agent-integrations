@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { statSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { checkout } from "./commands/checkout.js";
 import { stop } from "./commands/stop.js";
 import { makeCtx } from "./ctx.js";
 import { ExecutorError } from "./errors.js";
-import { loadSlot, slotPath } from "./state.js";
+import { loadPendingCheckout, loadSlot, slotPath } from "./state.js";
 import { checkedOut, loggedIn, world } from "./test-utils.js";
 
 const rejects = (p: Promise<unknown>, code: string, pattern?: RegExp): Promise<void> =>
@@ -132,6 +133,52 @@ test("checkout gives up as unavailable after three failed attempts, and as rejec
     await rejects(checkout(ctx, { workItem: "HELM-999", client: "claude-code" }), "rejected", /work_item_not_found/);
     w.fake.fail("/executor-episodes", 403, 1, { error: "no_authority" });
     await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "rejected", /no authority.*enroll this machine credential/);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a 400 or 404 for a Linear key says the path takes the work item's UUID; for a UUID it says nothing of the kind", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    w.fake.fail("/executor-episodes", 400, 1, { error: "invalid_work_item_id" });
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "rejected", /invalid_work_item_id.*UUID of the retained work item, not a Linear key/);
+    const uuid = "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b";
+    w.fake.fail("/executor-episodes", 404, 1, { error: "work_item_not_found" });
+    await assert.rejects(
+      checkout(ctx, { workItem: uuid, client: "claude-code" }),
+      (e: unknown) => e instanceof ExecutorError && e.code === "rejected" && /work_item_not_found/.test(e.message) && !/Linear key/.test(e.message),
+    );
+    assert.equal(loadSlot(ctx), null);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a 410 on create means the work item's episode or deadline ended: rejected, and no slot is kept", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    w.fake.fail("/executor-episodes", 410, 1, { error: "deadline_ended" });
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "rejected", /episode or deadline has ended.*deadline_ended/);
+    assert.equal(loadSlot(ctx), null);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a UUID typed in upper case is the same work item: the control plane's lower case form is reused, not a conflict", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    const lower = "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b";
+    const first = await checkout(ctx, { workItem: lower.toUpperCase(), client: "claude-code" });
+    assert.equal(first.slot.work_item_id, lower);
+    assert.ok(w.fake.requests.some((r) => r.path.includes(`/work-items/${lower}/`)), "the path carries the lower case id");
+    const again = await checkout(ctx, { workItem: lower.toUpperCase(), client: "claude-code" });
+    assert.equal(again.reused, true);
+    assert.equal(w.fake.episodes.size, 1);
   } finally {
     await w.close();
   }
@@ -265,6 +312,68 @@ test("--wait gives up as rejected once the wait is used up", async () => {
     await rejects(checkout(ctx, { workItem: "HELM-910", client: "codex", waitSeconds: 12 }), "rejected", /not free/);
     assert.equal(w.fake.requests.filter((r) => r.path.endsWith("/executor-episodes")).length, 2);
     assert.equal(loadSlot(ctx), null);
+  } finally {
+    await w.close();
+  }
+});
+
+const episodeRequests = (w: Awaited<ReturnType<typeof world>>): { path: string; key: string }[] =>
+  w.fake.requests.filter((r) => r.path.endsWith("/executor-episodes")).map((r) => ({ path: r.path, key: (r.body as { idempotency_key: string }).idempotency_key }));
+
+test("when every answer of a run is lost, the next run reuses the key and gets back the episode the control plane created", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    w.fake.dropResponse("/executor-episodes", 3);
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "unavailable");
+    assert.equal(loadSlot(ctx), null, "nothing was confirmed");
+    assert.equal(w.fake.episodes.size, 1, "yet the control plane created the episode");
+    const pending = loadPendingCheckout(ctx);
+    assert.ok(pending);
+    assert.equal(statSync(join(w.home, "slots", "default.pending.json")).mode & 0o777, 0o600);
+
+    const { slot, reused } = await checkout(ctx, { workItem: "HELM-910", client: "claude-code" });
+    assert.equal(reused, false);
+    assert.equal(w.fake.episodes.size, 1, "the same key got the same episode, not a 409 for one nobody holds");
+    assert.equal(slot.episode_id, [...w.fake.episodes.values()][0]?.episodeId);
+    assert.equal(new Set(episodeRequests(w).map((r) => r.key)).size, 1, "four requests, one key");
+    assert.equal(loadPendingCheckout(ctx), null, "confirmed, so the key is spent");
+  } finally {
+    await w.close();
+  }
+});
+
+test("a pending key is for one work item, client and organization, lasts an hour, and ends with a refusal or a stop", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    w.fake.dropResponse("/executor-episodes", 3);
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "unavailable");
+    const first = loadPendingCheckout(ctx)!.key;
+
+    // Another client for the same work item is another request.
+    w.fake.fail("/executor-episodes", 503, 3);
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "codex" }), "unavailable");
+    const other = loadPendingCheckout(ctx)!.key;
+    assert.notEqual(other, first);
+
+    // The same request an hour later is a new one.
+    w.clock.advance(61 * 60_000);
+    w.fake.fail("/executor-episodes", 503, 3);
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "codex" }), "unavailable");
+    assert.notEqual(loadPendingCheckout(ctx)!.key, other);
+
+    // A refusal for good leaves nothing to recover.
+    w.fake.fail("/executor-episodes", 403, 1, { error: "no_authority" });
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "codex" }), "rejected");
+    assert.equal(loadPendingCheckout(ctx), null);
+
+    // A stop clears it too.
+    w.fake.fail("/executor-episodes", 503, 3);
+    await rejects(checkout(ctx, { workItem: "HELM-911", client: "codex" }), "unavailable");
+    assert.ok(loadPendingCheckout(ctx));
+    await stop(ctx, { local: true });
+    assert.equal(loadPendingCheckout(ctx), null);
   } finally {
     await w.close();
   }

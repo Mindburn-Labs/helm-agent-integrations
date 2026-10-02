@@ -216,6 +216,36 @@ test("uninstall removes what was installed, keeps what changed, and leaves the d
   }
 });
 
+test("a manifest that names a file the installer never writes does not make uninstall or a reinstall delete it", async () => {
+  const f = fixture();
+  try {
+    assert.equal((await run(f.args(["--yes"]))).code, 0);
+    const victim = join(f.root, "victim", "keep-me.txt");
+    mkdirSync(join(f.root, "victim"), { recursive: true });
+    writeFileSync(victim, "precious\n");
+    const manifestPath = join(f.prefix, "lib", "helm-executor", "install-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const sha = (text) => spawnSync("shasum", ["-a", "256"], { input: text, encoding: "utf8" }).stdout.split(" ")[0];
+    const dotted = join(f.prefix, "lib", "helm-executor", "..", "..", "..", "victim", "keep-me.txt");
+    manifest.files.push({ path: victim, sha256: sha("precious\n") }, { path: dotted, sha256: sha("precious\n") });
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    const again = await run(f.args(["--yes"]));
+    assert.equal(again.code, 0, again.err);
+    assert.equal(readFileSync(victim, "utf8"), "precious\n", "a reinstall leaves it alone");
+
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const gone = await run(["uninstall", "--prefix", f.prefix, "--force"]);
+    assert.equal(gone.code, 1);
+    assert.match(gone.err, /ignored .*keep-me\.txt: the manifest names it, but the installer never writes there/);
+    assert.equal(readFileSync(victim, "utf8"), "precious\n");
+    assert.equal(existsSync(manifestPath), true, "the manifest stays while it names something it will not touch");
+    assert.equal(existsSync(join(f.managed, "managed-settings.d", "50-helm-executor.json")), false);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("no command touches the user's own Claude Code settings, except owner-otel --yes", async () => {
   const f = fixture();
   const saved = { HOME: process.env.HOME, HELM_EXECUTOR_HOME: process.env.HELM_EXECUTOR_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
@@ -328,6 +358,30 @@ test("owner-otel refuses to overwrite a value, to edit a file that is not JSON, 
     rmSync(file);
     assert.equal((await run(args)).code, 0, "a missing file is created");
     assert.equal(mode(file), 0o600);
+  } finally {
+    if (saved === undefined) delete process.env.HELM_EXECUTOR_HOME;
+    else process.env.HELM_EXECUTOR_HOME = saved;
+    f.cleanup();
+  }
+});
+
+test("owner-otel refuses a settings file that already carries OTLP credentials, so they never follow the endpoint to HELM", async () => {
+  const f = fixture();
+  const saved = process.env.HELM_EXECUTOR_HOME;
+  process.env.HELM_EXECUTOR_HOME = join(f.root, "executor-home");
+  try {
+    const file = join(f.root, "s.json");
+    const args = ["owner-otel", "--otel-endpoint", "https://otel.helm.example", "--settings-file", file, "--yes"];
+    const before = '{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer abc","OTEL_EXPORTER_OTLP_LOGS_CLIENT_KEY":"/k.pem"},"otelHeadersHelper":"/bin/true"}\n';
+    writeFileSync(file, before);
+    const refused = await run(args);
+    assert.equal(refused.code, 1);
+    assert.match(refused.err, /already carries OTLP credentials \(OTEL_EXPORTER_OTLP_HEADERS, OTEL_EXPORTER_OTLP_LOGS_CLIENT_KEY, otelHeadersHelper\)/);
+    assert.equal(readFileSync(file, "utf8"), before, "nothing was changed");
+    assert.equal(existsSync(join(f.root, "executor-home", "owner-otel.json")), false);
+
+    writeFileSync(file, '{"env":{"OTEL_EXPORTER_OTLP_TIMEOUT":"5000"}}\n');
+    assert.equal((await run(args)).code, 0, "other OTLP settings are not credentials");
   } finally {
     if (saved === undefined) delete process.env.HELM_EXECUTOR_HOME;
     else process.env.HELM_EXECUTOR_HOME = saved;

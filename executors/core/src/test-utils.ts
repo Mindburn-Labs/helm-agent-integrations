@@ -119,4 +119,11 @@ export const fakeSecrets = {
   slack: ["xo", "xb-", "1234567890-", "g".repeat(20)].join(""),
   jwt: [["eyJ", "h".repeat(20)].join(""), ["eyJ", "p".repeat(20)].join(""), "s".repeat(24)].join("."),
   bearer: ["Bear", "er ", "q".repeat(30)].join(""),
+  stripe: ["sk", "_live_", "H".repeat(24)].join(""),
+  npm: ["np", "m_", "I".repeat(36)].join(""),
+  huggingface: ["h", "f_", "J".repeat(34)].join(""),
+  gitlab: ["glp", "at-", "K".repeat(20)].join(""),
+  linear: ["lin", "_api_", "L".repeat(40)].join(""),
+  google: ["AI", "za", "M".repeat(35)].join(""),
+  vault: ["hv", "s.", "N".repeat(24)].join(""),
 };

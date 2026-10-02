@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { observe, type ObserveOutcome } from "./commands/observe.js";
 import { statusReport } from "./commands/status.js";
 import { stop } from "./commands/stop.js";
+import { runCli } from "./main.js";
+import { captureIo } from "./test-utils.js";
 import { buildObservation, canonicalJson, idempotencyKey, inputDigest, summarize } from "./observation.js";
 import type { Ctx } from "./ctx.js";
 import { checkedOut, fakeSecrets, schemaValidator, world, type World } from "./test-utils.js";
@@ -79,7 +81,7 @@ test("the body is observed-only, takes the episode and work item from the slot, 
     assert.equal(body.session_id, "abc123");
     assert.equal(body.prompt_id, claudePre.prompt_id);
     assert.equal(body.permission_mode, "default");
-    assert.deepEqual(body.tool, { name: "Bash", use_id: "toolu_01ABC", phase: "before", input_digest: inputDigest(claudePre.tool_input), input_summary: "git status --short" });
+    assert.deepEqual(body.tool, { name: "Bash", use_id: "toolu_01ABC", phase: "before", input_digest: inputDigest(claudePre.tool_input), input_summary: "git status" });
 
     await post(ctx, "claude-code", "PostToolUse", claudePost);
     assert.equal((lastBody(w).tool as { phase: string; duration_ms: number }).phase, "after");
@@ -105,21 +107,35 @@ test("--event wins over hook_event_name, and hook_event_name is used when --even
   }
 });
 
-test("tool input and output never leave the machine; only a digest and a redacted summary do", async () => {
+test("tool input and output never leave the machine; only a digest and the command's shape do", async () => {
   const w = await world();
   try {
     const ctx = await checkedOut(w);
     const command = `curl -H "Authorization: ${fakeSecrets.bearer}" https://x.example/${"a".repeat(400)}\nexport MY_TOKEN=hunter2hunter2 && echo ${fakeSecrets.openai}`;
     await post(ctx, "claude-code", "PostToolUse", { ...claudePost, tool_input: { command } });
     const text = JSON.stringify(lastBody(w));
-    for (const leak of ["RESPONSE-MARKER-9a1", fakeSecrets.bearer, fakeSecrets.openai, "hunter2hunter2", "/home/u/.claude", "/work/repo"]) {
+    for (const leak of ["RESPONSE-MARKER-9a1", fakeSecrets.bearer, fakeSecrets.openai, "hunter2hunter2", "x.example", "/home/u/.claude", "/work/repo"]) {
       assert.ok(!text.includes(leak), `leaked ${leak.slice(0, 12)}`);
     }
+    const tool = lastBody(w).tool as { input_summary: string; input_digest: string };
+    assert.equal(tool.input_summary, "curl; export; echo");
+    assert.equal(tool.input_digest, inputDigest({ command }));
+  } finally {
+    await w.close();
+  }
+});
+
+test("a long command's shape is cut at 256 characters on one line", async () => {
+  const w = await world();
+  try {
+    const ctx = await checkedOut(w);
+    const command = Array.from({ length: 80 }, (_, i) => `tool${i} --flag value`).join(" &&\n");
+    await post(ctx, "claude-code", "PreToolUse", { ...claudePre, tool_input: { command } });
     const summary = (lastBody(w).tool as { input_summary: string }).input_summary;
-    assert.ok(summary.length <= 256);
+    assert.equal(summary.length, 256);
     assert.ok(summary.endsWith("…"));
+    assert.ok(summary.startsWith("tool0; tool1; tool2"));
     assert.ok(!summary.includes("\n"));
-    assert.match(summary, /\[redacted\]/);
   } finally {
     await w.close();
   }
@@ -285,4 +301,57 @@ test("buildObservation clips long identifiers to the schema limits", () => {
   assert.equal(validObservation(observation), null);
   assert.equal(observation.session_id.length, 256);
   assert.equal(observation.work_item_id.length, 128);
+});
+
+test("only a 202 is delivery: another 2xx, such as a proxy's page, is a dropped observation", async () => {
+  const WS = "11111111-1111-4111-8111-111111111111";
+  const ORG = "22222222-2222-4222-8222-222222222222";
+  const w = await world({
+    workspaceId: WS,
+    orgId: ORG,
+    routes: {
+      [`POST /api/v1/workspaces/${WS}/organizations/${ORG}/observations`]: ({ res }) => {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end("<html>sign in to the network</html>");
+      },
+    },
+  });
+  try {
+    const ctx = await checkedOut(w);
+    const outcome = await post(ctx, "claude-code", "PreToolUse", claudePre);
+    assert.ok(outcome.status === "failed" && /HTTP 200, not the 202/.test(outcome.line), JSON.stringify(outcome));
+    const status = statusReport(ctx);
+    assert.equal(status.observe.last_ok_at, null, "it did not count as delivered");
+    assert.match(status.observe.last_error ?? "", /not the 202/);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a misconfigured hook is counted where status shows it: a misspelled client, an unknown flag, a missing value", async () => {
+  const w = await world();
+  try {
+    const ctx = await checkedOut(w);
+    const run = async (args: string[]): Promise<{ code: number; err: string }> => {
+      const cap = captureIo(JSON.stringify(claudePre));
+      const code = await runCli(args, w.env(), cap.io, { now: w.clock.now, sleep: w.clock.sleep, home: w.home });
+      return { code, err: cap.err() };
+    };
+    for (const [args, pattern] of [
+      [["observe", "--client", "claud-code", "--event", "PreToolUse"], /--client must be one of/],
+      [["observe", "--client", "claude-code", "--event", "PreToolUse", "--bogus"], /usage: /],
+      [["observe", "--client"], /usage: /],
+    ] as [string[], RegExp][]) {
+      const before = statusReport(ctx).observe;
+      const r = await run(args);
+      assert.equal(r.code, 0, args.join(" "));
+      assert.match(r.err, pattern);
+      const after = statusReport(ctx).observe;
+      assert.ok(after.last_error_at !== null && after.last_error?.includes("usage"), `${args.join(" ")} left no trace`);
+      assert.notDeepEqual(after, before);
+    }
+    assert.equal(w.fake.observations.length, 0, "none of them posted anything");
+  } finally {
+    await w.close();
+  }
 });

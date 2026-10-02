@@ -12,7 +12,7 @@ import {
 import type { Ctx } from "../ctx.js";
 import { ExecutorError } from "../errors.js";
 import { errorDetail, failForStatus, httpJson, normalizeBaseUrl } from "../http.js";
-import { loadCredentials, saveCredentials, type Credentials } from "../state.js";
+import { loadCredentialsLenient, saveCredentials, type Credentials } from "../state.js";
 
 export interface LoginOptions {
   cpUrl?: string;
@@ -24,6 +24,14 @@ export interface LoginOptions {
 
 const HTTP_TIMEOUT_MS = 15_000;
 const MAX_TRANSIENT_FAILURES = 3;
+
+function sameOrigin(stored: string, base: string): boolean {
+  try {
+    return normalizeBaseUrl(stored) === base;
+  } catch {
+    return false;
+  }
+}
 
 function clientName(name: string | undefined): string {
   const label = (name?.trim() || `helm-executor@${hostname().split(".")[0] || "machine"}`).slice(0, 80);
@@ -39,7 +47,8 @@ function pollInterval(ctx: Ctx, seconds: number): number {
 }
 
 export async function login(ctx: Ctx, opts: LoginOptions): Promise<Credentials> {
-  const existing = loadCredentials(ctx);
+  // An unreadable credentials file is what login replaces, so it is not a reason to refuse.
+  const existing = loadCredentialsLenient(ctx);
   const rawUrl = opts.cpUrl ?? ctx.env.HELM_EXECUTOR_CP_URL?.trim() ?? existing?.cp_url;
   if (!rawUrl) throw new ExecutorError("usage", "pass --cp-url or set HELM_EXECUTOR_CP_URL");
   const base = normalizeBaseUrl(rawUrl);
@@ -78,7 +87,9 @@ export async function login(ctx: Ctx, opts: LoginOptions): Promise<Credentials> 
       throw err;
     }
     if (res.status === 200) {
-      const org = opts.org?.trim() || ctx.env.HELM_EXECUTOR_ORG?.trim() || existing?.org_id;
+      // The stored organization belongs to the control plane it was stored for; another control plane starts without one.
+      const sameControlPlane = existing !== null && sameOrigin(existing.cp_url, base);
+      const org = opts.org?.trim() || ctx.env.HELM_EXECUTOR_ORG?.trim() || (sameControlPlane ? existing?.org_id : undefined);
       const base0 = { cp_url: base, client_name: name, logged_in_at: iso(ctx.now()), ...(org ? { org_id: org } : {}) };
       const creds = credentialsFromGrant(base0, parseMachineToken(res.json), ctx.now());
       saveCredentials(ctx, creds);

@@ -1,9 +1,10 @@
 # helm-executor core contract (v1)
 
 Status: v1, written 2026-10-01 by claude:executor-adapters (HELM-910) and agreed
-with codex:cp-org on 2026-10-02 for the executor and observation routes. The
-code in `executors/core/` implements this file. If the two disagree, the code is
-wrong; open an issue on the lane instead of working around it.
+with codex:cp-org on 2026-10-02 for the executor and observation routes; the
+executor routes were checked against cp-org's OpenAPI the same day. The code in
+`executors/core/` implements this file. If the two disagree, the code is wrong;
+open an issue on the lane instead of working around it.
 
 `helm-executor` is the one auth and observation client for every HELM executor
 front-end (Claude Code, Codex, later the OCE plugin). Adapters call it as a
@@ -63,8 +64,8 @@ The reason is under 200 characters and carries no credential.
 | 0 | | success |
 | 1 | `internal` | unexpected failure |
 | 2 | `usage` | bad flag or argument. Never returned by `observe` |
-| 3 | `not_logged_in` | no machine credential, or the control plane refused to refresh it |
-| 4 | `no_episode` | nothing is checked out in this slot |
+| 3 | `not_logged_in` | no machine credential, the credentials file cannot be read, or the control plane refused to refresh it |
+| 4 | `no_episode` | nothing is checked out in this slot, or the slot file cannot be read (`stop --local` clears it) |
 | 5 | `episode_ended` | the episode was stopped, has expired or is past its deadline |
 | 6 | `unavailable` | the control plane could not be reached, or answered 429 or 5xx. Retry later |
 | 7 | `rejected` | the control plane answered another 4xx. Retrying will not help |
@@ -74,7 +75,7 @@ The reason is under 200 characters and carries no credential.
 | Variable | Meaning |
 |---|---|
 | `HELM_EXECUTOR_HOME` | state directory, default `~/.config/helm-executor`, mode 0700 |
-| `HELM_EXECUTOR_CP_URL` | control plane origin. Overrides the stored one. `https`, or `http` on loopback only |
+| `HELM_EXECUTOR_CP_URL` | control plane origin, `https` or `http` on loopback only. `login` uses it. Every other command accepts only the origin the machine logged in to: a different one is `usage`, because a credential is sent to the host that issued it and nowhere else |
 | `HELM_EXECUTOR_ORG` | organization id. Overrides the stored one |
 | `HELM_EXECUTOR_CLIENT` | default for `--client` |
 | `HELM_EXECUTOR_SLOT` | slot name, default `default`, pattern `^[a-z0-9][a-z0-9_-]{0,31}$` |
@@ -98,7 +99,15 @@ not read or write them. There is no keychain backend in v1.
 
 **Concurrency.** Any number of invocations may run at once in one slot. They
 serialize the refresh steps with a lock file, so a rotating refresh token is
-used once.
+used once. The holder keeps the lock fresh while it works, and a waiter takes a
+lock over only from a process that is gone or has stopped refreshing it, one
+waiter at a time.
+
+**Clocks.** Timestamps from the control plane (`deadline`, `token_expires_at`)
+are compared on this machine's clock, corrected by the offset between the
+control plane's `Date` header and the local clock when the two differ by 5
+seconds or more. A cached token from the future, or with more life than the
+issuer ever gives, is not trusted: the clock was set back.
 
 **No redirects.** The client never follows an HTTP redirect, so a bearer token
 never goes to a host other than the configured one.
@@ -122,9 +131,14 @@ $ helm-executor token
 - Each call mints a new token from the control plane, with one exception: a
   token minted in this slot less than 15 seconds ago is returned as it is, so
   helpers that start together get the same one.
-- If the control plane is unreachable or answers 429 or 5xx, and the slot holds
-  a token with at least 120 seconds left, that token is printed. Otherwise exit
-  6.
+- If the control plane is unreachable or answers 429 or 5xx, or another helper
+  holds the slot's lock for the whole 8 seconds, and the slot holds a token with
+  at least 120 seconds left, that token is printed. Otherwise exit 6.
+- A token the control plane issues with less than 120 seconds of life, other
+  than in the last stretch before the deadline, is not printed: exit 1.
+- The control plane answering 410 ends the slot: later calls exit 5 without
+  asking. Answering 404 (an episode it does not know) is exit 5 for that call
+  only; a wrong host or a deploy in progress must not end a session.
 - The call finishes or fails within 8 seconds. Claude Code gives up on an MCP
   `headersHelper` after 10 seconds.
 - The token is opaque. Callers must not parse it or cache it past the
@@ -165,12 +179,18 @@ The hook JSON goes to stdin unchanged.
   credential, a network error or a rejected post. Exit 2 would block a tool call
   in both clients, so it is never used.
 - It writes nothing to stdout.
-- It finishes within 5 seconds, including a possible refresh of the machine
-  access token. The post has a 3 second timeout and is not retried.
+- It finishes within 5 seconds. The post has a 3 second timeout and is not
+  retried. Stdin must end within 3 seconds; one that stays open is dropped.
+- It never renews the machine credential. It sends the access token as it is,
+  while that has 5 seconds of life left, and otherwise drops the observation: a
+  hook can be cut off at any moment, and a renewal cut off after the control
+  plane rotated the refresh token would cost the machine its login. The next
+  `token` call renews it.
 - Hook config should run it with `async: true` where the client supports that.
 - A failure is one line on stderr in the section 2 format, which clients send to
   their debug log, and an entry in the slot's observe record, which `status`
-  shows. Nothing else happens. Observations are lossy by design.
+  shows, a bad flag or client name included. Nothing else happens. Observations
+  are lossy by design.
 - Deny is not done here. It is done by the static deny rules in the adapter
   configuration.
 
@@ -225,7 +245,7 @@ is the schema. Unknown fields are ignored. Input over 8 MiB is skipped.
     "use_id": "toolu_01ABC",
     "phase": "after",
     "input_digest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    "input_summary": "git status --short",
+    "input_summary": "git status",
     "duration_ms": 12
   }
 }
@@ -237,14 +257,20 @@ is the schema. Unknown fields are ignored. Input over 8 MiB is skipped.
   inspected, so no success or failure is inferred from it.
 - `tool.input_digest` is SHA-256 of `tool_input` as JSON with object keys sorted
   and no whitespace.
-- `tool.input_summary` is optional and at most 256 characters. Bash: the
-  command on one line. Read, Edit, Write, MultiEdit, NotebookEdit and
+- `tool.input_summary` is optional and at most 256 characters. Bash: the shape
+  of the command, which is each simple command's program and, for programs that
+  take an action word (`git`, `gh`, `kubectl`, `flux`, `npm`, `make` and a few
+  more), up to two such words, joined by `; `. `git push origin x --force` is
+  `git push origin`; `curl -u me:secret https://h` is `curl`. No flag, value,
+  URL, path, quoted string or here-document body is kept, because a command line
+  is where credentials get typed. Read, Edit, Write, MultiEdit, NotebookEdit and
   apply_patch: the path. Every other tool: omitted. Credential-shaped strings
-  are replaced with `[redacted]`; this is best effort, not a guarantee. Set
-  `HELM_EXECUTOR_OBSERVE_SUMMARY=off` to drop the field.
+  are also replaced with `[redacted]`. `input_digest` still identifies the exact
+  input. Set `HELM_EXECUTOR_OBSERVE_SUMMARY=off` to drop the field.
 - Never sent: file contents, tool output, prompts, the transcript, the
   environment, the working directory.
-- A 2xx response is delivery. Anything else is dropped and recorded.
+- A 202 response is delivery. Anything else, another 2xx included, is dropped and
+  recorded.
 
 ## 6. `login`, `checkout`, `stop`, `status`, `env`
 
@@ -257,7 +283,8 @@ credential and nothing more: it never enrolls the credential for a seat.
 Enrollment is server side. The organization owner, or a member with seat
 management authority over the team, enrolls the credential with step-up. A
 credential with no enrollment for the work item's seat gets 403 at `checkout`,
-which is exit 7.
+which is exit 7. An unreadable credentials file is replaced. Logging in to another
+control plane drops the stored organization id, which belonged to the first.
 
 **`checkout <work-item-id>`.** Creates an executor episode for the work item and
 stores it in the slot, with its deadline. `--client` is required unless
@@ -278,10 +305,19 @@ a 409 from the control plane, with pauses growing from 5 to 30 seconds, for up t
 that long, and reports each pause on stderr. It waits for nothing else, and the
 retries share one idempotency key.
 
+The key survives the process: until the checkout is confirmed, refused for good or
+stopped (`stop --local` also drops it when the slot is empty), it is kept in the
+slot directory for up to an hour and reused by the next
+`checkout` of the same work item, client and organization. When every answer of
+one run was lost, the control plane may still have created the episode, and the
+same key gets that episode back instead of a 409 for one nobody here holds.
+
 **`stop`.** Stops the slot's episode at the control plane and clears the slot.
-The control plane answering that the episode is already ended counts as success.
-`--local` clears the slot without contacting the control plane. Exit 0 with
-nothing to do when the slot is empty.
+It always asks the control plane, also for a slot marked ended: only the control
+plane knows the episode is over. The control plane answering that the episode is
+already ended counts as success. `--local` clears the slot without contacting the
+control plane, and replaces a slot file that cannot be read. Exit 0 with nothing
+to do when the slot is empty.
 
 **`status`.** Prints state without secrets. With `--json`:
 
@@ -293,11 +329,12 @@ nothing to do when the slot is empty.
   "cp_url": "https://…",
   "slot": "default",
   "episode": { "episode_id": "…", "work_item_id": "…", "client": "claude-code", "deadline": "…", "seconds_left": 3120, "ended": null },
-  "observe": { "last_ok_at": "…", "last_error_at": null, "last_error": null }
+  "observe": { "last_ok_at": "…", "last_error_at": null, "last_error": null },
+  "problems": []
 }
 ```
 
-`episode` is `null` when the slot is empty. `ended` is `null` for a live episode and the reason once the control plane has said the episode is gone.
+`episode` is `null` when the slot is empty. `ended` is `null` for a live episode and the reason once the control plane has said the episode is gone. `problems` lists, as sentences, what needs a person: a state file that cannot be read, `HELM_EXECUTOR_CP_URL` naming another control plane than the login, a credential renewal whose answer never arrived. `status` does not fail on them.
 
 **`env`.** Prints the OpenTelemetry resource attributes for the slot's episode,
 for a launcher to export before it starts the client:
@@ -312,12 +349,14 @@ when the slot is empty.
 
 ## 7. Control plane wire contract
 
-These are the calls the client makes. The device-code routes exist today in the
-control plane (`internal/deviceauth/service.go`, origin/main `c69c338`). The
-executor and observation routes were agreed with codex:cp-org on 2026-10-02 and
-are not merged yet; when its OpenAPI is published it replaces this table. The
-client keeps the routes in one file, `src/contract.ts`; changing them is a
-one-file change.
+These are the calls the client makes. The device-code routes exist in the
+control plane (`internal/deviceauth/service.go`, OpenAPI `/api/v1/auth/device/*`).
+The executor routes are codex:cp-org's `createOrganizationExecutorEpisode`,
+`mintOrganizationExecutorEpisodeToken` and `stopOrganizationExecutorEpisode`
+(OpenAPI at its commit `363f3e5`, not merged when this was written). The
+observation route was agreed with cp-org and has no OpenAPI entry yet. The client
+keeps the routes in one file, `src/contract.ts`; changing them is a one-file
+change.
 
 | Call | Auth | Request | Success |
 |---|---|---|---|
@@ -338,13 +377,15 @@ Status mapping, which decides the exit code:
 | Response | Meaning |
 |---|---|
 | 401 on a `{ORG}` call | the access token expired or was revoked. The client refreshes once and retries once. A refresh refused with `invalid_grant` is `not_logged_in` |
-| 410 on `…/token` | the episode was stopped or has expired: `episode_ended` |
-| 404 on `…/token` | the episode is not ours, or unknown: `episode_ended` |
+| 410 on `…/token` | the episode was stopped or has expired: `episode_ended`, and the slot is marked ended |
+| 404 on `…/token` | the episode is not ours, or unknown: `episode_ended` for this call, and the slot is not marked ended |
 | 409 on `…/token` | the binding changed or is unresolved. A refusal, not an ending: `rejected`, and no cached token is printed |
 | 404 or 410 on `…/stop` | already gone; success |
 | 409 on `…/stop` | the release is unresolved: `rejected`, and the slot stays |
 | 403 on any call | no authority. At `checkout` the credential is not enrolled for the seat. `rejected` |
 | 409 on `checkout` | the work item has a live episode, or a stopped one whose last token has not expired. `rejected`; try again later |
+| 410 on `checkout` | the work item's episode or deadline has ended. `rejected` |
+| 400 or 404 on `checkout` | invalid id, client, key or body, or no retained work item in this scope. `rejected`; for an id that is not a UUID the message says the path takes the work item's UUID |
 | any other 4xx | `rejected` |
 | 429, 5xx (503 is the usual one), a timeout or a network error | `unavailable` |
 
@@ -352,11 +393,30 @@ Error bodies may be `{"error","error_description"}` (device-code routes) or
 `{"error","message","code"}` (console routes). The client prints a redacted,
 truncated message from either.
 
+Open request to codex:cp-org: the previous refresh token should stay usable for a
+short window, for example 60 seconds, and answer with the same new pair. Without
+it, a renewal whose answer is lost after the control plane rotated the token (a
+timeout, a process killed by its host) leaves the machine with a refresh token the
+control plane refuses, and the way back is a new login that the organization owner
+must enroll again. The client narrows the exposure (it never renews from a hook,
+never starts a renewal with under 2.5 seconds left, and says in `status` and in the
+refusal when a renewal's answer never arrived) but cannot close it.
+
 The control plane also requires the machine credential to be a CLI credential
 (`client_type: cli`), which `login` sends, and the create body to hold exactly
 `client` and `idempotency_key`; any other field is a 400. The handlers are
 codex:cp-org's `internal/console/organization_executors.go`, unmerged when this
 was written.
+
+The `{work_item_id}` path segment is the retained work item's UUID (`format: uuid`
+in the OpenAPI), not a Linear key. An id typed in upper case is lower-cased before
+it is used, so the slot comparison matches the control plane's form. Every
+executor response carries `Cache-Control: no-store`.
+
+What an episode token can do: its audience is `helm-gateway-executor:<env>`, it
+carries a signed `helm_executor.client` marker, and its scope is propose, or
+propose plus read. Execute and foreign scopes are absent, and the issuer caps it
+at 15 minutes and at the work item's deadline.
 
 Identity, as the control plane keeps it. The episode token's `sub` and the
 episode's actor are `agt:<seat>`, the seat the machine credential is enrolled

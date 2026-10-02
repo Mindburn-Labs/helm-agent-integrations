@@ -28,7 +28,7 @@
         "mcp_server": { "type": "string", "minLength": 1, "maxLength": 128 },
         "phase": { "enum": ["before", "after", "failed"], "description": "before = PreToolUse, after = PostToolUse, failed = PostToolUseFailure. No success or failure is inferred from tool_response." },
         "input_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "SHA-256 of tool_input as JSON with object keys sorted and no whitespace." },
-        "input_summary": { "type": "string", "maxLength": 256, "description": "Optional, best-effort redacted. Bash: the command on one line. Read, Edit, Write, MultiEdit, NotebookEdit and apply_patch: the path. Every other tool: omitted." },
+        "input_summary": { "type": "string", "maxLength": 256, "description": "Optional. Bash: the shape of the command (programs and action words, no argument). Read, Edit, Write, MultiEdit, NotebookEdit and apply_patch: the path. Every other tool: omitted. Credential-shaped strings are also redacted." },
         "duration_ms": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false

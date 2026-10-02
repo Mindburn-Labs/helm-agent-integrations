@@ -4,15 +4,34 @@ import { Budget, callMachine } from "../auth.js";
 import { episodeStopPath } from "../contract.js";
 import type { Ctx } from "../ctx.js";
 import { failForStatus } from "../http.js";
-import { clearSlot, loadSlot, slotLockPath, withLock } from "../state.js";
+import { ExecutorError } from "../errors.js";
+import { clearPendingCheckout, clearSlot, loadSlot, slotLockPath, withLock, type SlotState } from "../state.js";
 
 const BUDGET_MS = 20_000;
 
-/** Returns false when the slot was already empty. `local` clears the slot without asking the control plane. */
+/**
+ * Returns false when the slot was already empty. `local` clears the slot without asking the control plane, and also
+ * replaces a slot file that cannot be read. Otherwise the control plane is always asked, even for a slot marked ended:
+ * only the control plane knows whether the episode is really over.
+ */
 export async function stop(ctx: Ctx, opts: { local: boolean }): Promise<boolean> {
-  const slot = loadSlot(ctx);
-  if (!slot) return false;
-  if (opts.local || slot.ended) {
+  let slot: SlotState | null;
+  try {
+    slot = loadSlot(ctx);
+  } catch (err) {
+    if (opts.local && err instanceof ExecutorError && err.code === "no_episode") {
+      clearSlot(ctx);
+      return true;
+    }
+    throw err;
+  }
+  if (!slot) {
+    // Nothing is checked out here. A checkout whose answers were all lost may still have an episode at the control plane,
+    // and only its key can get it back, so only `--local`, which means forget everything held here, drops the key.
+    if (opts.local) clearPendingCheckout(ctx);
+    return false;
+  }
+  if (opts.local) {
     clearSlot(ctx);
     return true;
   }

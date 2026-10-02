@@ -8,7 +8,7 @@ import { asExecutorError, ExecutorError, failureLine } from "./errors.js";
 import { VERSION } from "./http.js";
 import { checkout, CHECKOUT_CLIENTS, MAX_WAIT_SECONDS } from "./commands/checkout.js";
 import { login } from "./commands/login.js";
-import { MAX_INPUT_BYTES, observe } from "./commands/observe.js";
+import { MAX_INPUT_BYTES, observe, recordFailure, STDIN_TIMEOUT_MS } from "./commands/observe.js";
 import { renderEnv, renderStatus, otelResourceAttributes, statusReport } from "./commands/status.js";
 import { stop } from "./commands/stop.js";
 import { episodeHeaders, episodeToken } from "./commands/token.js";
@@ -16,8 +16,8 @@ import { episodeHeaders, episodeToken } from "./commands/token.js";
 export interface Io {
   stdout(text: string): void | Promise<void>;
   stderr(text: string): void | Promise<void>;
-  /** The whole of stdin as text, or null when it is larger than `maxBytes`. */
-  readStdin(maxBytes: number): Promise<string | null>;
+  /** The whole of stdin as text, or null when it is larger than `maxBytes` or does not end within `timeoutMs`. */
+  readStdin(maxBytes: number, timeoutMs: number): Promise<string | null>;
 }
 
 export const USAGE = `usage: helm-executor <command> [options]
@@ -72,15 +72,18 @@ async function dispatch(command: string | undefined, rest: string[], env: Env, i
   switch (command) {
     case "observe": {
       // Nothing on this path may throw to the caller or exit non-zero: it runs inside a client hook.
+      let ctx: Ctx | undefined;
       try {
+        ctx = makeCtx(env, overrides);
         const { values } = parse(rest, { client: { type: "string" }, event: { type: "string" } }, 0);
-        const ctx = makeCtx(env, overrides);
-        const input = await io.readStdin(MAX_INPUT_BYTES);
+        const input = await io.readStdin(MAX_INPUT_BYTES, STDIN_TIMEOUT_MS);
         const outcome = await observe(ctx, { client: values.client ?? env.HELM_EXECUTOR_CLIENT, event: values.event, input });
         if (outcome.status === "failed") await io.stderr(outcome.line);
         else if (outcome.status === "skipped" && env.HELM_EXECUTOR_DEBUG === "1") await io.stderr(`helm-executor: observe skipped: ${outcome.reason}\n`);
       } catch (err) {
+        // A hook that is misconfigured drops every observation, so it is counted where `status` shows it.
         const e = asExecutorError(err);
+        if (ctx) recordFailure(ctx, `${e.code}: ${e.message}`);
         await io.stderr(failureLine(e.code, e.message));
       }
       return 0;

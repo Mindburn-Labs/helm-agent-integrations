@@ -12,6 +12,8 @@ export interface HttpResult {
   status: number;
   json: unknown;
   retryAfterMs: number | null;
+  /** The server's clock from the `Date` response header, or null when it sent none or sent nonsense. */
+  serverDateMs: number | null;
 }
 
 export interface HttpRequest {
@@ -45,11 +47,30 @@ export function normalizeBaseUrl(raw: string): string {
   return url.toString().replace(/\/+$/, "");
 }
 
+/** The error codes under a failed fetch: its cause's own, and those of an AggregateError's members (one per address). */
+function networkCodes(err: unknown): string[] {
+  const cause = err instanceof Error ? (err as { cause?: { code?: unknown; errors?: unknown } }).cause : undefined;
+  if (!cause) return [];
+  const members = Array.isArray(cause.errors) ? (cause.errors as { code?: unknown }[]) : [];
+  return [cause.code, ...members.map((m) => m?.code)].filter((c): c is string => typeof c === "string");
+}
+
 function describeNetworkError(err: unknown): string {
   if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return "request timed out";
-  const cause = err instanceof Error ? (err as { cause?: { code?: unknown } }).cause : undefined;
-  const code = typeof cause?.code === "string" ? ` (${cause.code})` : "";
-  return `connection failed${code}`;
+  const codes = [...new Set(networkCodes(err))];
+  return `connection failed${codes.length > 0 ? ` (${codes.join(", ")})` : ""}`;
+}
+
+/** Failures that happen before a request leaves this machine, so the server cannot have acted on it. */
+const NEVER_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "ERR_INVALID_URL", "UND_ERR_CONNECT_TIMEOUT"]);
+
+function outcomeIsUnknown(err: unknown): boolean {
+  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return true;
+  const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
+  // fetch itself refuses some URLs, such as a blocked port, before any connection is made.
+  if (cause instanceof Error && /^(bad port|invalid url)/i.test(cause.message)) return false;
+  const codes = networkCodes(err);
+  return !(codes.length > 0 && codes.every((c) => NEVER_SENT.has(c)));
 }
 
 async function readCapped(res: Response): Promise<string> {
@@ -68,6 +89,12 @@ async function readCapped(res: Response): Promise<string> {
     chunks.push(value);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function parseServerDate(value: string | null): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 function parseRetryAfter(value: string | null): number | null {
@@ -104,7 +131,7 @@ export async function httpJson(req: HttpRequest): Promise<HttpResult> {
     text = await readCapped(res);
   } catch (err) {
     if (err instanceof ExecutorError) throw err;
-    throw new ExecutorError("unavailable", `control plane unreachable: ${describeNetworkError(err)}`);
+    throw new ExecutorError("unavailable", `control plane unreachable: ${describeNetworkError(err)}`, { outcomeUnknown: outcomeIsUnknown(err) });
   }
 
   let json: unknown = null;
@@ -115,7 +142,7 @@ export async function httpJson(req: HttpRequest): Promise<HttpResult> {
       json = null;
     }
   }
-  return { status: res.status, json, retryAfterMs: parseRetryAfter(res.headers.get("retry-after")) };
+  return { status: res.status, json, retryAfterMs: parseRetryAfter(res.headers.get("retry-after")), serverDateMs: parseServerDate(res.headers.get("date")) };
 }
 
 /** A short, redacted reason from either error body shape the control plane uses. */
@@ -123,7 +150,8 @@ export function errorDetail(result: HttpResult): string {
   const body = result.json;
   if (body && typeof body === "object") {
     const o = body as Record<string, unknown>;
-    const parts = [o.error, o.error_description ?? o.message].filter((v): v is string => typeof v === "string" && v !== "");
+    // Cut before redacting: the body can be a megabyte, and only 160 characters survive.
+    const parts = [o.error, o.error_description ?? o.message].filter((v): v is string => typeof v === "string" && v !== "").map((v) => v.slice(0, 400));
     if (parts.length > 0) return redactSecrets(parts.join(": ")).slice(0, 160);
   }
   return `HTTP ${result.status}`;

@@ -93,8 +93,28 @@ test("httpJson returns null json for a body that is not JSON, and reads Retry-Af
 });
 
 test("errorDetail reads both control plane error shapes and redacts credentials", () => {
-  assert.equal(errorDetail({ status: 400, json: { error: "invalid_grant", error_description: "bad refresh" }, retryAfterMs: null }), "invalid_grant: bad refresh");
-  assert.equal(errorDetail({ status: 404, json: { error: "episode_not_found", message: "unknown episode", code: 404 }, retryAfterMs: null }), "episode_not_found: unknown episode");
-  assert.equal(errorDetail({ status: 500, json: null, retryAfterMs: null }), "HTTP 500");
-  assert.ok(!errorDetail({ status: 400, json: { error: `token ${fakeSecrets.helmRefresh} rejected` }, retryAfterMs: null }).includes(fakeSecrets.helmRefresh));
+  const result = (status: number, json: unknown): Parameters<typeof errorDetail>[0] => ({ status, json, retryAfterMs: null, serverDateMs: null });
+  assert.equal(errorDetail(result(400, { error: "invalid_grant", error_description: "bad refresh" })), "invalid_grant: bad refresh");
+  assert.equal(errorDetail(result(404, { error: "episode_not_found", message: "unknown episode", code: 404 })), "episode_not_found: unknown episode");
+  assert.equal(errorDetail(result(500, null)), "HTTP 500");
+  assert.ok(!errorDetail(result(400, { error: `token ${fakeSecrets.helmRefresh} rejected` })).includes(fakeSecrets.helmRefresh));
+});
+
+test("errorDetail stays fast on a megabyte of hostile text, and a response carries the server's clock", async () => {
+  const hostile = "TOKEN".repeat(200_000);
+  const started = performance.now();
+  const detail = errorDetail({ status: 400, json: { error: hostile }, retryAfterMs: null, serverDateMs: null });
+  assert.ok(performance.now() - started < 500, "bounded work");
+  assert.equal(detail.length, 160);
+
+  const s = await serve((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json", Date: "Fri, 02 Oct 2026 12:00:00 GMT" });
+    res.end("{}");
+  });
+  try {
+    const r = await httpJson({ method: "GET", url: `${s.url}/x`, timeoutMs: 1_000 });
+    assert.equal(r.serverDateMs, Date.UTC(2026, 9, 2, 12, 0, 0));
+  } finally {
+    await s.close();
+  }
 });
