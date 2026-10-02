@@ -13,11 +13,18 @@ export const CHECKOUT_CLIENTS = ["claude-code", "codex", "openclaw"] as const;
 const WORK_ITEM = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const ATTEMPTS = 3;
 const BUDGET_MS = 30_000;
+export const MAX_WAIT_SECONDS = 1_200;
+const FIRST_PAUSE_MS = 5_000;
+const LONGEST_PAUSE_MS = 30_000;
 
 export interface CheckoutOptions {
   workItem: string;
   client: string;
   org?: string;
+  /** Keep trying while the work item is not free (a 409), for this many seconds at most. Default 0: one try. */
+  waitSeconds?: number;
+  /** Progress lines for a person. They go to stderr. */
+  say?(line: string): void;
 }
 
 export interface CheckoutResult {
@@ -48,15 +55,19 @@ export async function checkout(ctx: Ctx, opts: CheckoutOptions): Promise<Checkou
   const early = inspect();
   if (early) return early;
 
+  const wait = Math.min(Math.max(opts.waitSeconds ?? 0, 0), MAX_WAIT_SECONDS) * 1000;
   ensureSlotDir(ctx);
-  const budget = new Budget(BUDGET_MS);
+  const budget = new Budget(BUDGET_MS + wait);
   return withLock(slotLockPath(ctx), budget.left(), async () => {
     const again = inspect();
     if (again) return again;
 
     // One idempotency key for every attempt of this checkout, so a retry after a lost response is the same request.
     const key = randomUUID();
-    for (let attempt = 1; ; attempt++) {
+    const waitUntil = ctx.now() + wait;
+    let pause = FIRST_PAUSE_MS;
+    let failures = 0;
+    for (;;) {
       try {
         const res = await callMachine(ctx, budget, {
           method: "POST",
@@ -65,6 +76,13 @@ export async function checkout(ctx: Ctx, opts: CheckoutOptions): Promise<Checkou
           headers: { "Idempotency-Key": key },
           client: opts.client,
         });
+        if (res.status === 409 && ctx.now() + pause <= waitUntil) {
+          // The work item has a live episode, or a stopped one whose last token has not expired. Wait for it, only for this.
+          opts.say?.(`the work item is not free yet (${errorDetail(res)}); trying again in ${Math.round(pause / 1000)} s`);
+          await ctx.sleep(pause);
+          pause = Math.min(pause * 2, LONGEST_PAUSE_MS);
+          continue;
+        }
         if (res.status !== 200 && res.status !== 201) {
           if (res.status === 404) {
             throw new ExecutorError("rejected", `the control plane did not create an episode: ${errorDetail(res)}`);
@@ -95,8 +113,8 @@ export async function checkout(ctx: Ctx, opts: CheckoutOptions): Promise<Checkou
         saveSlot(ctx, slot);
         return { slot, reused: false };
       } catch (err) {
-        if (err instanceof ExecutorError && err.code === "unavailable" && attempt < ATTEMPTS) {
-          await ctx.sleep(300 * attempt);
+        if (err instanceof ExecutorError && err.code === "unavailable" && ++failures < ATTEMPTS) {
+          await ctx.sleep(300 * failures);
           continue;
         }
         throw err;

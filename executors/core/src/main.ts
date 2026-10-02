@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { makeCtx, type Ctx, type Env } from "./ctx.js";
 import { asExecutorError, ExecutorError, failureLine } from "./errors.js";
 import { VERSION } from "./http.js";
-import { checkout, CHECKOUT_CLIENTS } from "./commands/checkout.js";
+import { checkout, CHECKOUT_CLIENTS, MAX_WAIT_SECONDS } from "./commands/checkout.js";
 import { login } from "./commands/login.js";
 import { MAX_INPUT_BYTES, observe } from "./commands/observe.js";
 import { renderEnv, renderStatus, otelResourceAttributes, statusReport } from "./commands/status.js";
@@ -24,7 +24,7 @@ export const USAGE = `usage: helm-executor <command> [options]
 
 commands:
   login     --cp-url <url> [--org <org-id>] [--name <label>]   authorize this machine (device code)
-  checkout  <work-item-id> --client <claude-code|codex|openclaw> [--org <org-id>] [--json]
+  checkout  <work-item-id> --client <claude-code|codex|openclaw> [--org <org-id>] [--wait <seconds>] [--json]
   token                                                        print a bearer token for the checked-out episode
   headers                                                      print {"Authorization":"Bearer ..."}
   observe   --client <claude-code|codex> --event <event>       report one hook event (stdin); always exits 0
@@ -91,10 +91,12 @@ async function dispatch(command: string | undefined, rest: string[], env: Env, i
       return 0;
     }
     case "checkout": {
-      const { values, positionals } = parse(rest, { client: { type: "string" }, org: { type: "string" }, json: { type: "boolean" } }, 1);
+      const { values, positionals } = parse(rest, { client: { type: "string" }, org: { type: "string" }, json: { type: "boolean" }, wait: { type: "string" } }, 1);
+      const wait = values.wait === undefined ? 0 : Number(values.wait);
+      if (!Number.isInteger(wait) || wait < 0 || wait > MAX_WAIT_SECONDS) throw new ExecutorError("usage", `--wait must be a whole number of seconds from 0 to ${MAX_WAIT_SECONDS}`);
       const client = values.client ?? env.HELM_EXECUTOR_CLIENT;
       if (!client) throw new ExecutorError("usage", `--client is required (${CHECKOUT_CLIENTS.join(", ")}) or set HELM_EXECUTOR_CLIENT`);
-      const { slot, reused } = await checkout(makeCtx(env, overrides), { workItem: positionals[0] ?? "", client, org: values.org });
+      const { slot, reused } = await checkout(makeCtx(env, overrides), { workItem: positionals[0] ?? "", client, org: values.org, waitSeconds: wait, say: (line) => void io.stderr(`${line}\n`) });
       if (values.json) {
         await io.stdout(
           `${JSON.stringify({

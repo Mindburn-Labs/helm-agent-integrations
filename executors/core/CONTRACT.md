@@ -22,7 +22,7 @@ sends is observed-only.
 | `helm-executor headers` | Claude Code MCP `headersHelper`; Codex `http_headers_helper` |
 | `helm-executor observe --client <c> --event <e>` | client hooks, on stdin |
 | `helm-executor login --cp-url <url> [--org <org-id>]` | a person, once per machine |
-| `helm-executor checkout <work-item-id> --client <c> [--org <org-id>] [--json]` | launcher or agent |
+| `helm-executor checkout <work-item-id> --client <c> [--org <org-id>] [--wait <seconds>] [--json]` | launcher or agent |
 | `helm-executor stop [--local]` | launcher or agent |
 | `helm-executor status [--json]` | people, installers, conformance |
 | `helm-executor env [--format shell\|json]` | launchers |
@@ -89,7 +89,8 @@ episode per work item, so changing executor on a work item (T100) is `stop` in
 the first session, then `checkout` of the same work item from the second. After a
 stop the control plane keeps refusing a successor with 409 until the stopped
 episode's last issued token has expired, at most 15 minutes, and its attempts are
-read back. `checkout` reports that as `rejected`; try again later.
+read back. `checkout` reports that as `rejected`; `--wait <seconds>` makes it keep
+trying.
 
 **State.** Machine credential and episode state live under
 `HELM_EXECUTOR_HOME` in files of mode 0600, written atomically. Callers must
@@ -272,7 +273,10 @@ as the control plane knows it, a UUID. Stdout is one human line, or with
 {"schema":"helm.executor.checkout/v1","episode_id":"…","work_item_id":"…","client":"claude-code","slot":"default","deadline":"2026-10-08T13:00:00Z","reused":false}
 ```
 
-It never prints the token.
+It never prints the token. `--wait <seconds>` (0 to 1200, default 0) keeps retrying
+a 409 from the control plane, with pauses growing from 5 to 30 seconds, for up to
+that long, and reports each pause on stderr. It waits for nothing else, and the
+retries share one idempotency key.
 
 **`stop`.** Stops the slot's episode at the control plane and clears the slot.
 The control plane answering that the episode is already ended counts as success.

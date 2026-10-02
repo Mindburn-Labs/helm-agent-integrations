@@ -231,3 +231,41 @@ test("stop: a 404 or 410 counts as stopped, a 409 or 403 keeps the slot and is r
     await w.close();
   }
 });
+
+test("--wait keeps trying while the work item is not free, with growing pauses, and only for that", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    const said: string[] = [];
+    const before = w.clock.now();
+    w.fake.fail("/executor-episodes", 409, 2, { error: "work_item_busy" });
+    const { slot } = await checkout(ctx, { workItem: "HELM-910", client: "codex", waitSeconds: 120, say: (l) => said.push(l) });
+    assert.equal(slot.client, "codex");
+    assert.equal(w.fake.requests.filter((r) => r.path.endsWith("/executor-episodes")).length, 3);
+    assert.equal(w.clock.now() - before, 15_000, "5 s then 10 s");
+    assert.equal(said.length, 2);
+    assert.match(said[0] ?? "", /not free yet .*work_item_busy.*5 s/);
+    const keys = new Set(w.fake.requests.filter((r) => r.path.endsWith("/executor-episodes")).map((r) => (r.body as { idempotency_key: string }).idempotency_key));
+    assert.equal(keys.size, 1, "one idempotency key for the whole wait");
+
+    // Another answer is never waited on.
+    const other = w.ctx({ slot: "second" });
+    w.fake.fail("/executor-episodes", 403, 1);
+    await rejects(checkout(other, { workItem: "HELM-912", client: "codex", waitSeconds: 120 }), "rejected", /no authority/);
+  } finally {
+    await w.close();
+  }
+});
+
+test("--wait gives up as rejected once the wait is used up", async () => {
+  const w = await world();
+  try {
+    const ctx = await loggedIn(w);
+    w.fake.fail("/executor-episodes", 409, 20);
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "codex", waitSeconds: 12 }), "rejected", /not free/);
+    assert.equal(w.fake.requests.filter((r) => r.path.endsWith("/executor-episodes")).length, 2);
+    assert.equal(loadSlot(ctx), null);
+  } finally {
+    await w.close();
+  }
+});

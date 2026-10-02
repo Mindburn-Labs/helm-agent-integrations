@@ -120,6 +120,7 @@ test("every failure prints exactly one stderr line, nothing on stdout, and its d
   const cases: { name: string; code: number; line: RegExp; go: () => Promise<Run> }[] = [
     { name: "unknown command", code: 2, line: /^helm-executor: usage: /, go: () => run(["bogus"], envFor(`f${++n}`)) },
     { name: "missing argument", code: 2, line: /^helm-executor: usage: /, go: () => run(["checkout", "--client", "claude-code"], envFor(`f${++n}`)) },
+    { name: "bad --wait", code: 2, line: /^helm-executor: usage: --wait must be a whole number of seconds from 0 to 1200/, go: () => run(["checkout", "HELM-910", "--client", "codex", "--wait", "5000"], envFor(`f${++n}`)) },
     { name: "missing client", code: 2, line: /^helm-executor: usage: --client is required/, go: () => run(["checkout", "HELM-910"], envFor(`f${++n}`)) },
     { name: "not logged in", code: 3, line: /^helm-executor: not_logged_in: /, go: () => run(["checkout", "HELM-910", "--client", "claude-code"], envFor(`f${++n}`)) },
     { name: "no episode", code: 4, line: /^helm-executor: no_episode: /, go: () => run(["token"], envFor(`f${++n}`)) },
