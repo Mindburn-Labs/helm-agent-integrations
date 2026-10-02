@@ -1,0 +1,21 @@
+{
+  "name": "@mindburn/helm-openclaw",
+  "version": "0.1.0",
+  "description": "HELM-compatible native OpenClaw plugin using the retained executor core and gateway MCP/model boundary",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {"node": ">=24.16.0 <25 || >=26.1.0"},
+  "main": "./dist/index.mjs",
+  "exports": {".": "./dist/index.mjs", "./runtime": "./dist/runtime.mjs"},
+  "files": ["dist", "openclaw.plugin.json", "LICENSE", "README.md"],
+  "openclaw": {"extensions": ["./dist/index.mjs"]},
+  "scripts": {
+    "build": "node scripts/assemble.mjs",
+    "test": "node --test --test-timeout=15000 test/*.test.mjs",
+    "check": "node --check src/index.mjs && node --check src/runtime.mjs && node --check src/config.mjs && npm test"
+  },
+  "peerDependencies": {"openclaw": "2026.9.6"},
+  "devDependencies": {"openclaw": "2026.9.6"},
+  "dependencies": {"@openclaw/ai": "2026.9.6", "@modelcontextprotocol/sdk": "1.31.0"},
+  "repository": {"type": "git", "url": "https://github.com/Mindburn-Labs/helm-agent-integrations", "directory": "plugins/openclaw"}
+}
