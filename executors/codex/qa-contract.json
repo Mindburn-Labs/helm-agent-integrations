@@ -33,6 +33,17 @@
     "limits": ["CODEX_HOME does not relocate Unix system requirements or MDM/cloud policy", "probe refuses non-null host managed requirements", "QA trusted hashes are disposable user state; managed provenance remains unrun", "the outer Seatbelt plus CLI workspace-write path failed nested sandbox_apply; app-server externalSandbox does not qualify CLI inner sandbox execution", "unsupported RPCs or failed confinement require a compatible dedicated environment, without weakening controls", "loopback Responses fixture is not real inference", "production TLS/network proxy, signed D24 admission, deployed E1 and native D8 remain unrun"],
     "managed_need": "A dedicated execution environment with its own /etc/codex or supported managed policy must parse requirements.toml and establish managed hook/readback acceptance without changing Ivan's host."
   },
+  "deployed_smoke": {
+    "runner": "deployed-conformance.mjs",
+    "input": "deployed-input.example.json",
+    "managed_prerequisites": "managed-prerequisites.json",
+    "result": "NOT_RUN",
+    "default_mode": "Input validation only; no subprocess or network. Complete references mean READY, never runtime PASS. Null prerequisites mean BLOCKED_INPUTS/exit2 and smoke NOT_RUN.",
+    "live_mode": "Parent-only --run-live using exact enrolled dedicated QA slot and actual deployed origins. Actual core owns checkout, headers, status and stop; no fake server, provider inference or tools/call.",
+    "coverage": ["core pin and private empty slot", "actual E1 work/client binding and mint", "unauthenticated MCP/Responses rejection", "authenticated MCP initialize and required tool discovery", "native stateless GET405/DELETE405", "matching episode retirement and subsequent empty-stdout token refusal"],
+    "limits": ["deployment references are supplied, not independently verified", "managed client/configuration/provenance not run", "production CLI inner sandbox not qualified", "no signed D24 claim parsing/readback", "no native token-expiry/attempt drain or D8 reconciliation", "no governed effects or T100 qualification"],
+    "new_source_checks": ["node --check executors/codex/deployed-conformance.mjs", "node --check executors/codex/deployed-input.mjs", "node --test executors/codex/tests/deployed_input.test.mjs", "ruby scripts/check-markdown.rb"]
+  },
   "stages": [
     { "name": "local-core-contract-fake-and-edge-smoke", "latest_marker": "2026-10-08", "result": "NOT_RUN" },
     { "name": "real-CP-E1-QA", "latest_marker": "2026-10-09", "result": "NOT_RUN" },

@@ -262,11 +262,14 @@ uses null stdin/stderr and filters ambient environment variables. The local
 provider also serves a bounded, authenticated empty model catalog; model and
 effort remain pinned by the disposable configuration and Responses checks.
 
-The app-server path is source-prepared until the parent runs the finite probe.
-Turn completion, actual tool markers, raw denies, unchanged hook observation
-and MCP initialization/session cleanup all remain required. The standalone
-stdio server must close within its finite cleanup budget; no shared daemon is
-used. Do not repeat the old nested CLI probe unchanged.
+The parent qualified this path at adapter commit `8dbf234d`: all six local
+steps passed with the actual pinned client and shared core, the allowed command,
+five raw denies, unchanged hook correlation, five reviewed trusted user hooks,
+file/network confinement challenges and MCP cleanup. The private report
+`output/control/codex-installed-client-8dbf234d.json` has SHA256
+`27691818bdf54b8a5d9a4eaa25e015d0b3aecd557c4df876f9503e99f3dbaeb0`.
+Its scope is the disposable user client and loopback fakes. No inference or
+real effect ran. Do not repeat the old nested CLI probe unchanged.
 
 The [managed configuration documentation](https://learn.chatgpt.com/docs/enterprise/managed-configuration)
 locates Unix requirements at `/etc/codex` or managed policy. `CODEX_HOME` isolates
@@ -274,3 +277,67 @@ the user layer. The probe refuses non-null host requirements and reports managed
 configuration/provenance as `NOT_RUN`. Acceptance of `requirements.toml` needs a
 dedicated execution environment with its own system or managed policy. Ivan's
 profile and host configuration must not be used to install these templates.
+
+### Deployed E1 and edge smoke
+
+[deployed-conformance.mjs](deployed-conformance.mjs) prepares the next bounded
+native step. It imports no fake server and uses the actual shared CLI for E1
+checkout, opaque headers, status and stop. It sends no `tools/call` and makes no
+provider inference. This source is unrun until the parent supplies and approves
+the actual QA inputs.
+
+Copy [deployed-input.example.json](deployed-input.example.json) into a private
+qualification directory and fill its null prerequisites. Supply the deployed CP
+and edge HTTPS origins, retained workspace/org/work UUIDs, immutable deployment
+references and actual MCP build version. The input contains no credential.
+Prepare a separate mode-0700 runtime home and core state directory through
+shared core login and server-authorized enrollment for the work item's seat.
+Use a fresh named Codex slot; the runner refuses an occupied slot. Neither
+login nor the input manifest proves enrollment or deployment.
+
+The default command validates the input without launching a subprocess or
+opening a network connection. Missing fields return exit `2`,
+`BLOCKED_INPUTS` and smoke `NOT_RUN`; complete inputs return `READY`, with
+smoke still `NOT_RUN`. Readiness is never runtime proof.
+
+```sh
+node executors/codex/deployed-conformance.mjs \
+  --input /private/qualification/codex-e1-input.json \
+  --report /private/qualification/codex-e1-input-readback.json
+```
+
+Only the parent runs the live command against the approved dedicated QA slot:
+
+```sh
+node executors/codex/deployed-conformance.mjs \
+  --input /private/qualification/codex-e1-input.json \
+  --core /absolute/qualified-checkout/executors/core \
+  --run-live \
+  --report /private/qualification/codex-e1-edge-smoke.json \
+  --timeout-ms 60000
+```
+
+The finite run checks E1 binding and minting, unauthenticated rejection at both
+edge routes, authenticated MCP initialization, exact build/version readback and
+required effect/attempt tool discovery. It checks the inspected native
+gateway's stateless transport: GET and DELETE return `405`. This is distinct
+from the local fake's stateful DELETE `204`; the runner claims no native active
+session count. A different deployed protocol fails for owner qualification.
+
+The report is a new mode-0600 file with statuses and noncredential metadata.
+Credentials and response bodies are never persisted; the episode bearer remains
+opaque. The runner parses only shared header maps and protocol/status JSON.
+Redirects are refused. The runner retires only its matching work/client/slot
+episode and checks later token-helper refusal. An unresolved checkout or stop
+preserves core state for original-key recovery; it never uses `stop --local`.
+The main budget is at most 120 seconds, with up to three 21-second shared-core
+calls for failure cleanup. Native token-expiry and retained-attempt drain are
+separate gates; no clock change, wait loop or fake successor is used.
+
+This smoke cannot qualify the installed managed client, signed D24 claim
+readback, native D8, governed push/PR/merge, production network custody or T100.
+[managed-prerequisites.json](managed-prerequisites.json) names the remaining
+managed setup and readback requirements. Source-owned native switch and
+lost-response acceptance must reuse the shared core/gateway identity and
+actual owner-approved effect target; the fake's approval callback is never a
+live approval mechanism.
