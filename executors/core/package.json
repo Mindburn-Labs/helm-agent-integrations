@@ -23,6 +23,8 @@
     "dist",
     "!dist/**/*.test.js",
     "!dist/**/*.test.d.ts",
+    "!dist/test-utils.js",
+    "!dist/test-utils.d.ts",
     "schema",
     "CONTRACT.md",
     "README.md"

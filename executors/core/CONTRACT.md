@@ -278,12 +278,12 @@ nothing to do when the slot is empty.
   "workspace_id": "…",
   "cp_url": "https://…",
   "slot": "default",
-  "episode": { "episode_id": "…", "work_item_id": "…", "client": "claude-code", "deadline": "…", "seconds_left": 3120 },
+  "episode": { "episode_id": "…", "work_item_id": "…", "client": "claude-code", "deadline": "…", "seconds_left": 3120, "ended": null },
   "observe": { "last_ok_at": "…", "last_error_at": null, "last_error": null }
 }
 ```
 
-`episode` is `null` when the slot is empty.
+`episode` is `null` when the slot is empty. `ended` is `null` for a live episode and the reason once the control plane has said the episode is gone.
 
 **`env`.** Prints the OpenTelemetry resource attributes for the slot's episode,
 for a launcher to export before it starts the client:

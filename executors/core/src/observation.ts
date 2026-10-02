@@ -4,6 +4,7 @@
 // input itself, never tool output, prompts, the transcript, the environment or the working directory.
 
 import { createHash } from "node:crypto";
+import { ExecutorError } from "./errors.js";
 import { redactSecrets } from "./redact.js";
 import type { SlotState } from "./state.js";
 
@@ -125,9 +126,9 @@ export interface BuildArgs {
 
 export function buildObservation(args: BuildArgs): Observation {
   const { client, event, envelope, slot } = args;
-  if (!isRecord(envelope)) throw new Error("hook input is not a JSON object");
+  if (!isRecord(envelope)) throw new ExecutorError("rejected", "hook input is not a JSON object");
   const sessionId = text(envelope.session_id, 256);
-  if (!sessionId) throw new Error("hook input has no session_id");
+  if (!sessionId) throw new ExecutorError("rejected", "hook input has no session_id");
 
   const observation: Observation = {
     schema: "helm.executor.observation/v1",
@@ -153,7 +154,7 @@ export function buildObservation(args: BuildArgs): Observation {
   const phase = PHASE[event];
   if (phase) {
     const name = text(envelope.tool_name, 256);
-    if (!name) throw new Error("hook input has no tool_name");
+    if (!name) throw new ExecutorError("rejected", "hook input has no tool_name");
     const tool: NonNullable<Observation["tool"]> = { name, phase, input_digest: inputDigest(envelope.tool_input) };
     const useId = text(envelope.tool_use_id, 256);
     if (useId) tool.use_id = useId;
