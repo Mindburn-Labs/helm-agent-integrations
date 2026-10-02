@@ -85,33 +85,9 @@ async function run() {
   await writeFile(executor, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(core, "dist/cli.js"))} "$@"\n`, { mode: 0o700 });
   await chmod(executor, 0o700);
 
-  let dropNextBranch = false;
   let droppedAttempt;
-  let dropCount = 0;
-  const applications = new Map();
-  fake = await startFakeCp({ pollsBeforeApproval: 0, routes: {
-    "POST /mcp": ({ req, res, body, fake: cp }) => {
-      const episode = cp.episodeForToken(req.headers.authorization);
-      if (!episode) { res.writeHead(401); res.end(); return; }
-      const before = new Set(cp.gateway.attempts.keys());
-      const reply = cp.gateway.handle(body ?? {}, episode);
-      for (const [id, attempt] of cp.gateway.attempts) {
-        if (!before.has(id) && attempt.effectType === "github.branch.create_from_changes") applications.set(id, 1);
-      }
-      if (dropNextBranch && body?.params?.name === "github_branch_create_from_changes") {
-        const created = [...cp.gateway.attempts.values()].find((attempt) => !before.has(attempt.id) && attempt.effectType === "github.branch.create_from_changes");
-        if (created) {
-          dropNextBranch = false;
-          droppedAttempt = created;
-          dropCount++;
-          res.destroy(); // The fake effect is applied, but no MCP result reaches the client.
-          return;
-        }
-      }
-      res.writeHead(reply.status, { "Content-Type": "application/json", ...(reply.headers ?? {}) });
-      res.end(reply.body === undefined ? "" : JSON.stringify(reply.body));
-    },
-  } });
+  fake = await startFakeCp({ pollsBeforeApproval: 0 });
+  const branchCount = () => [...fake.gateway.attempts.values()].filter((attempt) => attempt.effectType === "github.branch.create_from_changes").length;
   check(new URL(fake.url).hostname === "127.0.0.1", "This runner only accepts the shared loopback fake");
   const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, TMPDIR: temporary,
     HELM_EXECUTOR_HOME: join(temporary, "state"), HELM_EXECUTOR_CP_URL: fake.url,
@@ -193,12 +169,16 @@ async function run() {
     files: [{ path: "conformance/codex-d8.txt", mode: "100644", content_utf8: "local fake only\n" }] };
   await step("drop the MCP response after the shared fake applies the branch effect", async () => {
     await initialize(firstHeaders);
-    dropNextBranch = true;
+    const before = new Set(fake.gateway.attempts.keys());
+    const count = branchCount();
+    fake.dropResponse("POST /mcp", 1);
     let responseLost = false;
     try { await rpc("tools/call", { name: "github_branch_create_from_changes", arguments: { target, arguments: intent } }, firstHeaders); }
     catch { responseLost = true; }
-    check(responseLost && dropCount === 1 && droppedAttempt?.status === "succeeded", "The transport loss did not occur after the fake effect was applied");
-    check(applications.get(droppedAttempt.id) === 1, "The loss scenario did not create exactly one fake application");
+    const created = [...fake.gateway.attempts.values()].filter((attempt) => !before.has(attempt.id) && attempt.effectType === "github.branch.create_from_changes");
+    droppedAttempt = created[0];
+    check(responseLost && created.length === 1 && droppedAttempt?.status === "succeeded", "The transport loss did not occur after the fake effect was applied");
+    check(branchCount() === count + 1, "The loss scenario did not create exactly one fake application");
   });
   await step("stop first slot, handle an injected successor hold, then checkout Codex", async () => {
     const stopped = await cli(["stop"], first);
@@ -227,13 +207,12 @@ async function run() {
     await initialize(secondHeaders);
     check(sessions.get(firstHeaders) !== sessions.get(secondHeaders), "The D8 retry did not use a distinct MCP session");
     const reordered = Object.fromEntries(Object.entries(intent).reverse());
-    const applicationCount = applications.size;
+    const applicationCount = branchCount();
     const attemptCount = fake.gateway.attempts.size;
     const retry = await rpc("tools/call", { name: "github_branch_create_from_changes", arguments: { target, arguments: reordered } }, secondHeaders);
     const result = retry.result?.structuredContent;
     check(result?.status === "succeeded" && result.attempt_id === droppedAttempt.id, "Retry did not resolve to the retained attempt");
-    check(applications.get(result.attempt_id) === 1, "Retry produced another fake application");
-    check(applications.size === applicationCount && fake.gateway.attempts.size === attemptCount, "Retry created an additional fake effect or attempt");
+    check(branchCount() === applicationCount && fake.gateway.attempts.size === attemptCount, "Retry created an additional fake effect or attempt");
     const readback = await rpc("tools/call", { name: "helm_attempt_get", arguments: { attempt_id: result.attempt_id } }, secondHeaders);
     const observed = readback.result?.structuredContent;
     check(observed?.status === "succeeded" && observed.attempt_id === droppedAttempt.id && observed.result?.commit_sha === droppedAttempt.result.commit_sha, "Retained effect readback did not establish the same fake result");

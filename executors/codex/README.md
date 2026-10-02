@@ -13,8 +13,8 @@ gateway owns admission, effects, credentials, receipts and D8 effect identity.
 Hooks are observations; gateway admission authorizes effects.
 
 [core-contract.json](core-contract.json) pins the shared CLI and fake CP source
-at `9253c7c52d83d3f9e85bd96e81f877cfd3d959f9`, including the exact contract and
-schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/9253c7c52d83d3f9e85bd96e81f877cfd3d959f9/executors/core/CONTRACT.md)
+at `7394a3bf18b58b13153ff9f677722a7b45145eba`, including the exact contract and
+schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/7394a3bf18b58b13153ff9f677722a7b45145eba/executors/core/CONTRACT.md)
 supersedes the earlier provisional adapter payload. Runtime qualification
 remains separate from source presence and hash readback.
 
@@ -150,7 +150,7 @@ and cannot substitute for the actual shared core fake CP or the executor edge.
 
 [integration-conformance.mjs](integration-conformance.mjs) invokes the actual
 built core CLI through the rendered provider, MCP header and hook commands.
-It uses core's `startFakeCp` and `runGovernedFlow`, stops a first slot, checks
+It uses core's `startFakeCp`, `dropResponse` and `runGovernedFlow`, stops a first slot, checks
 an injected 409 hold, and checks out Codex in a second slot. It drops a real
 loopback MCP connection after the shared fake applies a branch effect, then
 retries and reads back the same attempt from a different episode and MCP
