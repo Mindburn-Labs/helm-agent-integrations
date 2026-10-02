@@ -13,8 +13,9 @@ gateway owns admission, effects, credentials, receipts and D8 effect identity.
 Hooks are observations; gateway admission authorizes effects.
 
 [core-contract.json](core-contract.json) pins the shared CLI and fake CP source
-at `7394a3bf18b58b13153ff9f677722a7b45145eba`, including the exact contract and
-schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/7394a3bf18b58b13153ff9f677722a7b45145eba/executors/core/CONTRACT.md)
+at merged `337f8f47465ae8dad06fd763b22572e14f6d6ca6` from PR54, including the
+exact contract/schema hashes and core tree. The core tree is identical to the
+previous `7394a3bf` pin. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/337f8f47465ae8dad06fd763b22572e14f6d6ca6/executors/core/CONTRACT.md)
 supersedes the earlier provisional adapter payload. Runtime qualification
 remains separate from source presence and hash readback.
 
@@ -179,6 +180,12 @@ reconciliation and deployed CP E1 remain separate gates. D24 expects
 `aud=helm-gateway-executor:<env>`, signed `helm_executor={client}` and the
 existing `helm_episode`, with a lifetime of at most 900 seconds. The adapter
 continues to treat the shared credential as opaque.
+
+PR54's Claude findings remain paired constraints: the work path takes the CP
+UUID; Claude's managed MCP, HTTP-hook, API-key precedence and provider-version
+rules do not supply Codex settings. Codex keeps its own token command, header
+helper and command hooks. The controller's Claude conformance against fakes
+does not qualify the Codex client or deployed E1/edge.
 
 ### Installed client probe
 

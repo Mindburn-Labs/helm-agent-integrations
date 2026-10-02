@@ -3,7 +3,10 @@
   "version": "helm.executor.core/v1",
   "repository": "Mindburn-Labs/helm-agent-integrations",
   "owner": "claude:executor-adapters",
-  "source_sha": "7394a3bf18b58b13153ff9f677722a7b45145eba",
+  "source_sha": "337f8f47465ae8dad06fd763b22572e14f6d6ca6",
+  "source_branch": "main",
+  "source_merge_pr": "https://github.com/Mindburn-Labs/helm-agent-integrations/pull/54",
+  "core_tree_sha": "f81a6dd5a7cab75037ec879d2189b3a3fe79b0f3",
   "initial_contract_sha": "2c2a62c9afcba4a515fc87d0829ca9ec663ee3fb",
   "contract_path": "executors/core/CONTRACT.md",
   "sha256": {
@@ -19,6 +22,6 @@
   },
   "stdin": "Original Codex hook JSON unchanged; passed directly by the command handler.",
   "coverage": "observed-only",
-  "source_boundary": "Shared CLI and fake CP source are available at this pin. Source presence and hash readback do not qualify the producer or either adapter at runtime.",
+  "source_boundary": "Merged PR54 core tree is byte-identical to the previous 7394a3bf pin. Shared CLI and fake CP are available; merge, source presence and hash readback do not qualify either adapter or the deployed runtime.",
   "runtime_qualification": "NOT_RUN"
 }

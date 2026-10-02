@@ -121,7 +121,7 @@ async function probe() {
   fake = await startFakeCp({ pollsBeforeApproval: 0 });
   check(new URL(fake.url).hostname === "127.0.0.1", "The supplied fake CP must bind loopback");
   const env = { PATH: bins + ":" + gitEnv.PATH, HOME: home, CODEX_HOME: codexHome, TMPDIR: temporary, LANG: "en_US.UTF-8", TERM: "dumb",
-    HELM_EXECUTOR_HOME: join(temporary, "executor"), HELM_EXECUTOR_CP_URL: fake.url, HELM_EXECUTOR_ORG: fake.orgId, HELM_EXECUTOR_CLIENT: "codex", HELM_EXECUTOR_SLOT: "installed-client-probe" };
+    HELM_EXECUTOR_HOME: join(temporary, "executor"), HELM_EXECUTOR_CP_URL: fake.url, HELM_EXECUTOR_ORG: fake.orgId, HELM_EXECUTOR_CLIENT: "codex", HELM_EXECUTOR_SLOT: "installed-client-probe", HELM_EXECUTOR_OBSERVE_SUMMARY: "off" };
   let episode, authorization, config, captured = [];
   await step("actual shared core opens one isolated Codex slot on its loopback fake", async () => {
     check((await run(executor, ["login", "--cp-url", fake.url, "--org", fake.orgId], env)).code === 0, "Shared fake login failed");

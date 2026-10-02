@@ -3,10 +3,18 @@
   "acceptance_ids": ["T48", "T87", "T97", "T100", "T103"],
   "result": "NOT_RUN",
   "scope": "local managed Codex executor; Codex Cloud excluded",
-  "core_source_sha": "7394a3bf18b58b13153ff9f677722a7b45145eba",
+  "core_source_sha": "337f8f47465ae8dad06fd763b22572e14f6d6ca6",
   "core_contract_pin": "core-contract.json",
   "wave1": "Named Claude Code adapter, Codex adapter and one release rehearsal session only; two or three sessions total through gateway API keys, all others subscriptions.",
   "pacing": "D23: integrate when dependencies exist; dates are latest markers, not start times.",
+  "paired_adapter_constraints": {
+    "source": "https://github.com/Mindburn-Labs/helm-agent-integrations/pull/54",
+    "scope": "Controller E1-E6 findings for the shared core and Claude pair; no Claude setting is copied into Codex.",
+    "shared": "The work-item path is the retained CP UUID, not a Linear issue key.",
+    "claude_specific": ["managedMcpServers rejects headersHelper; the Claude adapter uses managed-mcp.json", "HTTP hooks cannot carry the rotating token", "API key authentication precedes apiKeyHelper", "allowedProviders requires Claude Code 2.1.285 or later"],
+    "codex": "Retain Codex's own auth.command executable with args[token], http_headers_helper and command hooks; parent qualifies support with the installed binary.",
+    "evidence_boundary": "Controller's real Claude 2.1.274 conformance 33/0 was against fakes only; Codex and deployed E1/edge remain unqualified."
+  },
   "local_integration": {
     "runner": "integration-conformance.mjs",
     "result": "NOT_RUN",
