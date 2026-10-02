@@ -57,16 +57,32 @@ test("a different work item in an occupied slot is a usage error", async () => {
   }
 });
 
-test("slots are independent: two episodes can be checked out at once", async () => {
+test("slots are independent: two work items can be checked out at once", async () => {
   const w = await world();
   try {
     const a = await checkedOut(w, "HELM-910", "claude-code");
     const b = w.ctx({ slot: "codex-1" });
-    await checkout(b, { workItem: "HELM-910", client: "codex" });
+    await checkout(b, { workItem: "HELM-911", client: "codex" });
     assert.equal(w.fake.episodes.size, 2);
     await stop(a, { local: false });
     assert.equal(loadSlot(a), null);
     assert.ok(loadSlot(b));
+  } finally {
+    await w.close();
+  }
+});
+
+test("changing executor on a work item: the second checkout is refused until the first session stops", async () => {
+  const w = await world();
+  try {
+    const first = await checkedOut(w, "HELM-910", "claude-code");
+    const second = w.ctx({ slot: "codex-1" });
+    await rejects(checkout(second, { workItem: "HELM-910", client: "codex" }), "rejected", /already has a live episode/);
+    assert.equal(loadSlot(second), null);
+    await stop(first, { local: false });
+    const { slot } = await checkout(second, { workItem: "HELM-910", client: "codex" });
+    assert.equal(slot.client, "codex");
+    assert.equal(w.fake.episodes.size, 2);
   } finally {
     await w.close();
   }
@@ -114,8 +130,8 @@ test("checkout gives up as unavailable after three failed attempts, and as rejec
     assert.equal(loadSlot(ctx), null);
     w.fake.fail("/executor-episodes", 404, 1, { error: "work_item_not_found" });
     await rejects(checkout(ctx, { workItem: "HELM-999", client: "claude-code" }), "rejected", /work_item_not_found/);
-    w.fake.fail("/executor-episodes", 403, 1);
-    await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "rejected");
+    w.fake.fail("/executor-episodes", 403, 1, { error: "no_authority" });
+    await rejects(checkout(ctx, { workItem: "HELM-910", client: "claude-code" }), "rejected", /no authority.*enroll this machine credential/);
   } finally {
     await w.close();
   }

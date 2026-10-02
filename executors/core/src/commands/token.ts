@@ -50,7 +50,7 @@ export async function episodeToken(ctx: Ctx): Promise<string> {
         client: slot.client,
       });
       if (res.status === 200 || res.status === 201) {
-        const grant = parseEpisodeTokenGrant(res.json);
+        const grant = parseEpisodeTokenGrant(res.json, ctx.now());
         if (Date.parse(grant.token_expires_at) <= ctx.now()) {
           throw new ExecutorError("internal", "the control plane returned a token that is already expired");
         }

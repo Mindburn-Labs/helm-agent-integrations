@@ -49,10 +49,11 @@ function envFor(name: string, extra: Record<string, string> = {}): Record<string
   return { HELM_EXECUTOR_HOME: join(tmp.dir, name), HELM_EXECUTOR_CP_URL: fake.url, HELM_EXECUTOR_ORG: fake.orgId, HELM_EXECUTOR_TEST_POLL_MS: "20", ...extra };
 }
 
+// The control plane allows one live episode per work item, so every ready() session gets its own.
 async function ready(name: string, extra: Record<string, string> = {}): Promise<Record<string, string>> {
   const env = envFor(`${name}-${++n}`, extra);
   assert.equal((await run(["login"], env)).code, 0);
-  assert.equal((await run(["checkout", "HELM-910", "--client", "claude-code"], env)).code, 0);
+  assert.equal((await run(["checkout", `work-${n}`, "--client", "claude-code"], env)).code, 0);
   return env;
 }
 
@@ -228,12 +229,12 @@ test("state directories are 0700 and state files 0600", async () => {
 test("HELM_EXECUTOR_SLOT keeps two sessions' episodes apart", async () => {
   const base = await ready("slots");
   const second = { ...base, HELM_EXECUTOR_SLOT: "codex-1" };
-  assert.equal((await run(["checkout", "HELM-911", "--client", "codex"], second)).code, 0);
+  assert.equal((await run(["checkout", "work-slot-b", "--client", "codex"], second)).code, 0);
   const a = (await run(["token"], base)).stdout.trim();
   const b = (await run(["token"], second)).stdout.trim();
   assert.notEqual(a, b);
-  assert.equal(fake.episodeForToken(`Bearer ${a}`)?.workItemId, "HELM-910");
-  assert.equal(fake.episodeForToken(`Bearer ${b}`)?.workItemId, "HELM-911");
+  assert.equal(fake.episodeForToken(`Bearer ${a}`)?.workItemId.startsWith("work-"), true);
+  assert.equal(fake.episodeForToken(`Bearer ${b}`)?.workItemId, "work-slot-b");
   assert.equal((await run(["stop"], second)).code, 0);
   assert.equal((await run(["token"], base)).code, 0);
   assert.equal((await run(["token"], second)).code, 4);

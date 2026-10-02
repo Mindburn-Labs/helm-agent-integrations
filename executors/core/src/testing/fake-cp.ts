@@ -270,6 +270,10 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
           }
           const known = byKey.get(b.idempotency_key);
           const existing = known ? episodes.get(known) : undefined;
+          // One live episode per work item. A replay of the same request is not a second episode.
+          if (!existing && [...episodes.values()].some((e) => e.workItemId === workItemId && !e.stopped && e.deadlineMs > now())) {
+            return consoleError(res, 409, "the work item already has a live episode", "work_item_busy");
+          }
           const episode: EpisodeRecord = existing ?? {
             episodeId: randomUUID(),
             workItemId,

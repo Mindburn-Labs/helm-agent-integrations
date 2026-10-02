@@ -1,7 +1,7 @@
-// The control plane wire contract the client assumes. CONTRACT.md section 7 is the spec.
+// The control plane wire contract the client builds. CONTRACT.md section 7 is the spec.
 // The device-code routes are real (svc-helm-control-plane internal/deviceauth/service.go). The executor and
-// observation routes are the G0 plan's endpoints and stay ASSUMED until codex:cp-org publishes OpenAPI:
-// changing them is a change to this file and to the fake control plane, nothing else.
+// observation routes were agreed with codex:cp-org on 2026-10-02 and are not merged yet; when its OpenAPI is
+// published, a change is a change to this file and to the fake control plane, nothing else.
 
 import { ExecutorError } from "./errors.js";
 
@@ -127,7 +127,10 @@ export function parseEpisodeGrant(json: unknown): EpisodeGrant {
   };
 }
 
-export function parseEpisodeTokenGrant(json: unknown): EpisodeTokenGrant {
+/** The refresh answer: `token` plus `token_expires_at`, or `expires_in` seconds. The create answer's body also fits. */
+export function parseEpisodeTokenGrant(json: unknown, nowMs: number): EpisodeTokenGrant {
   const o = record(json, "episode token");
-  return { token: str(o, "token", "episode token"), token_expires_at: time(o, "token_expires_at", "episode token") };
+  const token = str(o, "token", "episode token");
+  if (o.token_expires_at !== undefined) return { token, token_expires_at: time(o, "token_expires_at", "episode token") };
+  return { token, token_expires_at: new Date(nowMs + num(o, "expires_in", "episode token") * 1000).toISOString() };
 }

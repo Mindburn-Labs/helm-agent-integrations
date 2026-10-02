@@ -69,6 +69,10 @@ export async function checkout(ctx: Ctx, opts: CheckoutOptions): Promise<Checkou
           if (res.status === 404 || res.status === 409) {
             throw new ExecutorError("rejected", `the control plane did not create an episode: ${errorDetail(res)}`);
           }
+          if (res.status === 403) {
+            // Enrollment of a machine credential to a seat is server-side; login proves the credential and never enrolls it.
+            throw new ExecutorError("rejected", `no authority to check out this work item: ${errorDetail(res)}; the organization owner must enroll this machine credential for a seat`);
+          }
           failForStatus(res, "episode checkout");
         }
         const grant = parseEpisodeGrant(res.json);

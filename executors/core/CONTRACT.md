@@ -1,9 +1,9 @@
 # helm-executor core contract (v1)
 
-Status: draft for codex:executors and codex:cp-org, written 2026-10-01 by
-claude:executor-adapters (HELM-910). The code in `executors/core/` implements
-this file. If the two disagree, the code is wrong; open an issue on the lane
-instead of working around it.
+Status: v1, written 2026-10-01 by claude:executor-adapters (HELM-910) and agreed
+with codex:cp-org on 2026-10-02 for the executor and observation routes. The
+code in `executors/core/` implements this file. If the two disagree, the code is
+wrong; open an issue on the lane instead of working around it.
 
 `helm-executor` is the one auth and observation client for every HELM executor
 front-end (Claude Code, Codex, later the OCE plugin). Adapters call it as a
@@ -84,8 +84,9 @@ The reason is under 200 characters and carries no credential.
 **Slots.** One slot holds one checked-out episode. Sessions that run at the same
 time on one machine must use different slots, so a launcher sets
 `HELM_EXECUTOR_SLOT` once and every helper in that session inherits it. The
-machine credential is shared by all slots. Changing executor on one work item
-(T100) is a second `checkout` of the same work item in another slot.
+machine credential is shared by all slots. The control plane allows one live
+episode per work item, so changing executor on a work item (T100) is `stop` in
+the first session, then `checkout` of the same work item from the second.
 
 **State.** Machine credential and episode state live under
 `HELM_EXECUTOR_HOME` in files of mode 0600, written atomically. Callers must
@@ -213,7 +214,7 @@ is the schema. Unknown fields are ignored. Input over 8 MiB is skipped.
   "event": "PostToolUse",
   "observed_at": "2026-10-08T12:00:00.000Z",
   "episode_id": "6f1c2c1e-2d63-4a39-93a5-6d8c9a3b2e10",
-  "work_item_id": "HELM-910",
+  "work_item_id": "0b6f1d52-3c3e-4a77-9d0f-5f2c7a1e8b34",
   "session_id": "abc123",
   "tool": {
     "name": "Bash",
@@ -247,7 +248,12 @@ is the schema. Unknown fields are ignored. Input over 8 MiB is skipped.
 `/api/v1/auth/device/*` routes. It prints the verification URL and user code to
 stderr and polls. It stores the machine credential (access token, refresh token)
 and the control plane URL, and the organization id when `--org` is given. It
-never prints a token. A person runs it once per machine.
+never prints a token. A person runs it once per machine. It proves the machine
+credential and nothing more: it never enrolls the credential for a seat.
+Enrollment is server side. The organization owner, or a member with seat
+management authority over the team, enrolls the credential with step-up. A
+credential with no enrollment for the work item's seat gets 403 at `checkout`,
+which is exit 7.
 
 **`checkout <work-item-id>`.** Creates an executor episode for the work item and
 stores it in the slot, with its deadline. `--client` is required unless
@@ -255,7 +261,8 @@ stores it in the slot, with its deadline. `--client` is required unless
 `HELM_EXECUTOR_ORG`, then the stored one. A second `checkout` of the same work
 item in the same slot is a no-op that reports the existing episode, unless that
 episode is past its deadline, in which case it creates a new one. A different
-work item in an occupied slot is exit 2. Stdout is one human line, or with
+work item in an occupied slot is exit 2. `<work-item-id>` is the work item's id
+as the control plane knows it, a UUID. Stdout is one human line, or with
 `--json`:
 
 ```json
@@ -289,7 +296,7 @@ nothing to do when the slot is empty.
 for a launcher to export before it starts the client:
 
 ```text
-OTEL_RESOURCE_ATTRIBUTES=helm.work_item_id=HELM-910,helm.episode_id=…,helm.executor=claude-code
+OTEL_RESOURCE_ATTRIBUTES=helm.work_item_id=0b6f1d52-3c3e-4a77-9d0f-5f2c7a1e8b34,helm.episode_id=…,helm.executor=claude-code
 ```
 
 An existing `OTEL_RESOURCE_ATTRIBUTES` in the environment is kept and extended.
@@ -300,9 +307,10 @@ when the slot is empty.
 
 These are the calls the client makes. The device-code routes exist today in the
 control plane (`internal/deviceauth/service.go`, origin/main `c69c338`). The
-executor and observation routes are the G0 plan's endpoints and are **assumed**
-until codex:cp-org publishes OpenAPI. The client keeps them in one file,
-`src/contract.ts`; changing them is a one-file change.
+executor and observation routes were agreed with codex:cp-org on 2026-10-02 and
+are not merged yet; when its OpenAPI is published it replaces this table. The
+client keeps the routes in one file, `src/contract.ts`; changing them is a
+one-file change.
 
 | Call | Auth | Request | Success |
 |---|---|---|---|
@@ -310,7 +318,7 @@ until codex:cp-org publishes OpenAPI. The client keeps them in one file,
 | `POST /api/v1/auth/device/token` | none | `{"grant_type":"urn:ietf:params:oauth:grant-type:device_code","device_code"}` | 200 `{token_type,access_token,expires_in,refresh_token,refresh_expires_in,scope,credential_id,subject,workspace_id}`; 400 `authorization_pending`, `slow_down`, `expired_token`, `invalid_grant` |
 | `POST /api/v1/auth/device/refresh` | none | `{"grant_type":"refresh_token","refresh_token"}` | same body as the token call. The refresh token rotates |
 | `POST {ORG}/work-items/{work_item_id}/executor-episodes` | machine | `{"client","idempotency_key"}` | 201 `{episode_id,work_item_id,token,token_expires_at,deadline}` |
-| `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/token` | machine | `{}` | 200 `{token,token_expires_at}` |
+| `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/token` | machine | `{}` | 200 `{token,token_expires_at}`. `expires_in` seconds is accepted in place of `token_expires_at`, and the create body also fits |
 | `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/stop` | machine | `{}` | 200 or 204 |
 | `POST {ORG}/observations` | machine | [observation](schema/observation.schema.json) | 202 |
 
@@ -323,24 +331,23 @@ Status mapping, which decides the exit code:
 | Response | Meaning |
 |---|---|
 | 401 on a `{ORG}` call | the access token expired or was revoked. The client refreshes once and retries once. A refresh refused with `invalid_grant` is `not_logged_in` |
-| 404, 409 or 410 on `…/token` | `episode_ended` |
-| 404, 409 or 410 on `…/stop` | already ended; success |
+| 410 on `…/token` | the episode was stopped or has expired: `episode_ended` |
+| 404 or 409 on `…/token` | the episode is not ours, or is gone: `episode_ended` |
+| 404, 409 or 410 on `…/stop` | already ended, or not ours; success |
+| 403 on `checkout` | no authority: the credential is not enrolled for the seat. `rejected` |
+| 409 on `checkout` | the work item already has a live episode. `rejected` |
 | 403, or any other 4xx | `rejected` |
-| 429, 5xx, a timeout or a network error | `unavailable` |
+| 429, 5xx (503 is the usual one), a timeout or a network error | `unavailable` |
 
 Error bodies may be `{"error","error_description"}` (device-code routes) or
 `{"error","message","code"}` (console routes). The client prints a redacted,
 truncated message from either.
 
-Questions for codex:cp-org. Answer by changing `src/contract.ts` and this table
-in the same PR:
-
-1. Is the episode id in the path of `…/token` and `…/stop`, as assumed?
-2. Are the response field names above right? In particular `token` and
-   `token_expires_at`.
-3. Does `POST {ORG}/observations` accept the machine access token, as assumed,
-   or only the episode token?
-4. Does a stopped or expired episode answer 404, 409 or 410?
+Identity, as the control plane keeps it. The episode token's `sub` and the
+episode's actor are `agt:<seat>`, the seat the machine credential is enrolled
+for. `executor:<client>` is stored separately as provenance. `client` in the
+create body is `claude-code`, `codex` or `openclaw`. Machine authorization on
+`POST {ORG}/observations` is the machine access token, as `observe` sends it.
 
 ## 8. Fake server for adapter tests
 
