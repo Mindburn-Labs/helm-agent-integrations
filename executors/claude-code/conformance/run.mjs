@@ -3,8 +3,9 @@
 //
 //   node conformance/run.mjs                      fake control plane and fake edge, no Claude Code
 //   node conformance/run.mjs --claude             also drive the installed `claude` through the session profile
-//   node conformance/run.mjs --cp-url <url> --edge-url <url> --org <id> --work-item <id> [--claude] [--login]
-//                                                 a live control plane and edge (helm-qa-sandbox)
+//   node conformance/run.mjs --cp-url <url> --edge-url <url> --org <id> [--work-item <id>] [--login] [--claude]
+//        [--governed-flow --target github.com/<owner>/<repo> --branch-prefix helm/<seat>/ [--wait-approval <seconds>]]
+//        [--model <routed model name>]             a live control plane and edge (helm-qa-sandbox)
 //
 // Every check prints PASS, FAIL or SKIP. The exit code is 1 when any check fails. --report <file> writes the
 // results as JSON. Nothing here proves enforcement: the gateway is the authority, this proves the adapter's side.
@@ -123,7 +124,7 @@ export async function runConformance(options) {
     record("headers prints one Authorization header", headers.code === 0 && headerMap && Object.keys(headerMap).join() === "Authorization" && /^Bearer [^\s]+$/.test(headerMap.Authorization), `exit ${headers.code}`);
 
     // ---- the edge accepts the token ----
-    const probe = (auth) => postJson(`${edgeUrl}/v1/messages`, auth, { model: "claude-sonnet-4-5", max_tokens: 1, messages: [{ role: "user", content: "." }] });
+    const probe = (auth) => postJson(`${edgeUrl}/v1/messages`, auth, { model: options.model ?? "claude-sonnet-4-5", max_tokens: 1, messages: [{ role: "user", content: "." }] });
     const accepted = await probe({ "anthropic-version": "2023-06-01", "x-api-key": tokenValue, Authorization: `Bearer ${tokenValue}` });
     record("the edge accepts the episode token on /v1/messages", accepted.status !== 401 && accepted.status !== 403 && accepted.status < 500, `HTTP ${accepted.status}`);
     const refused = await probe({ "anthropic-version": "2023-06-01", "x-api-key": "not-a-token", Authorization: "Bearer not-a-token" });
@@ -136,10 +137,33 @@ export async function runConformance(options) {
     const names = (listed.json?.result?.tools ?? []).map((t) => t.name);
     record("the HELM MCP endpoint accepts the headers and lists helm_attempt_get", init.status === 200 && listed.status === 200 && names.includes("helm_attempt_get"), `initialize ${init.status}, tools/list ${listed.status}, ${names.length} tools`);
 
+    // ---- the governed write flow: read, push, draft pull request awaiting approval, read back ----
+    const target = options.target ?? (options.fake ? "github.com/Mindburn-Labs/helm-qa-sandbox" : undefined);
+    const branchPrefix = options.branchPrefix ?? (options.fake ? "helm/" : undefined);
+    if (!options.fake && !options.governedFlow) {
+      record("governed write flow", "skip", "pass --governed-flow --target github.com/<owner>/<repo> --branch-prefix helm/<seat>/");
+    } else if (!target || !branchPrefix) {
+      record("governed write flow", "skip", "needs --target and --branch-prefix");
+    } else {
+      const { runGovernedFlow } = await import(resolve(CORE, "dist", "testing", "governed-flow.js"));
+      const steps = await runGovernedFlow({
+        edgeUrl,
+        headers: headerMap ?? {},
+        target,
+        branchPrefix,
+        waitForApprovalMs: (options.waitApprovalSeconds ?? (fake ? 10 : 0)) * 1000,
+        onEscalated: (attemptId) => {
+          if (fake) setTimeout(() => fake.gateway.approve(attemptId), 200);
+          else options.log?.(`     approve attempt ${attemptId} in the Console\n`);
+        },
+      });
+      for (const step of steps) record(`governed flow: ${step.name}`, step.status === "SKIP" ? "skip" : step.status === "PASS", step.detail);
+    }
+
     // ---- observation ----
-    const hook = (event, extra) => JSON.stringify({ session_id: "conformance-session", hook_event_name: event, cwd: tmp, tool_name: "Bash", tool_input: { command: "echo conformance-ok" }, tool_use_id: "toolu_probe", ...extra });
+    const hook = (event, extra) => JSON.stringify({ session_id: "conformance-session", hook_event_name: event, cwd: tmp, tool_name: "Bash", tool_input: { command: "echo observe-probe" }, tool_use_id: "toolu_probe", ...extra });
     const pre = await cli(["observe", "--client", "claude-code", "--event", "PreToolUse"], { input: hook("PreToolUse") });
-    const post = await cli(["observe", "--client", "claude-code", "--event", "PostToolUse"], { input: hook("PostToolUse", { tool_response: { stdout: "conformance-ok" }, duration_ms: 3 }) });
+    const post = await cli(["observe", "--client", "claude-code", "--event", "PostToolUse"], { input: hook("PostToolUse", { tool_response: { stdout: "observe-probe" }, duration_ms: 3 }) });
     record("observe exits 0 and prints nothing", pre.code === 0 && post.code === 0 && pre.stdout === "" && post.stdout === "", `${pre.stderr.trim()}${post.stderr.trim()}`);
     const status1 = JSON.parse((await cli(["status", "--json"])).stdout);
     record("status shows the observations were delivered", status1.observe.last_ok_at !== null && status1.observe.last_error === null, JSON.stringify(status1.observe));
@@ -213,7 +237,7 @@ async function claudeSession({ options, fake, scripted, files, tmp, home, slot, 
   };
   const rejectedBefore = scripted?.seen.rejected ?? 0;
   const prompt = fake ? "Run the two commands you want." : "Reply with one word: connected";
-  const args = ["-p", prompt, "--settings", files.settings, "--mcp-config", files.mcp, "--strict-mcp-config", "--output-format", "json", ...(fake ? ["--permission-mode", "bypassPermissions"] : [])];
+  const args = ["-p", prompt, "--settings", files.settings, "--mcp-config", files.mcp, "--strict-mcp-config", "--output-format", "json", ...(fake ? ["--permission-mode", "bypassPermissions"] : []), ...(options.model ? ["--model", options.model] : [])];
   const result = await run(claude, args, { env, cwd, timeoutMs: 120_000 });
   let parsed = null;
   try {
@@ -248,7 +272,9 @@ async function claudeSession({ options, fake, scripted, files, tmp, home, slot, 
   record("an allowed command still ran", allowed?.is_error !== true && textOf(allowed).includes("conformance-ok"), textOf(allowed).slice(0, 100));
   await sleep(600);
   const observed = fake.observations.map((o) => `${o.event}:${o.tool?.name ?? ""}:${o.tool?.input_summary ?? ""}`);
-  record("the hooks reported the denied attempt and the allowed command as observed-only", observed.some((o) => o === "PreToolUse:Bash:git push origin conformance-probe") && observed.some((o) => o === "PostToolUse:Bash:echo conformance-ok") && fake.observations.every((o) => o.coverage === "observed-only"), observed.join(" | ").slice(0, 300));
+  const wanted = ["SessionStart::", "PreToolUse:Bash:git push origin conformance-probe", "PreToolUse:Bash:echo conformance-ok"];
+  const lostAtTeardown = observed.includes("PostToolUse:Bash:echo conformance-ok") ? "" : "; the echo's PostToolUse did not arrive (claude -p stops async hooks at exit)";
+  record("the hooks reported the session start, the denied attempt and the allowed command as observed-only", wanted.every((w) => observed.includes(w)) && fake.observations.every((o) => o.coverage === "observed-only"), `${observed.filter((o) => !o.includes("observe-probe")).join(" | ").slice(0, 260)}${lostAtTeardown}`);
   const mcpRequests = fake.requests.filter((r) => r.path === "/mcp");
   record("Claude Code connected to the HELM MCP server with the headersHelper token", mcpRequests.length > 0 && mcpRequests.every((r) => String(r.headers.authorization ?? "").startsWith("Bearer ")) && mcpRequests.some((r) => r.body?.method === "tools/list"), `${mcpRequests.length} MCP requests`);
 }
@@ -262,6 +288,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       "work-item": { type: "string" },
       claude: { type: "boolean" },
       "claude-bin": { type: "string" },
+      "governed-flow": { type: "boolean" },
+      target: { type: "string" },
+      "branch-prefix": { type: "string" },
+      "wait-approval": { type: "string" },
+      model: { type: "string" },
       login: { type: "boolean" },
       report: { type: "string" },
       keep: { type: "boolean" },
@@ -276,6 +307,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     workItem: values["work-item"],
     claude: values.claude,
     claudeBin: values["claude-bin"],
+    governedFlow: values["governed-flow"],
+    target: values.target,
+    branchPrefix: values["branch-prefix"],
+    waitApprovalSeconds: values["wait-approval"] === undefined ? undefined : Number(values["wait-approval"]),
+    model: values.model,
     login: values.login,
     keep: values.keep,
     log: (line) => process.stdout.write(line),

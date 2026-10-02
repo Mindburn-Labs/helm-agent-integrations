@@ -334,3 +334,41 @@ test("owner-otel refuses to overwrite a value, to edit a file that is not JSON, 
     f.cleanup();
   }
 });
+
+test("if the installed program fails its checks, the managed policy is not written", async () => {
+  const f = fixture();
+  try {
+    const badCore = join(f.root, "bad-core");
+    mkdirSync(join(badCore, "dist"), { recursive: true });
+    writeFileSync(join(badCore, "package.json"), '{"name":"bad","version":"0.0.0","type":"module"}\n');
+    writeFileSync(join(badCore, "dist", "cli.js"), "process.exit(1);\n");
+    const r = await run(f.args(["--yes", "--core-dir", badCore]));
+    assert.equal(r.code, 1);
+    assert.match(r.out, /FAIL helm-executor --version runs/);
+    assert.match(r.err, /managed policy was NOT written/);
+    assert.equal(existsSync(join(f.managed, "managed-settings.d")), false);
+    assert.equal(existsSync(join(f.managed, "managed-mcp.json")), false);
+    assert.equal(existsSync(join(f.prefix, "bin", "helm-executor")), true, "the program is there for a retry");
+    const retry = await run(f.args(["--yes"]));
+    assert.equal(retry.code, 0, "the manifest records the program files, so a retry replaces them without --force");
+    assert.equal(existsSync(join(f.managed, "managed-mcp.json")), true);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("--force replaces files that are not the installer's but still checks that the directories are writable", async (t) => {
+  if (process.getuid?.() === 0) return t.skip("root can write anywhere");
+  const f = fixture();
+  try {
+    mkdirSync(f.managed, { recursive: true });
+    chmodSync(f.managed, 0o555);
+    const r = await run(f.args(["--yes", "--force"]));
+    assert.equal(r.code, 1);
+    assert.match(r.err, /not writable by this user; run the installer with sudo/);
+    assert.equal(existsSync(f.prefix), false);
+  } finally {
+    chmodSync(f.managed, 0o755);
+    f.cleanup();
+  }
+});

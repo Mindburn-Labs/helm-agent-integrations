@@ -363,18 +363,28 @@ create body is `claude-code`, `codex` or `openclaw`. Machine authorization on
 ## 8. Fake server for adapter tests
 
 `dist/testing/fake-cp.js` implements the device-code routes and the `{ORG}` routes
-above with the same status codes, plus `GET /healthz` and a minimal MCP endpoint
-at `/mcp` that accepts episode tokens. It checks bearer tokens, rotates refresh
-tokens, allows one live episode per work item and expires tokens on an injectable
-clock.
+above with the same status codes, plus `GET /healthz`. It checks bearer tokens,
+rotates refresh tokens, allows one live episode per work item and expires tokens
+on an injectable clock. Its `/mcp` accepts episode tokens and stands in for the
+kernel gateway: the tools `github_repository_get`,
+`github_branch_create_from_changes`, `github_pull_request_create_draft` and
+`helm_attempt_get`, the statuses `succeeded`, `escalated`, `invalid`, `refused`
+and `not_found`, effect identity per work item (a replay returns the original
+attempt), and approval of the pull request through `fake.gateway.approve(id)`.
 
 - Library: `startFakeCp(options)` returns `{ url, orgId, workspaceId, requests,
-  observations, episodes, close, fail, revokeAccessTokens, episodeForToken }`.
-  `options.routes` adds client-specific routes, such as a model endpoint, and
-  `fail(match, status, times)` injects errors.
+  observations, episodes, gateway, close, fail, revokeAccessTokens,
+  episodeForToken }`. `options.routes` adds client-specific routes, such as a
+  model endpoint, and `fail(match, status, times)` injects errors.
 - Process: `node dist/testing/serve.js [--port N]` prints one JSON line on
   stdout, `{"cp_url":"…","org_id":"…","workspace_id":"…"}`, then serves until
   SIGTERM. The first device-code poll is pending and the second is approved.
+- `dist/testing/governed-flow.js` exports `runGovernedFlow(options)`, the write
+  flow an executor has to complete through `/mcp`: read the repository, push a
+  branch, replay the push as after a lost response, open a draft pull request
+  that waits for approval, read attempts back, and make one call that breaks the
+  schema. It is written from the kernel's effect schemas and the K3 tool
+  contract. The fake answers it; a real edge has not yet.
 
 ## 9. Change control
 

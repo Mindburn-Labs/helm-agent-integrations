@@ -1,11 +1,13 @@
 // A fake control plane for adapter tests and conformance runs, built from CONTRACT.md section 7: the real
 // device-code routes (internal/deviceauth/service.go) and the assumed executor and observation routes, with
-// the same status codes. It also serves a minimal MCP endpoint that accepts episode tokens, so a client's
-// headers helper can be checked end to end. Tokens expire on an injectable clock.
+// the same status codes. It also serves an MCP endpoint that accepts episode tokens and stands in for the kernel
+// gateway (see fake-gateway.ts), so a client's headers helper and a governed write flow can be checked end to end.
+// Tokens expire on an injectable clock.
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createFakeGateway, type FakeGateway } from "./fake-gateway.js";
 
 export interface FakeRequest {
   method: string;
@@ -44,6 +46,8 @@ export interface FakeCpOptions {
   episodeDeadlineSeconds?: number;
   /** Device-code polls answered authorization_pending before approval. Default 1. */
   pollsBeforeApproval?: number;
+  /** Branch prefix the fake gateway's mandate allows for pushed branches. Default "helm/". */
+  branchPrefix?: string;
   /** Extra routes, keyed "METHOD /path". They win over the built-in ones. */
   routes?: Record<string, RouteHandler>;
 }
@@ -63,6 +67,8 @@ export interface FakeCp {
   episodeForToken(authorization: string | undefined): EpisodeRecord | null;
   /** Observations accepted, in order. */
   observations: unknown[];
+  /** The MCP endpoint's gateway stand-in: its attempts, and `approve` for an escalated one. */
+  gateway: FakeGateway;
   /** How many refresh-token exchanges succeeded. */
   refreshCount(): number;
 }
@@ -163,6 +169,7 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
     return episode && !episode.stopped && episode.deadlineMs > now() ? episode : null;
   };
 
+  const gateway = createFakeGateway({ branchPrefix: options.branchPrefix });
   const orgPrefix = `/api/v1/workspaces/${workspaceId}/organizations/${orgId}`;
 
   const handle = async (req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> => {
@@ -220,26 +227,12 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
       return send(res, 200, issueMachineTokens());
     }
 
-    // ---- minimal MCP endpoint on the edge: episode token required ----
+    // ---- MCP endpoint on the edge: an episode token is required ----
     if (method === "POST" && path === "/mcp") {
-      if (!episodeForToken(req.headers.authorization)) return send(res, 401, { error: "invalid_token" });
-      const rpc = isRecord(body) ? body : {};
-      const id = rpc.id;
-      const reply = (result: unknown): void => send(res, 200, { jsonrpc: "2.0", id, result });
-      switch (rpc.method) {
-        case "initialize":
-          return reply({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake-helm-gateway", version: "0" } });
-        case "notifications/initialized":
-          return send(res, 202, undefined);
-        case "ping":
-          return reply({});
-        case "tools/list":
-          return reply({ tools: [{ name: "helm_attempt_get", description: "Read one attempt of this episode.", inputSchema: { type: "object", properties: { attempt_id: { type: "string" } }, required: ["attempt_id"] } }] });
-        case "tools/call":
-          return reply({ content: [{ type: "text", text: "{\"status\":\"not_found\"}" }], isError: true });
-        default:
-          return send(res, 200, { jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } });
-      }
+      const episode = episodeForToken(req.headers.authorization);
+      if (!episode) return send(res, 401, { error: "invalid_token" });
+      const reply = gateway.handle(isRecord(body) ? body : {}, episode);
+      return send(res, reply.status, reply.body, reply.headers);
     }
 
     // ---- organization routes (machine bearer) ----
@@ -325,6 +318,7 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
     requests,
     episodes,
     observations,
+    gateway,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

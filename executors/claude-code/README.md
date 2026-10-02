@@ -135,26 +135,38 @@ conformance run.
 ```bash
 node conformance/run.mjs                    # fake control plane and edge
 node conformance/run.mjs --claude           # also drive the installed claude through the session profile
-node conformance/run.mjs --cp-url https://… --edge-url https://… --org … --work-item … [--login] [--claude] [--report out.json]
+node conformance/run.mjs --cp-url https://… --edge-url https://… --org … [--work-item …] [--login] [--claude] \
+  [--governed-flow --target github.com/<owner>/<repo> --branch-prefix helm/<seat>/ [--wait-approval 120]] \
+  [--model <routed model>] [--report out.json]
 ```
 
 Without `--cp-url` it starts the fake control plane from core and a scripted edge.
 It checks login, checkout, `token`, `headers` and `observe`; that the edge accepts
 the episode token in both headers `apiKeyHelper` sends and refuses another; that the
-MCP endpoint accepts the headers; the rendered helper commands; and the deny list.
-With `--claude` it runs the real client against a scripted model that asks for one
-raw `git push` and one `echo`: the push must be denied, the echo must run, the edge
-must see only the episode token with ambient `ANTHROPIC_API_KEY` and
+MCP endpoint accepts the headers; the governed write flow (read the repository, push
+a branch, replay the push, open a draft pull request that waits for approval, read
+attempts back, make one schema-breaking call); the rendered helper commands; and the
+deny list. With `--claude` it runs the real client against a scripted model that asks
+for one raw `git push` and one `echo`: the push must be denied, the echo must run,
+the edge must see only the episode token with ambient `ANTHROPIC_API_KEY` and
 `ANTHROPIC_AUTH_TOKEN` set in the environment, WebSearch and WebFetch must not be
-offered, the hooks must report the denied attempt as observed-only, and Claude Code
-must connect to the HELM MCP server through the headers helper.
+offered, the hooks must report the session start, the denied attempt and the allowed
+command as observed-only, and Claude Code must connect to the HELM MCP server through
+the headers helper.
 
-Run against the fake edge with Claude Code 2.1.274: 24 checks, 0 failed, 1
+Against a live edge the governed flow runs only with `--governed-flow`, because it
+needs the mandate's branch prefix, and a pull request that needs approval is reported
+as awaiting approval unless `--wait-approval` gives a person time to approve it. The
+flow is written from the kernel's effect schemas; no real edge has answered it yet.
+The merge step of the QA scenario (an escalated merge approved in the Console) is not
+in it: the merge effect is not served yet.
+
+Run against the fake edge with Claude Code 2.1.274: 33 checks, 0 failed, 1
 informational skip (2.1.274 is below the managed profile's floor of 2.1.285, which
-the session profile does not need). Against a live edge, `--claude` runs
-`claude -p` once and checks it completes; the scripted-model checks need the fake.
-The managed profile itself, which needs root and Claude Code 2.1.285, has not been
-exercised on a real managed host.
+the session profile does not need). Against a live edge, `--claude` runs `claude -p`
+once and checks it completes; the scripted-model checks need the fake. The managed
+profile itself, which needs root and Claude Code 2.1.285, has not been exercised on a
+real managed host.
 
 ## Tests
 

@@ -83,9 +83,9 @@ export function planManaged(opts) {
   const rendered = renderManaged({ edgeUrl: opts.edgeUrl, cpUrl: opts.cpUrl, orgId: opts.orgId, helmExecutor: bin, otelEndpoint: opts.otelEndpoint });
   const files = programFiles(resolve(opts.coreDir ?? join(here, "..", "..", "core"))).map((f) => ({ path: join(libDir, f.rel), mode: 0o644, content: f.buf }));
   files.push({ path: bin, mode: 0o755, content: wrapper(node, join(libDir, "dist", "cli.js")) });
-  files.push({ path: join(managedDir, "managed-settings.d", "50-helm-executor.json"), mode: 0o644, content: json(rendered.settings) });
-  files.push({ path: join(managedDir, "managed-mcp.json"), mode: 0o644, content: json(rendered.mcp) });
-  if (rendered.otel) files.push({ path: join(managedDir, "managed-settings.d", "60-helm-executor-otel.json"), mode: 0o644, content: json(rendered.otel) });
+  files.push({ path: join(managedDir, "managed-settings.d", "50-helm-executor.json"), mode: 0o644, content: json(rendered.settings), policy: true });
+  files.push({ path: join(managedDir, "managed-mcp.json"), mode: 0o644, content: json(rendered.mcp), policy: true });
+  if (rendered.otel) files.push({ path: join(managedDir, "managed-settings.d", "60-helm-executor-otel.json"), mode: 0o644, content: json(rendered.otel), policy: true });
   return { prefix, managedDir, libDir, bin, node, files, manifestPath: join(libDir, "install-manifest.json"), rendered };
 }
 
@@ -111,12 +111,10 @@ export function preflight(plan, opts = {}) {
   for (const f of plan.files) {
     if (!existsSync(f.path)) continue;
     const current = sha256(readFileSync(f.path));
-    if (current !== sha256(f.content) && owned.get(f.path) !== current) {
-      problems.push(`${f.path} exists and this installer did not write it${opts.force ? " (overwriting: --force)" : "; pass --force to replace it"}`);
+    if (current !== sha256(f.content) && owned.get(f.path) !== current && !opts.force) {
+      problems.push(`${f.path} exists and this installer did not write it; pass --force to replace it`);
     }
   }
-  if (opts.force) return { problems: problems.filter((p) => !p.endsWith("(overwriting: --force)")), warnings };
-
   for (const f of plan.files) {
     let dir = dirname(f.path);
     while (!existsSync(dir)) dir = dirname(dir);
@@ -130,19 +128,33 @@ export function preflight(plan, opts = {}) {
   return { problems, warnings };
 }
 
-export function applyManaged(plan, opts = {}) {
-  const old = readManifest(plan.manifestPath);
-  for (const f of plan.files) writeAtomic(f.path, f.content, f.mode);
+const isPolicy = (_plan, f) => f.policy === true;
+
+function writeManifest(plan, files) {
+  writeAtomic(
+    plan.manifestPath,
+    json({ schema: "helm.executor.install/v1", installed_at: new Date().toISOString(), claude_min_version: MIN_CLAUDE_VERSION, files: files.map((f) => ({ path: f.path, sha256: sha256(f.content) })) }),
+    0o644,
+  );
+}
+
+/** Phase 1: the program and its wrapper. They do nothing until a policy names them, so they go first and get verified. */
+export function applyProgram(plan) {
+  const program = plan.files.filter((f) => !isPolicy(plan, f));
+  for (const f of program) writeAtomic(f.path, f.content, f.mode);
+  writeManifest(plan, program);
+}
+
+/** Phase 2: the managed policy. It goes live the moment it is written, so it comes last. */
+export function applyPolicy(plan, previous) {
+  const policy = plan.files.filter((f) => isPolicy(plan, f));
+  for (const f of policy) writeAtomic(f.path, f.content, f.mode);
   const keep = new Set(plan.files.map((f) => f.path));
-  for (const f of old?.files ?? []) {
+  for (const f of previous?.files ?? []) {
     // A file an earlier install wrote and this plan no longer has, such as the OTEL drop-in, goes away unless edited.
     if (!keep.has(f.path) && existsSync(f.path) && sha256(readFileSync(f.path)) === f.sha256) rmSync(f.path);
   }
-  writeAtomic(
-    plan.manifestPath,
-    json({ schema: "helm.executor.install/v1", installed_at: new Date().toISOString(), claude_min_version: MIN_CLAUDE_VERSION, files: plan.files.map((f) => ({ path: f.path, sha256: sha256(f.content) })) }),
-    0o644,
-  );
+  writeManifest(plan, plan.files);
 }
 
 /** Run the installed pieces the way Claude Code will, against an empty state directory. */
@@ -330,11 +342,17 @@ export async function main(argv, io = { out: (t) => process.stdout.write(t), err
           io.out("\nNothing was written. Re-run with --yes to install.\n");
           return 0;
         }
-        applyManaged(plan);
+        const previous = readManifest(plan.manifestPath);
+        applyProgram(plan);
         const results = verifyManaged(plan);
         for (const r of results) io.out(`${r.ok ? "ok  " : "FAIL"} ${r.name}${r.ok || !r.detail ? "" : `: ${r.detail}`}\n`);
+        if (!results.every((r) => r.ok)) {
+          io.err("\nThe installed program failed its checks, so the managed policy was NOT written. Fix that and run the installer again.\n");
+          return 1;
+        }
+        applyPolicy(plan, previous);
         io.out(`\nInstalled. Next, as each executor user: ${plan.bin} login --cp-url ${plan.rendered.settings.env.HELM_EXECUTOR_CP_URL}\nThen start Claude Code and run /status: the setting sources line must show the managed settings file.\n`);
-        return results.every((r) => r.ok) ? 0 : 1;
+        return 0;
       }
       case "session": {
         if (!v.out) throw new Error("--out is required");

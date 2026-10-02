@@ -49,7 +49,9 @@ take over and cost one refused refresh.
 ## Fake control plane
 
 `startFakeCp()` from `@mindburn/helm-executor/testing` serves the device-code
-routes and the executor routes of the contract on an injectable clock, and a
-minimal MCP endpoint that accepts episode tokens. `node dist/testing/serve.js`
-runs it as a process. Adapters use it for their own conformance runs until a real
-control plane and edge are reachable.
+routes and the executor routes of the contract on an injectable clock, and an MCP
+endpoint that accepts episode tokens and stands in for the kernel gateway's GitHub
+effects, including approval of the draft pull request. `node dist/testing/serve.js`
+runs it as a process. `dist/testing/governed-flow.js` is the write flow an executor
+must complete through that endpoint. Adapters use both for their conformance runs
+until a real control plane and edge are reachable.
