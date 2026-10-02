@@ -3,7 +3,7 @@
   "acceptance_ids": ["T48", "T87", "T97", "T100", "T103"],
   "result": "NOT_RUN",
   "scope": "local managed Codex executor; Codex Cloud excluded",
-  "core_source_sha": "83f82bced4f0e405fb762843a3c3dd5f2c974a35",
+  "core_source_sha": "eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1",
   "core_contract_pin": "core-contract.json",
   "wave1": "Named Claude Code adapter, Codex adapter and one release rehearsal session only; two or three sessions total through gateway API keys, all others subscriptions.",
   "pacing": "D23: integrate when dependencies exist; dates are latest markers, not start times.",
@@ -17,6 +17,7 @@
     "installed Codex version and supported schema",
     "admin-managed requirements readback in the dedicated executor environment",
     "core device auth and work-item-bound external episode",
+    "server-authorized machine credential enrollment for the work-item seat",
     "executor edge /v1/responses and /mcp",
     "gateway custody and actual sandbox network enforcement",
     "source-owned attempt, decision, receipt and deployed build digests"
@@ -54,7 +55,7 @@
     {
       "name": "claude-code-to-codex-switch",
       "assertions": [
-        "Core checkout creates a Codex external episode for the same work item in a different HELM_EXECUTOR_SLOT.",
+        "Core stop in the first session precedes Codex checkout of the same CP work-item UUID in a distinct HELM_EXECUTOR_SLOT; CP allows one live episode per work item.",
         "Existing attempts, UNKNOWN states and holds survive the executor switch.",
         "Stopping the old episode does not cancel or reissue the underlying effect."
       ]

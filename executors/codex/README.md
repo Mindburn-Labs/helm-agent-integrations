@@ -13,8 +13,8 @@ gateway owns admission, effects, credentials, receipts and D8 effect identity.
 Hooks are observations; gateway admission authorizes effects.
 
 [core-contract.json](core-contract.json) pins the shared CLI and fake CP source
-at `83f82bced4f0e405fb762843a3c3dd5f2c974a35`, including the exact contract and
-schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/83f82bced4f0e405fb762843a3c3dd5f2c974a35/executors/core/CONTRACT.md)
+at `eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1`, including the exact contract and
+schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1/executors/core/CONTRACT.md)
 supersedes the earlier provisional adapter payload. Runtime qualification
 remains separate from source presence and hash readback.
 
@@ -96,10 +96,13 @@ hook correlation never replaces the shared D8 effect identity.
 A launcher must assign a distinct `HELM_EXECUTOR_SLOT` to every concurrent
 session and preserve it for provider, MCP and hook helpers. The config retains
 the shared core environment variables, including `HELM_EXECUTOR_HOME`. Use
-`checkout <work-item-id> --client codex` in the Codex slot. T100 switches clients
-by checking out the same work item in another slot. The adapter never reads or
-writes core state files. Use `HELM_EXECUTOR_OBSERVE_SUMMARY=off` when the managed
-session should omit summaries; core still owns input digests.
+`checkout <work-item-id> --client codex` in the Codex slot, using the CP work
+item UUID. CP permits one live episode per work item: T100 calls `stop` in the
+first session before `checkout` in the second. A device login does not enroll a
+machine credential for a seat; enrollment is a separate server-authorized
+prerequisite, and checkout rejects missing authority. The adapter never reads
+or writes core state files. Use `HELM_EXECUTOR_OBSERVE_SUMMARY=off` when the
+managed session should omit summaries; core still owns input digests.
 
 The hook denies common raw command forms, including git/gh global flags and
 shell wrappers, plus direct Linear MCP writes. Exec rules independently deny
