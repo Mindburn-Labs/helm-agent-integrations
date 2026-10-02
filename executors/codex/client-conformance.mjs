@@ -139,7 +139,6 @@ async function probe() {
     check(other.code === 0 && other.stdout.length === 0, "Untracked core source cannot enter this run");
   });
   const executor = join(bins, "helm-executor"), sentinel = join(temporary, "raw-tool-ran");
-  await writeFile(executor, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(core, "dist/cli.js"))} "$@"\n`, { mode: 0o700 });
   // These fixtures turn an unexpected raw dispatch into a local sentinel; never a real write.
   for (const name of ["git", "gh", "kubectl", "flux", "linear"]) {
     const guard = name === "git" ? '[ "$1" = push ]' : name === "gh" ? '[ "$1" = pr ] && [ "$2" = merge ]' : "true";
@@ -151,6 +150,10 @@ async function probe() {
   check(new URL(fake.url).hostname === "127.0.0.1", "The supplied fake CP must bind loopback");
   const env = { PATH: bins + ":" + gitEnv.PATH, HOME: home, CODEX_HOME: codexHome, TMPDIR: temporary, LANG: "en_US.UTF-8", TERM: "dumb",
     HELM_EXECUTOR_HOME: join(temporary, "executor"), HELM_EXECUTOR_CP_URL: fake.url, HELM_EXECUTOR_ORG: fake.orgId, HELM_EXECUTOR_CLIENT: "codex", HELM_EXECUTOR_SLOT: "installed-client-probe", HELM_EXECUTOR_OBSERVE_SUMMARY: "off" };
+  // Codex headers helpers clear arbitrary ambient variables. Bind only this disposable
+  // profile's noncredential environment before invoking the unchanged shared CLI.
+  const bindings = Object.entries(env).map(([name, value]) => `export ${name}=${quote(value)}`).join("\n");
+  await writeFile(executor, `#!/bin/sh\n${bindings}\nexec ${quote(process.execPath)} ${quote(join(core, "dist/cli.js"))} "$@"\n`, { mode: 0o700 });
   let episode, authorization, config, captured = [];
   await step("actual shared core opens one isolated Codex slot on its loopback fake", async () => {
     check((await run(executor, ["login", "--cp-url", fake.url, "--org", fake.orgId], env)).code === 0, "Shared fake login failed");
@@ -161,11 +164,16 @@ async function probe() {
     diagnosticSecrets.add(authorization); const token = authorization.replace(/^Bearer /i, ""); if (token) diagnosticSecrets.add(token);
   });
   const commands = ["printf 'helm-codex-client-ok'", "git push", "gh pr merge", "kubectl version", "flux version", "linear issue create"];
-  let requestCount = 0; const feedback = new Map(), requestErrors = [];
+  let requestCount = 0, catalogCount = 0; const feedback = new Map(), requestErrors = [];
   provider = createServer((req, res) => { void (async () => {
     try {
-      check(req.method === "POST" && req.url === "/v1/responses", "Unexpected fixture route");
       check(req.headers.authorization === authorization, "Installed provider did not use the active core helper");
+      if (req.method === "GET" && req.url?.split("?")[0] === "/v1/models") {
+        check(++catalogCount <= 4, "Installed client exceeded the finite catalog request budget");
+        // Pinned ModelsResponse wire shape; selected model/effort remain explicit.
+        res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"models":[]}'); return;
+      }
+      check(req.method === "POST" && req.url === "/v1/responses", "Unexpected fixture route");
       check(!req.headers["content-encoding"], "Fixture requires uncompressed Responses JSON");
       const chunks = []; let total = 0; for await (const chunk of req) { total += chunk.length; check(total < 4 * 1024 * 1024, "Fixture request exceeded its cap"); chunks.push(chunk); }
       const body = decode(Buffer.concat(chunks)); check(body.model === "gpt-6.1-sol" && body.reasoning?.effort === "max", "Probe model/effort changed");
@@ -201,7 +209,9 @@ async function probe() {
   for (const event of ["PreToolUse", "PostToolUse"]) profile += `\n[[hooks.${event}]]\nmatcher = ".*"\n[[hooks.${event}.hooks]]\ntype = "command"\ncommand = ${JSON.stringify(captureCommand)}\nasync = true\ntimeout = 5\n`;
   await writeFile(join(codexHome, "config.toml"), profile, { mode: 0o600 });
   const ownerHome = resolve(homedir());
-  const sandbox = `(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*")) (deny file-write* (require-not (subpath ${JSON.stringify(temporary)}))) (deny file-read* (subpath ${JSON.stringify(join(ownerHome, ".codex"))}) (subpath ${JSON.stringify(join(ownerHome, ".ssh"))}))`;
+  // Null stdio is required by Codex's vetted helper launcher; no persisted file
+  // outside the disposable tree becomes writable.
+  const sandbox = `(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*")) (deny file-write* (require-not (require-any (subpath ${JSON.stringify(temporary)}) (literal "/dev/null")))) (deny file-read* (subpath ${JSON.stringify(join(ownerHome, ".codex"))}) (subpath ${JSON.stringify(join(ownerHome, ".ssh"))}))`;
   const sandboxArgs = ["-p", sandbox, binary];
   await step("installed strict config readback uses the isolated user layer with no managed requirements", async () => {
     const readback = await readConfiguration("/usr/bin/sandbox-exec", [...sandboxArgs, "app-server", "--strict-config", "--listen", "stdio://"], env);
@@ -258,7 +268,7 @@ const report = { schema: "helm.executor.codex.installed-client-probe.v1", consum
   managed_configuration: "NOT_RUN", managed_hook_provenance: "NOT_RUN", deployed_E1_public_edge: "NOT_RUN", signed_D24_native_D8: "NOT_RUN",
   limitations: ["CODEX_HOME does not relocate Unix /etc/codex requirements or MDM/cloud policy. This probe refuses non-null managed requirements.",
     "The disposable profile copies hook commands from the template as user hooks and uses the documented trust flag for those vetted QA sources. This is not managed hook authority.",
-    "Only the disposable profile substitutes loopback URLs and disables the production managed network proxy. Outer sandbox-exec permits loopback and denies writes outside its temporary directory.",
+    "Only the disposable profile substitutes loopback URLs and disables the production managed network proxy. Outer sandbox-exec permits loopback; writes are limited to its temporary directory and the /dev/null stdio sink.",
     "No provider inference, paid usage, actual user credentials, real effects, deployed QA, public TLS/network custody, signed admission or native D8 reconciliation is qualified."] };
 const reportText = JSON.stringify(report, null, 2) + "\n", diagnosticsText = clientDiagnostics.map(d => JSON.stringify(d)).join("\n") + "\n";
 for (const secret of diagnosticSecrets) {

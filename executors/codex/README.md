@@ -218,8 +218,13 @@ diagnostics paths are refused.
 
 This probe copies the template commands into disposable user hooks and uses the
 documented automation hook-trust flag for these reviewed sources. It requires
-macOS `sandbox-exec`, permits loopback traffic and denies writes outside its
-temporary directory. It uses no model inference or real credentials.
+macOS `sandbox-exec`, permits loopback traffic and permits writes only to its
+temporary directory and the `/dev/null` stdio sink. It uses no model inference
+or real credentials. The disposable CLI wrapper binds its fake state explicitly,
+because the pinned [Codex helper launcher](https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/rmcp-client/src/http_headers.rs)
+uses null stdin/stderr and filters ambient environment variables. The local
+provider also serves a bounded, authenticated empty model catalog; model and
+effort remain pinned by the disposable configuration and Responses checks.
 
 The [managed configuration documentation](https://learn.chatgpt.com/docs/enterprise/managed-configuration)
 locates Unix requirements at `/etc/codex` or managed policy. `CODEX_HOME` isolates
