@@ -3,11 +3,11 @@
   "version": "helm.executor.core/v1",
   "repository": "Mindburn-Labs/helm-agent-integrations",
   "owner": "claude:executor-adapters",
-  "source_sha": "eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1",
+  "source_sha": "9253c7c52d83d3f9e85bd96e81f877cfd3d959f9",
   "initial_contract_sha": "2c2a62c9afcba4a515fc87d0829ca9ec663ee3fb",
   "contract_path": "executors/core/CONTRACT.md",
   "sha256": {
-    "CONTRACT.md": "f4db1786fc4de4d9974919e6a93b356cbea1ebc4976721a45a1d50e11836e966",
+    "CONTRACT.md": "8ac7fb6f0ed088cd8b0023ed1cc93b8f530407c2f3db1e86b3386c08e6febf79",
     "schema/observe-input.schema.json": "8a18be9885900cd71b2e9782f2c47366f3ee8396e7bb6cc29b72afaa76028b30",
     "schema/observation.schema.json": "630b0a3316b2b84a640f8293b43dff1226a5c0e572243230f52b03571ea5824c"
   },

@@ -3,10 +3,18 @@
   "acceptance_ids": ["T48", "T87", "T97", "T100", "T103"],
   "result": "NOT_RUN",
   "scope": "local managed Codex executor; Codex Cloud excluded",
-  "core_source_sha": "eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1",
+  "core_source_sha": "9253c7c52d83d3f9e85bd96e81f877cfd3d959f9",
   "core_contract_pin": "core-contract.json",
   "wave1": "Named Claude Code adapter, Codex adapter and one release rehearsal session only; two or three sessions total through gateway API keys, all others subscriptions.",
   "pacing": "D23: integrate when dependencies exist; dates are latest markers, not start times.",
+  "local_integration": {
+    "runner": "integration-conformance.mjs",
+    "result": "NOT_RUN",
+    "command": "node executors/codex/integration-conformance.mjs --core /absolute/qualified-checkout/executors/core --report /tmp/helm-codex-local-integration.json --timeout-ms 45000",
+    "dependency": "Parent builds the pinned actual core source; the runner reuses its fake CP and governed MCP flow.",
+    "coverage": ["actual provider and MCP helpers", "two slots stop then checkout", "injected successor 409", "local raw-tool deny", "original Pre/Post observation JSON", "failed observation remains zero exit", "actual MCP response drop after fake application", "same-intent retry and retained-attempt readback across slots"],
+    "limits": ["installed Codex managed hooks unrun", "native CP token/attempt drain barrier not modeled by shared fake", "public edge and signed D24 admission unrun", "one fake application is not native Kernel/provider D8 reconciliation proof", "deployed E1/edge QA unrun"]
+  },
   "stages": [
     { "name": "local-core-contract-fake-and-edge-smoke", "latest_marker": "2026-10-08", "result": "NOT_RUN" },
     { "name": "real-CP-E1-QA", "latest_marker": "2026-10-09", "result": "NOT_RUN" },
@@ -20,6 +28,7 @@
     "server-authorized machine credential enrollment for the work-item seat",
     "executor edge /v1/responses and /mcp",
     "gateway custody and actual sandbox network enforcement",
+    "D24 public audience helm-gateway-executor:<env>, signed helm_executor client, existing helm_episode, and at most 900-second lifetime",
     "source-owned attempt, decision, receipt and deployed build digests"
   ],
   "scenarios": [
@@ -55,7 +64,7 @@
     {
       "name": "claude-code-to-codex-switch",
       "assertions": [
-        "Core stop in the first session precedes Codex checkout of the same CP work-item UUID in a distinct HELM_EXECUTOR_SLOT; CP allows one live episode per work item.",
+        "Core stop in the first session precedes Codex checkout of the same CP work-item UUID in a distinct HELM_EXECUTOR_SLOT; CP allows one live episode per work item and can retain a 409 hold until the last token expires and attempts are read back.",
         "Existing attempts, UNKNOWN states and holds survive the executor switch.",
         "Stopping the old episode does not cancel or reissue the underlying effect."
       ]
@@ -71,5 +80,5 @@
       ]
     }
   ],
-  "unit_test_limit": "Local tests use synthetic events and a command fixture. They prove adapter handling only, never core CP/auth behavior, gateway or runtime conformance."
+  "unit_test_limit": "Unit tests use synthetic events and a command fixture. The integration runner uses actual core plus its fake CP/gateway; both cover bounded local behavior, never deployed gateway/CP or native Kernel conformance."
 }

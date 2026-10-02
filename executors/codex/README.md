@@ -13,8 +13,8 @@ gateway owns admission, effects, credentials, receipts and D8 effect identity.
 Hooks are observations; gateway admission authorizes effects.
 
 [core-contract.json](core-contract.json) pins the shared CLI and fake CP source
-at `eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1`, including the exact contract and
-schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/eb996c8b44c7267c6bbf59aa7b0ae5cac784fbd1/executors/core/CONTRACT.md)
+at `9253c7c52d83d3f9e85bd96e81f877cfd3d959f9`, including the exact contract and
+schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/9253c7c52d83d3f9e85bd96e81f877cfd3d959f9/executors/core/CONTRACT.md)
 supersedes the earlier provisional adapter payload. Runtime qualification
 remains separate from source presence and hash readback.
 
@@ -98,7 +98,10 @@ session and preserve it for provider, MCP and hook helpers. The config retains
 the shared core environment variables, including `HELM_EXECUTOR_HOME`. Use
 `checkout <work-item-id> --client codex` in the Codex slot, using the CP work
 item UUID. CP permits one live episode per work item: T100 calls `stop` in the
-first session before `checkout` in the second. A device login does not enroll a
+first session before `checkout` in the second. CP can return 409 until the old
+token has expired and retained attempts are read back. Shared core offers
+`checkout --wait <seconds>` for that bounded wait; a refused refresh or stop
+keeps the unresolved binding. A device login does not enroll a
 machine credential for a seat; enrollment is a separate server-authorized
 prerequisite, and checkout rejects missing authority. The adapter never reads
 or writes core state files. Use `HELM_EXECUTOR_OBSERVE_SUMMARY=off` when the
@@ -142,3 +145,36 @@ The command fixture in `tests/` captures stdin and returns synthetic headers
 without credentials or network access. It checks command quoting, unchanged
 input and separation of deny from observe. It implements no CP or auth flow
 and cannot substitute for the actual shared core fake CP or the executor edge.
+
+### Local core integration
+
+[integration-conformance.mjs](integration-conformance.mjs) invokes the actual
+built core CLI through the rendered provider, MCP header and hook commands.
+It uses core's `startFakeCp` and `runGovernedFlow`, stops a first slot, checks
+an injected 409 hold, and checks out Codex in a second slot. It drops a real
+loopback MCP connection after the shared fake applies a branch effect, then
+retries and reads back the same attempt from a different episode and MCP
+session. Raw tools are tested through the deny hook without executing them.
+Original Pre/Post JSON is piped to core and the fake sink is read back; rejected
+observations retain zero exit and no delivery claim.
+
+The parent builds core from the pinned checkpoint and runs this finite command
+with Node 22+ and Python 3.11+. Supply the core directory explicitly. The report
+path must be new; the runner never installs or builds anything itself.
+
+```sh
+node executors/codex/integration-conformance.mjs \
+  --core /absolute/qualified-checkout/executors/core \
+  --report /tmp/helm-codex-local-integration.json \
+  --timeout-ms 45000
+```
+
+The report covers local contract integration. The shared fake does not model
+the native stopped-token/retained-attempt drain barrier; the injected 409 only
+checks consumer refusal and retry. Its effect application count proves the
+fake's replay behavior. Installed Codex hook execution, public TLS/network
+posture, signed D24 audience/client/TTL admission, native Kernel D8 UNKNOWN
+reconciliation and deployed CP E1 remain separate gates. D24 expects
+`aud=helm-gateway-executor:<env>`, signed `helm_executor={client}` and the
+existing `helm_episode`, with a lifetime of at most 900 seconds. The adapter
+continues to treat the shared credential as opaque.
