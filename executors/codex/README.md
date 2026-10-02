@@ -208,7 +208,13 @@ then uses local Responses SSE fixtures to request one allowed command and five
 raw commands. Local sentinel executables catch an unexpected raw dispatch.
 The actual provider/header helpers and observation commands consume shared
 core. An extra QA hook captures the same client payload for sink correlation.
-The runner deletes its temporary files and writes one new report.
+The runner deletes its temporary files and writes one new report plus a private
+`<report>.diagnostics.log`, both with mode `0600`. App-server diagnostics retain
+the exit code, signal and at most 8,192 sanitized stderr characters, allowing one
+second for streams to close. An incomplete drain is marked in the report.
+Probe credentials and owner home paths are redacted; the stderr hash and byte
+count identify the captured output without retaining it. Existing report or
+diagnostics paths are refused.
 
 This probe copies the template commands into disposable user hooks and uses the
 documented automation hook-trust flag for these reviewed sources. It requires

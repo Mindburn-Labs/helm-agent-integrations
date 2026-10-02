@@ -24,6 +24,7 @@ if (!values.core || !values.report || !Number.isInteger(budget) || budget < 1000
   throw new Error("Use --core BUILT_CORE_DIRECTORY --report NEW_REPORT_JSON [--codex BINARY] [--python PYTHON3] [--timeout-ms 60000].");
 }
 const core = resolve(values.core), binary = resolve(values.codex), reportPath = resolve(values.report);
+const diagnosticsPath = reportPath + ".diagnostics.log", diagnosticSecrets = new Set();
 const children = new Set(), steps = [], clientDiagnostics = [], hookReadback = [];
 let temporary, fake, provider, consumerSha, activeStep = "installed binary and source pins", binarySha, cancelled = false;
 class Failure extends Error {}
@@ -46,29 +47,48 @@ function run(command, args, env, input = "", timeout = 10000) {
   });
 }
 function diagnostics(label, result) {
-  clientDiagnostics.push({ label, exit_code: result.code, stderr_sha256: digest(result.stderr),
-    unknown_fields: [...result.stderr.toString("utf8").matchAll(/unknown field [`']([a-z_]+)[`']/g)].map(m => m[1]) });
+  let text = result.stderr.toString("utf8");
+  // Drop a possibly partial first line before redaction if the retained tail was capped.
+  if (result.stderr_bytes > 65536) { const newline = text.indexOf("\n"); text = newline < 0 ? "" : text.slice(newline + 1); }
+  for (const secret of diagnosticSecrets) text = text.replaceAll(secret, "[redacted]");
+  text = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "?")
+    .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [redacted]")
+    .replace(/(["']?(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|capability[_-]?token|token|password|secret|client[_-]?secret)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}\r\n]+)/gi, "$1[redacted]")
+    .replace(/\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]+/g, "[redacted]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .replaceAll(resolve(homedir()), "[owner-home]");
+  if (temporary) text = text.replaceAll(temporary, "[probe]");
+  clientDiagnostics.push({ label, exit_code: result.code ?? null, signal: result.signal ?? null,
+    spawn_error: result.spawn_error ?? null, terminated_by_probe: result.terminated_by_probe ?? false,
+    stderr_sha256: result.stderr_sha256 ?? digest(result.stderr), stderr_bytes: result.stderr_bytes ?? result.stderr.length,
+    stderr_complete: result.stderr_complete ?? true,
+    stderr_truncated: result.stderr_bytes > 65536 || text.length > 8192, stderr_sanitized: text.slice(-8192),
+    unknown_fields: [...text.matchAll(/unknown field [`']([a-z_]+)[`']/g)].map(m => m[1]) });
 }
 
 async function readConfiguration(command, args, env) {
   check(!cancelled, "Probe was cancelled");
   const child = spawn(command, args, { env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   children.add(child); child.stdin.on("error", () => {});
-  const stderr = createHash("sha256"); let errorTail = "";
-  const stderrData = chunk => { stderr.update(chunk); errorTail = (errorTail + chunk.toString("utf8")).slice(-65536); };
+  const stderr = createHash("sha256"); let errorTail = Buffer.alloc(0), stderrBytes = 0;
+  const stderrData = chunk => { stderr.update(chunk); stderrBytes += chunk.length; errorTail = Buffer.concat([errorTail, chunk]).subarray(-65536); };
   child.stderr.on("data", stderrData);
-  const waiting = new Map(); let nextId = 0, bytes = 0;
+  const waiting = new Map(); let nextId = 0, bytes = 0, closed = false, code = null, signal = null, spawnError = null, terminatedByProbe = false, rpcDeadline;
+  let resolveClose; const closePromise = new Promise(accept => { resolveClose = accept; });
   const rejectAll = () => { for (const w of waiting.values()) w.reject(new Failure("Installed app-server exited before configuration readback")); waiting.clear(); };
-  child.on("error", rejectAll); child.on("exit", rejectAll);
+  child.on("error", error => { spawnError = error.code ?? "UNKNOWN"; rejectAll(); });
+  child.on("exit", (exitCode, exitSignal) => { code = exitCode; signal = exitSignal; });
+  child.on("close", (exitCode, exitSignal) => { closed = true; code = exitCode; signal = exitSignal; rejectAll(); resolveClose(); });
   const lines = createInterface({ input: child.stdout });
   lines.on("line", line => {
     bytes += Buffer.byteLength(line);
-    if (bytes > 4 * 1024 * 1024) { rejectAll(); killGroup(child); return; }
-    let m; try { m = JSON.parse(line); } catch { rejectAll(); killGroup(child); return; }
+    if (bytes > 4 * 1024 * 1024) { terminatedByProbe = true; rejectAll(); killGroup(child); return; }
+    let m; try { m = JSON.parse(line); } catch { terminatedByProbe = true; rejectAll(); killGroup(child); return; }
     const w = waiting.get(m.id);
     if (w) { waiting.delete(m.id); m.error ? w.reject(new Failure("Installed app-server rejected a documented configuration RPC")) : w.accept(m.result); }
   });
   const request = (method, params) => new Promise((accept, reject) => {
+    if (closed || spawnError !== null) { reject(new Failure("Installed app-server exited before configuration readback")); return; }
     const id = ++nextId; waiting.set(id, { accept, reject }); child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
   });
   try {
@@ -78,12 +98,19 @@ async function readConfiguration(command, args, env) {
       const config = await request("config/read", { includeLayers: false });
       const requirements = await request("configRequirements/read", {});
       return { config: config.config, requirements: requirements.requirements };
-    })(), new Promise((_, reject) => { setTimeout(() => reject(new Failure("Configuration RPC budget expired")), 8000).unref(); })]);
+    })(), new Promise((_, reject) => { rpcDeadline = setTimeout(() => reject(new Failure("Configuration RPC budget expired")), 8000); rpcDeadline.unref(); })]);
   } finally {
+    clearTimeout(rpcDeadline);
+    let closeDeadline;
+    if (!closed) {
+      terminatedByProbe = spawnError === null; killGroup(child);
+      await Promise.race([closePromise, new Promise(accept => { closeDeadline = setTimeout(accept, 1000); })]);
+      clearTimeout(closeDeadline);
+    }
     child.stderr.off("data", stderrData); child.stderr.resume();
-    clientDiagnostics.push({ label: "configuration-readback", stderr_sha256: stderr.digest("hex"),
-      unknown_fields: [...errorTail.matchAll(/unknown field [`']([a-z_]+)[`']/g)].map(m => m[1]) });
-    lines.close(); killGroup(child); children.delete(child);
+    diagnostics("configuration-readback", { code, signal, spawn_error: spawnError, terminated_by_probe: terminatedByProbe,
+      stderr: errorTail, stderr_sha256: stderr.digest("hex"), stderr_bytes: stderrBytes, stderr_complete: closed });
+    lines.close(); if (closed) children.delete(child);
   }
 }
 
@@ -91,7 +118,9 @@ async function probe() {
   const gitEnv = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
   check(process.platform === "darwin" && Number(process.versions.node.split(".")[0]) >= 22, "This inspected binary probe requires macOS, sandbox-exec and Node 22+");
   check(![join(homedir(), ".codex"), join(homedir(), ".ssh"), "/etc/codex"].some(p => reportPath === p || reportPath.startsWith(p + "/")), "Report path must not be a live user or managed profile");
-  try { await lstat(reportPath); throw new Failure("Report path already exists; do not rerun an accepted probe"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  for (const path of [reportPath, diagnosticsPath]) {
+    try { await lstat(path); throw new Failure("Report or diagnostics path already exists; use a new qualification output"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  }
   temporary = await realpath(await mkdtemp(join(tmpdir(), "helm-codex-client-")));
   const home = join(temporary, "home"), codexHome = join(temporary, "codex"), workspace = join(temporary, "workspace"), captures = join(temporary, "capture"), bins = join(temporary, "bin");
   for (const d of [home, codexHome, workspace, captures, bins]) await mkdir(d, { mode: 0o700 });
@@ -128,6 +157,8 @@ async function probe() {
     const checkout = await run(executor, ["checkout", randomUUID(), "--client", "codex", "--json"], env);
     check(checkout.code === 0, "Shared fake checkout failed"); episode = decode(checkout.stdout);
     const headers = await run(executor, ["headers"], env); check(headers.code === 0, "Shared header helper failed"); authorization = decode(headers.stdout).Authorization;
+    check(typeof authorization === "string" && authorization.length > 0, "Shared header helper omitted Authorization");
+    diagnosticSecrets.add(authorization); const token = authorization.replace(/^Bearer /i, ""); if (token) diagnosticSecrets.add(token);
   });
   const commands = ["printf 'helm-codex-client-ok'", "git push", "gh pr merge", "kubectl version", "flux version", "linear issue create"];
   let requestCount = 0; const feedback = new Map(), requestErrors = [];
@@ -222,13 +253,19 @@ finally {
   if (fake) await fake.close(); if (temporary) await rm(temporary, { recursive: true, force: true });
 }
 const report = { schema: "helm.executor.codex.installed-client-probe.v1", consumer_source_sha: consumerSha, core_source_sha: pin.source_sha,
-  binary, binary_sha256: binarySha, inspected_version: inspected.version, local_result: failed ? "FAIL" : "PASS", steps, client_diagnostics: clientDiagnostics, hook_readback: hookReadback,
+  binary, binary_sha256: binarySha, inspected_version: inspected.version, local_result: failed ? "FAIL" : "PASS", steps, client_diagnostics: clientDiagnostics, diagnostics_log: diagnosticsPath, hook_readback: hookReadback,
   scope: "Installed local Codex user configuration/hook engine, actual shared core and loopback fake CP/MCP/Responses only",
   managed_configuration: "NOT_RUN", managed_hook_provenance: "NOT_RUN", deployed_E1_public_edge: "NOT_RUN", signed_D24_native_D8: "NOT_RUN",
   limitations: ["CODEX_HOME does not relocate Unix /etc/codex requirements or MDM/cloud policy. This probe refuses non-null managed requirements.",
     "The disposable profile copies hook commands from the template as user hooks and uses the documented trust flag for those vetted QA sources. This is not managed hook authority.",
     "Only the disposable profile substitutes loopback URLs and disables the production managed network proxy. Outer sandbox-exec permits loopback and denies writes outside its temporary directory.",
     "No provider inference, paid usage, actual user credentials, real effects, deployed QA, public TLS/network custody, signed admission or native D8 reconciliation is qualified."] };
-await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-console.log(JSON.stringify({ local_result: report.local_result, scope: report.scope, steps: steps.length, report: reportPath }));
+const reportText = JSON.stringify(report, null, 2) + "\n", diagnosticsText = clientDiagnostics.map(d => JSON.stringify(d)).join("\n") + "\n";
+for (const secret of diagnosticSecrets) {
+  const encoded = JSON.stringify(secret).slice(1, -1);
+  check(![reportText, diagnosticsText].some(text => text.includes(secret) || text.includes(encoded)), "Diagnostics still contain an opaque probe credential; refusing to persist them");
+}
+await writeFile(diagnosticsPath, diagnosticsText, { flag: "wx", mode: 0o600 });
+await writeFile(reportPath, reportText, { flag: "wx", mode: 0o600 });
+console.log(JSON.stringify({ local_result: report.local_result, scope: report.scope, steps: steps.length, report: reportPath, diagnostics_log: diagnosticsPath }));
 process.exitCode = failed ? 1 : 0;
