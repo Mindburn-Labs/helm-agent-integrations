@@ -1,16 +1,22 @@
 # Local managed Codex executor
 
 This HELM-compatible adapter prepares a dedicated local Codex executor to use
-the HELM model gateway and MCP edge. It renders configuration for review,
-shapes the shared core token into MCP headers, and implements a PreToolUse
-hook with local denies and observed-only metadata. It does not install policy
-or open an episode. Codex Cloud is outside this adapter's G0 scope.
+the HELM model gateway and MCP edge. It renders configuration for review and
+wires shared core commands into provider auth, MCP headers and observed-only
+hooks. A separate PreToolUse hook handles local denies. Codex Cloud is outside
+this adapter's G0 scope.
 
-`executors/core` owns `helm-executor login`, `start --work`, `token`, `switch`
-and `stop`, device credentials, the 15-minute episode token, and refresh. CP
-owns episode state and observation ingestion. The gateway owns admission,
-effects, credentials, receipts and D8 effect identity. The adapter neither
-dispatches effects directly nor treats a hook as a gateway decision.
+`executors/core` owns `helm-executor login`, `checkout`, `token`, `headers`,
+`observe`, `stop`, `status` and `env`, device credentials, the 15-minute episode
+token, and refresh. CP owns episode state and observation ingestion. The
+gateway owns admission, effects, credentials, receipts and D8 effect identity.
+Hooks are observations; gateway admission authorizes effects.
+
+[core-contract.json](core-contract.json) pins the shared CLI and fake CP source
+at `83f82bced4f0e405fb762843a3c3dd5f2c974a35`, including the exact contract and
+schema hashes. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/83f82bced4f0e405fb762843a3c3dd5f2c974a35/executors/core/CONTRACT.md)
+supersedes the earlier provisional adapter payload. Runtime qualification
+remains separate from source presence and hash readback.
 
 ## Supported configuration
 
@@ -27,10 +33,14 @@ dedicated environment. The source references are:
 - [Managed configuration](https://learn.chatgpt.com/docs/enterprise/managed-configuration) and [Codex hooks](https://learn.chatgpt.com/docs/hooks)
 
 Provider `auth.command` is an executable path with `args = ["token"]`.
-It is not a shell string containing `helm-executor token`. The token helper
-runs again after at most five minutes. MCP `http_headers_helper` is a local
-command that prints a JSON map of header names to values; `mcp_headers.py`
-calls the same core `token` command each time. Explicit bearer tokens and
+It is not a shell string containing `helm-executor token`. The provider refresh
+interval is five minutes and its 10-second timeout covers core's eight-second
+budget. Core prints only the opaque bearer plus LF on success. Missing,
+stopped or expired state returns nonzero, empty stdout and a reason on stderr.
+The adapter does not parse or cache credentials.
+
+MCP `http_headers_helper` calls `helm-executor headers` directly. Core prints an
+opaque JSON map, including any future header keys. Explicit bearer tokens and
 OAuth credentials must be absent because they take precedence over that
 helper's Authorization header.
 
@@ -47,7 +57,8 @@ Actual gateway custody and network behavior require independent runtime proof.
 
 Python 3.11 or later is required for the renderer. Supply the controller's
 TLS edge origin, installed admin-owned adapter directory, Python interpreter
-and core executable. The example paths and hostname below are illustrative.
+and core executable. Shared core needs Node 22 or later. The example paths and
+hostname below are illustrative.
 
 ```sh
 python3 executors/codex/render.py \
@@ -65,22 +76,30 @@ admin-owned scripts and read back the effective policy. The templates do not
 select a model, reasoning effort or approval mode. Never apply this package
 to the owner's interactive app or configuration.
 
-## Shared observation seam
+## Shared commands and observations
 
-The core owner must approve an observation helper argv and its payload before
-live use. Pass that argv as JSON through renderer `--observer-argv`. The hook
-invokes it directly with metadata JSON on stdin, without a shell, and with a
-three-second timeout. Without a sink, the hook reports that the observation
-was not submitted; local deny decisions still stand. A successful helper
-exit is labelled submitted, and is not proof of CP persistence.
+The managed requirements declare two PreToolUse commands: a synchronous local
+deny hook, then `helm-executor observe --client codex --event PreToolUse` with
+`async = true`. PostToolUse runs the corresponding shared observation command
+asynchronously. Codex supplies each command the original hook stdin JSON. The
+adapter creates no observation envelope and does not re-encode that input.
+Installed-client qualification must verify that the effective managed hooks
+receive that input and only the synchronous local hook supplies a deny.
 
-The provisional `helm.executor.codex.observation.v1` envelope contains the
-client, observed-only coverage, event and tool names, session/turn/tool-call
-correlation ids, a SHA-256 digest of the tool input, and the local deny/observe
-decision. It omits raw tool input, prompts, transcripts and credentials. Core
-binds the active work item and episode; hook correlation ids never replace the
-shared D8 effect identity. The sink's accepted command, envelope mapping and
-CP response are dependency needs until source-qualified.
+Core binds the checked-out work item and episode, minimizes the posted payload,
+applies best-effort redaction, and exposes failure diagnostics in `status`. Its `observe`
+command always exits zero with empty stdout, including when nothing is posted.
+An exit code cannot establish CP delivery or persistence. The local deny hook
+returns only its permission decision and makes no delivery claim. Observed
+hook correlation never replaces the shared D8 effect identity.
+
+A launcher must assign a distinct `HELM_EXECUTOR_SLOT` to every concurrent
+session and preserve it for provider, MCP and hook helpers. The config retains
+the shared core environment variables, including `HELM_EXECUTOR_HOME`. Use
+`checkout <work-item-id> --client codex` in the Codex slot. T100 switches clients
+by checking out the same work item in another slot. The adapter never reads or
+writes core state files. Use `HELM_EXECUTOR_OBSERVE_SUMMARY=off` when the managed
+session should omit summaries; core still owns input digests.
 
 The hook denies common raw command forms, including git/gh global flags and
 shell wrappers, plus direct Linear MCP writes. Exec rules independently deny
@@ -88,9 +107,15 @@ the direct command prefixes. These controls are convenience coverage labelled
 observed-only: shell aliases, scripts, tool paths and hook failures require
 the gateway credentials and actual network restriction for enforcement.
 
+D22 limits Wave 1 to the named Claude Code adapter, Codex adapter and one
+release rehearsal session: two or three sessions in total through gateway API
+keys. Other sessions remain on subscriptions. Under D23, acceptance follows
+dependency availability: local contract fake plus edge smoke, real CP E1 QA,
+integrated QA with both adapters, then rehearsal. Dates are latest markers.
+
 ## Qualification
 
-The root coordinator owns all local test/build/QA jobs. The focused source
+The root coordinator owns local test/build/QA jobs. The focused source
 commands to run from the owning worktree are:
 
 ```sh
@@ -109,3 +134,8 @@ acceptance work and shared D8 lost-response scenario. It contains no runtime
 results. Qualification needs the E1 CP API, the executor edge, shared core,
 gateway MCP/effects, managed-config readback and exact deployed build digests.
 Synthetic local tests cannot substitute for those observations.
+
+The command fixture in `tests/` captures stdin and returns synthetic headers
+without credentials or network access. It checks command quoting, unchanged
+input and separation of deny from observe. It implements no CP or auth flow
+and cannot substitute for the actual shared core fake CP or the executor edge.

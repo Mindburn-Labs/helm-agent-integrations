@@ -1,0 +1,24 @@
+{
+  "schema": "helm.executor.codex.core-pin.v1",
+  "version": "helm.executor.core/v1",
+  "repository": "Mindburn-Labs/helm-agent-integrations",
+  "owner": "claude:executor-adapters",
+  "source_sha": "83f82bced4f0e405fb762843a3c3dd5f2c974a35",
+  "initial_contract_sha": "2c2a62c9afcba4a515fc87d0829ca9ec663ee3fb",
+  "contract_path": "executors/core/CONTRACT.md",
+  "sha256": {
+    "CONTRACT.md": "1be9859b3e7834fd4c2e517ad623d39164e0589d0fee4b2668dfb68382bdceaa",
+    "schema/observe-input.schema.json": "8a18be9885900cd71b2e9782f2c47366f3ee8396e7bb6cc29b72afaa76028b30",
+    "schema/observation.schema.json": "630b0a3316b2b84a640f8293b43dff1226a5c0e572243230f52b03571ea5824c"
+  },
+  "commands": {
+    "provider_auth_args": ["token"],
+    "mcp_headers_args": ["headers"],
+    "pre_tool_observe_args": ["observe", "--client", "codex", "--event", "PreToolUse"],
+    "post_tool_observe_args": ["observe", "--client", "codex", "--event", "PostToolUse"]
+  },
+  "stdin": "Original Codex hook JSON unchanged; passed directly by the command handler.",
+  "coverage": "observed-only",
+  "source_boundary": "Shared CLI and fake CP source are available at this pin. Source presence and hash readback do not qualify the producer or either adapter at runtime.",
+  "runtime_qualification": "NOT_RUN"
+}

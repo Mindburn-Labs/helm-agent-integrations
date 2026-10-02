@@ -16,7 +16,7 @@ supports_websockets = false
 [model_providers.helm.auth]
 command = @@EXECUTOR@@
 args = ["token"]
-timeout_ms = 5000
+timeout_ms = 10000
 refresh_interval_ms = 300000
 
 [mcp_servers.helm]
@@ -33,7 +33,24 @@ matcher = ".*"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = @@HOOK_COMMAND@@
+command = @@DENY_COMMAND@@
+timeout = 10
+statusMessage = "Checking HELM local executor policy"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = @@PRE_OBSERVE_COMMAND@@
+async = true
+timeout = 10
+statusMessage = "Recording HELM executor observation"
+
+[[hooks.PostToolUse]]
+matcher = ".*"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = @@POST_OBSERVE_COMMAND@@
+async = true
 timeout = 10
 statusMessage = "Recording HELM executor observation"
 
