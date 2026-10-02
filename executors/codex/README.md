@@ -229,15 +229,44 @@ lifecycle explicitly. These routes fill the original fake's GET/DELETE `404`
 gaps for the local probe; real gateway protocol qualification remains pending.
 T100 still requires the installed managed client and actual edge/E1 evidence.
 
-This probe copies the template commands into disposable user hooks and uses the
-documented automation hook-trust flag for these reviewed sources. It requires
-macOS `sandbox-exec`, permits loopback traffic and permits writes only to its
-temporary directory and the `/dev/null` stdio sink. It uses no model inference
-or real credentials. The disposable CLI wrapper binds its fake state explicitly,
+The original CLI probe reached the allowed tool, which returned exit `71` and
+`sandbox-exec: sandbox_apply: Operation not permitted`. The macOS SDK's
+`sandbox_init` contract rejects applying another sandbox to an already
+sandboxed process. No additional allow rule fixes that nesting prerequisite.
+
+The prepared runner uses the documented
+[app-server `externalSandbox` policy](https://learn.chatgpt.com/docs/app-server#command-execution)
+inside the existing outer Seatbelt profile, with `networkAccess = restricted`.
+The production template retains `workspace-write`; this local path does not
+qualify the CLI's inner sandbox. Before a fixture turn, `command/exec` must prove
+private writes and loopback connectivity work, while writes to a QA-owned
+sibling directory, reads of an explicitly denied QA canary and a connection to
+the RFC 5737 documentation address `192.0.2.1` return permission errors. A
+timeout or an unrelated error does not qualify a denial. No owner credential is
+read by those challenges.
+
+The runner trusts only the five reviewed disposable user-hook definitions. It
+compares commands, events and private source paths from `hooks/list`, writes
+their installed `currentHash` values into `hooks.state` in the temporary
+profile, and requires a second installed readback to report `trusted`. It does
+not compute a substitute trust hash or write the owner's hook state. Unsupported
+RPCs or trust fields fail the probe and require an inspected compatible client
+or a dedicated confined execution environment; they do not trigger a fallback.
+
+It requires macOS `sandbox-exec`, permits loopback traffic and permits writes
+only to its temporary directory and the `/dev/null` stdio sink. The extra QA
+canary read denial narrows that profile. It uses no model inference or real
+credentials. The disposable CLI wrapper binds its fake state explicitly,
 because the pinned [Codex helper launcher](https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/rmcp-client/src/http_headers.rs)
 uses null stdin/stderr and filters ambient environment variables. The local
 provider also serves a bounded, authenticated empty model catalog; model and
 effort remain pinned by the disposable configuration and Responses checks.
+
+The app-server path is source-prepared until the parent runs the finite probe.
+Turn completion, actual tool markers, raw denies, unchanged hook observation
+and MCP initialization/session cleanup all remain required. The standalone
+stdio server must close within its finite cleanup budget; no shared daemon is
+used. Do not repeat the old nested CLI probe unchanged.
 
 The [managed configuration documentation](https://learn.chatgpt.com/docs/enterprise/managed-configuration)
 locates Unix requirements at `/etc/codex` or managed policy. `CODEX_HOME` isolates

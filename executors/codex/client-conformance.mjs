@@ -28,7 +28,8 @@ const core = resolve(values.core), binary = resolve(values.codex), reportPath = 
 const diagnosticsPath = reportPath + ".diagnostics.log", diagnosticSecrets = new Set();
 const children = new Set(), steps = [], clientDiagnostics = [], hookReadback = [];
 const toolReadback = new Map(), mcpTransport = createClientMcpTransport();
-let temporary, fake, provider, consumerSha, activeStep = "installed binary and source pins", binarySha, cancelled = false;
+const confinementReadback = {}, hookTrustReadback = {};
+let temporary, negativeTemporary, fake, provider, consumerSha, activeStep = "installed binary and source pins", binarySha, cancelled = false;
 class Failure extends Error {}
 function check(value, reason) { if (!value) throw new Failure(reason); }
 function quote(value) { return "'" + value.replaceAll("'", "'\"'\"'") + "'"; }
@@ -82,16 +83,20 @@ function diagnostics(label, result) {
     unknown_fields: [...text.matchAll(/unknown field [`']([a-z_]+)[`']/g)].map(m => m[1]) });
 }
 
-async function readConfiguration(command, args, env) {
+async function withAppServer(command, args, env, label, action, timeout = 8000, graceful = false) {
   check(!cancelled, "Probe was cancelled");
   const child = spawn(command, args, { env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   children.add(child); child.stdin.on("error", () => {});
   const stderr = createHash("sha256"); let errorTail = Buffer.alloc(0), stderrBytes = 0;
   const stderrData = chunk => { stderr.update(chunk); stderrBytes += chunk.length; errorTail = Buffer.concat([errorTail, chunk]).subarray(-65536); };
   child.stderr.on("data", stderrData);
-  const waiting = new Map(); let nextId = 0, bytes = 0, closed = false, code = null, signal = null, spawnError = null, terminatedByProbe = false, rpcDeadline;
+  const waiting = new Map(), notices = [], subscriptions = new Set();
+  let nextId = 0, bytes = 0, closed = false, code = null, signal = null, spawnError = null, terminatedByProbe = false, rpcDeadline;
   let resolveClose; const closePromise = new Promise(accept => { resolveClose = accept; });
-  const rejectAll = () => { for (const w of waiting.values()) w.reject(new Failure("Installed app-server exited before configuration readback")); waiting.clear(); };
+  const rejectAll = () => {
+    for (const w of [...waiting.values(), ...subscriptions]) w.reject(new Failure("Installed app-server exited before the finite RPC sequence completed"));
+    waiting.clear(); subscriptions.clear();
+  };
   child.on("error", error => { spawnError = error.code ?? "UNKNOWN"; rejectAll(); });
   child.on("exit", (exitCode, exitSignal) => { code = exitCode; signal = exitSignal; });
   child.on("close", (exitCode, exitSignal) => { closed = true; code = exitCode; signal = exitSignal; rejectAll(); resolveClose(); });
@@ -100,34 +105,61 @@ async function readConfiguration(command, args, env) {
     bytes += Buffer.byteLength(line);
     if (bytes > 4 * 1024 * 1024) { terminatedByProbe = true; rejectAll(); killGroup(child); return; }
     let m; try { m = JSON.parse(line); } catch { terminatedByProbe = true; rejectAll(); killGroup(child); return; }
+    if (m.method && m.id !== undefined) { terminatedByProbe = true; rejectAll(); killGroup(child); return; }
     const w = waiting.get(m.id);
-    if (w) { waiting.delete(m.id); m.error ? w.reject(new Failure("Installed app-server rejected a documented configuration RPC")) : w.accept(m.result); }
+    if (w) {
+      waiting.delete(m.id);
+      if (m.error) { clientDiagnostics.push({ label: "rpc-error", method: w.method, error: minimizedOutput(m.error) }); w.reject(new Failure("Installed app-server rejected a documented RPC")); }
+      else w.accept(m.result);
+    } else if (["turn/completed", "error"].includes(m.method)) {
+      notices.push(m); if (notices.length > 32) { terminatedByProbe = true; rejectAll(); killGroup(child); return; }
+      for (const subscription of subscriptions) if (subscription.method === m.method && subscription.matches(m.params)) {
+        subscriptions.delete(subscription); subscription.accept(m.params);
+      }
+    }
   });
   const request = (method, params) => new Promise((accept, reject) => {
     if (closed || spawnError !== null) { reject(new Failure("Installed app-server exited before configuration readback")); return; }
-    const id = ++nextId; waiting.set(id, { accept, reject }); child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+    const id = `helm-${++nextId}`; waiting.set(id, { accept, reject, method }); child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+  });
+  const notification = (method, matches) => new Promise((accept, reject) => {
+    const previous = notices.find(m => m.method === method && matches(m.params));
+    if (previous) accept(previous.params);
+    else if (closed || spawnError !== null) reject(new Failure("Installed app-server exited before the required notification"));
+    else subscriptions.add({ method, matches, accept, reject });
   });
   try {
     return await Promise.race([(async () => {
       await request("initialize", { clientInfo: { name: "helm_codex_local_probe", title: "HELM local acceptance", version: "1" } });
       child.stdin.write(JSON.stringify({ method: "initialized", params: {} }) + "\n");
-      const config = await request("config/read", { includeLayers: false });
-      const requirements = await request("configRequirements/read", {});
-      return { config: config.config, requirements: requirements.requirements };
-    })(), new Promise((_, reject) => { rpcDeadline = setTimeout(() => reject(new Failure("Configuration RPC budget expired")), 8000); rpcDeadline.unref(); })]);
+      return action(request, notification);
+    })(), new Promise((_, reject) => { rpcDeadline = setTimeout(() => reject(new Failure("Finite app-server RPC budget expired")), timeout); rpcDeadline.unref(); })]);
   } finally {
     clearTimeout(rpcDeadline);
     let closeDeadline;
+    if (graceful && !closed && spawnError === null && !cancelled) {
+      child.stdin.end();
+      await Promise.race([closePromise, new Promise(accept => { closeDeadline = setTimeout(accept, 5000); })]);
+      clearTimeout(closeDeadline);
+    }
     if (!closed) {
       terminatedByProbe = spawnError === null; killGroup(child);
       await Promise.race([closePromise, new Promise(accept => { closeDeadline = setTimeout(accept, 1000); })]);
       clearTimeout(closeDeadline);
     }
     child.stderr.off("data", stderrData); child.stderr.resume();
-    diagnostics("configuration-readback", { code, signal, spawn_error: spawnError, terminated_by_probe: terminatedByProbe,
+    diagnostics(label, { code, signal, spawn_error: spawnError, terminated_by_probe: terminatedByProbe,
       stderr: errorTail, stderr_sha256: stderr.digest("hex"), stderr_bytes: stderrBytes, stderr_complete: closed });
     lines.close(); if (closed) children.delete(child);
   }
+}
+async function readConfiguration(command, args, env, workspace) {
+  return withAppServer(command, args, env, "configuration-readback", async request => {
+    const config = await request("config/read", { includeLayers: false });
+    const requirements = await request("configRequirements/read", {});
+    const hooks = await request("hooks/list", { cwds: [workspace] });
+    return { config: config.config, requirements: requirements.requirements, hooks };
+  });
 }
 
 async function probe() {
@@ -138,6 +170,7 @@ async function probe() {
     try { await lstat(path); throw new Failure("Report or diagnostics path already exists; use a new qualification output"); } catch (error) { if (error.code !== "ENOENT") throw error; }
   }
   temporary = await realpath(await mkdtemp(join(tmpdir(), "helm-codex-client-")));
+  negativeTemporary = await realpath(await mkdtemp(join(tmpdir(), "helm-codex-denied-")));
   const home = join(temporary, "home"), codexHome = join(temporary, "codex"), workspace = join(temporary, "workspace"), captures = join(temporary, "capture"), bins = join(temporary, "bin");
   for (const d of [home, codexHome, workspace, captures, bins]) await mkdir(d, { mode: 0o700 });
   const inspectionEnv = { ...gitEnv, HOME: home, CODEX_HOME: codexHome, TMPDIR: temporary };
@@ -228,23 +261,70 @@ async function probe() {
   profile += '\n[analytics]\nenabled = false\n[feedback]\nenabled = false\n' + hookSection;
   for (const event of ["PreToolUse", "PostToolUse"]) profile += `\n[[hooks.${event}]]\nmatcher = ".*"\n[[hooks.${event}.hooks]]\ntype = "command"\ncommand = ${JSON.stringify(captureCommand)}\nasync = true\ntimeout = 5\n`;
   await writeFile(join(codexHome, "config.toml"), profile, { mode: 0o600 });
-  const ownerHome = resolve(homedir());
+  const ownerHome = resolve(homedir()), readCanary = join(temporary, "denied-read-canary");
+  await writeFile(readCanary, "helm-private-read-canary", { mode: 0o600 });
   // Null stdio is required by Codex's vetted helper launcher; no persisted file
   // outside the disposable tree becomes writable.
-  const sandbox = `(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*")) (deny file-write* (require-not (require-any (subpath ${JSON.stringify(temporary)}) (literal "/dev/null")))) (deny file-read* (subpath ${JSON.stringify(join(ownerHome, ".codex"))}) (subpath ${JSON.stringify(join(ownerHome, ".ssh"))}))`;
+  const sandbox = `(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*")) (deny file-write* (require-not (require-any (subpath ${JSON.stringify(temporary)}) (literal "/dev/null")))) (deny file-read* (subpath ${JSON.stringify(join(ownerHome, ".codex"))}) (subpath ${JSON.stringify(join(ownerHome, ".ssh"))}) (literal ${JSON.stringify(readCanary)}))`;
   const sandboxArgs = ["-p", sandbox, binary];
+  const appArgs = [...sandboxArgs, "app-server", "--strict-config", "--listen", "stdio://"];
+  const configuredCommands = [...hookSection.matchAll(/^command = (".*")$/gm)].map(m => JSON.parse(m[1]));
+  check(configuredCommands.length === 3, "Rendered hook command inventory changed");
+  const expectedHooks = [{ eventName: "preToolUse", command: configuredCommands[0], async: false, timeoutSec: 10 },
+    { eventName: "preToolUse", command: configuredCommands[1], async: true, timeoutSec: 10 },
+    { eventName: "postToolUse", command: configuredCommands[2], async: true, timeoutSec: 10 },
+    { eventName: "preToolUse", command: captureCommand, async: true, timeoutSec: 5 }, { eventName: "postToolUse", command: captureCommand, async: true, timeoutSec: 5 }];
+  const vettedHooks = response => {
+    check(response.data?.length === 1 && response.data[0].cwd === workspace && response.data[0].errors?.length === 0, "Installed hook inventory is unavailable or contains errors");
+    const hooks = response.data[0].hooks;
+    check(hooks?.length === expectedHooks.length && new Set(hooks.map(h => h.key)).size === hooks.length, "Installed hook inventory is not the five reviewed QA hooks");
+    for (const expected of expectedHooks) check(hooks.filter(h => h.eventName === expected.eventName && h.command === expected.command && (h.async ?? false) === expected.async && h.timeoutSec === expected.timeoutSec && h.matcher === ".*").length === 1,
+      "Installed hook definition differs from the reviewed QA event, command, matcher, timeout or async setting");
+    for (const hook of hooks) check(hook.handlerType === "command" && hook.source === "user" && hook.sourcePath === join(codexHome, "config.toml") && hook.isManaged === false && hook.enabled === true &&
+      typeof hook.key === "string" && hook.key.length > 0 && hook.key.length < 1024 && typeof hook.currentHash === "string" && hook.currentHash.length > 0 && hook.currentHash.length < 1024, "A hook is not a reviewed disposable user definition");
+    return hooks;
+  };
   await step("installed strict config readback uses the isolated user layer with no managed requirements", async () => {
-    const readback = await readConfiguration("/usr/bin/sandbox-exec", [...sandboxArgs, "app-server", "--strict-config", "--listen", "stdio://"], env);
+    const readback = await readConfiguration("/usr/bin/sandbox-exec", appArgs, env, workspace);
     check(readback.requirements === null, "Host has managed requirements; qualify in a dedicated environment instead of bypassing them");
     config = readback.config;
     check(config.model_provider === "helm" && config.model_providers?.helm?.base_url === responsesUrl, "Installed config readback did not retain the local HELM provider");
     check(config.model_providers.helm.auth?.command === executor && JSON.stringify(config.model_providers.helm.auth.args) === '["token"]', "Installed provider auth schema changed");
     check(config.mcp_servers?.helm?.http_headers_helper === quote(executor) + " headers" || config.mcp_servers?.helm?.http_headers_helper === executor + " headers", "Installed MCP helper schema changed");
     check(config.features?.hooks === true, "Installed hooks feature is not enabled");
+    check(config.sandbox_mode === "workspace-write", "Production sandbox template was not retained");
+    // Hashes come from the installed loader; only the reviewed private definitions
+    // receive trust. The actual owner profile and managed policy are never written.
+    const hooks = vettedHooks(readback.hooks);
+    profile += hooks.map(h => `\n[hooks.state.${JSON.stringify(h.key)}]\ntrusted_hash = ${JSON.stringify(h.currentHash)}\n`).join("");
+    await writeFile(join(codexHome, "config.toml"), profile, { mode: 0o600 });
+    Object.assign(hookTrustReadback, { count: hooks.length, source: "disposable user config", method: "reviewed commands with installed currentHash", result: "pending readback" });
   });
+  const externalSandbox = { type: "externalSandbox", networkAccess: "restricted" };
   await step("installed Codex runs the finite local fixture and initializes HELM MCP", async () => {
-    const result = await run("/usr/bin/sandbox-exec", [...sandboxArgs, "--no-daemon", "exec", "--strict-config", "--ephemeral", "--dangerously-bypass-hook-trust", "--skip-git-repo-check", "--json", "--color", "never", "-C", workspace, "Run the local acceptance fixture tools, then finish."], env, "", 30000);
-    diagnostics("isolated-client", result);
+    const completed = await withAppServer("/usr/bin/sandbox-exec", appArgs, env, "isolated-client", async (request, notification) => {
+      const trusted = vettedHooks(await request("hooks/list", { cwds: [workspace] }));
+      check(trusted.every(h => h.trustStatus === "trusted"), "Reviewed QA hook hashes did not become trusted in the disposable profile");
+      hookTrustReadback.result = "PASS";
+      const boundary = await request("command/exec", { command: [pythonPath, join(adapter, "tests/confinement_probe.py"), temporary, negativeTemporary, readCanary, fake.url], cwd: workspace,
+        sandboxPolicy: externalSandbox, timeoutMs: 3000 });
+      clientDiagnostics.push({ label: "outer-confinement", exit_code: boundary.exitCode, stdout: minimizedOutput(boundary.stdout), stderr: minimizedOutput(boundary.stderr) });
+      check(boundary.exitCode === 0, "Outer confinement did not prove private writes, read denial and loopback-only network; no fixture turn started");
+      Object.assign(confinementReadback, decode(Buffer.from(boundary.stdout)));
+      check(["private_write_allowed", "outside_write_denied", "canary_read_denied", "loopback_allowed", "non_loopback_denied"].every(k => confinementReadback[k] === true), "Outer confinement response omitted a required control; no fixture turn started");
+      const started = await request("thread/start", { model: "gpt-6.1-sol", modelProvider: "helm", cwd: workspace, approvalPolicy: "never", sandbox: "workspace-write", ephemeral: true });
+      check(typeof started.thread?.id === "string" && started.thread.ephemeral === true && started.model === "gpt-6.1-sol" && started.modelProvider === "helm" && started.reasoningEffort === "max" && started.cwd === workspace,
+        "Installed app-server did not retain the ephemeral fixture configuration");
+      const turn = await request("turn/start", { threadId: started.thread.id, input: [{ type: "text", text: "Run the local acceptance fixture tools, then finish." }],
+        cwd: workspace, approvalPolicy: "never", sandboxPolicy: externalSandbox, model: "gpt-6.1-sol", effort: "max" });
+      const end = await notification("turn/completed", p => p.threadId === started.thread.id && p.turn?.id === turn.turn?.id);
+      check(end.turn.status === "completed" && !end.turn.error, "Installed fixture turn did not complete successfully");
+      await request("thread/unsubscribe", { threadId: started.thread.id });
+      return end;
+    }, 30000, true);
+    const processResult = clientDiagnostics.findLast(d => d.label === "isolated-client");
+    check(processResult?.exit_code === 0 && processResult.signal === null && processResult.terminated_by_probe === false && processResult.stderr_complete === true,
+      "Standalone installed app-server did not exit normally within its finite cleanup budget");
     captured = await Promise.all((await readdir(captures)).map(async name => {
       const raw = await readFile(join(captures, name)), input = decode(raw);
       hookReadback.push({ raw_sha256: digest(raw), event: input.hook_event_name, tool: input.tool_name, use_id: input.tool_use_id,
@@ -252,7 +332,7 @@ async function probe() {
         ...(input.hook_event_name === "PostToolUse" && input.tool_use_id === "local-call-0" ? { event_keys: Object.keys(input).sort().slice(0, 32), response_keys: input.tool_response && typeof input.tool_response === "object" && !Array.isArray(input.tool_response) ? Object.keys(input.tool_response).sort().slice(0, 32) : [], response: minimizedOutput(input.tool_response) } : {}) });
       return input;
     }));
-    check(result.code === 0 && requestErrors.length === 0 && requestCount === commands.length + 1, "Installed client or fixture sequence failed; inspect the minimized diagnostics");
+    check(completed.turn.status === "completed" && requestErrors.length === 0 && requestCount === commands.length + 1, "Installed client or fixture sequence failed; inspect the minimized diagnostics");
     check(fake.requests.some(r => r.path === "/mcp" && r.body?.method === "initialize") && fake.requests.some(r => r.path === "/mcp" && r.body?.method === "tools/list"), "Installed HELM MCP did not initialize and discover tools");
     check(mcpTransport.diagnostics.unsupported_common_stream > 0 && mcpTransport.diagnostics.deleted === mcpTransport.diagnostics.initialized && mcpTransport.diagnostics.active_sessions === 0 && mcpTransport.diagnostics.rejected === 0, "Installed MCP session GET/DELETE did not complete against the explicit QA transport");
   });
@@ -285,14 +365,17 @@ finally {
   clearTimeout(deadline); for (const child of children) killGroup(child);
   if (provider) { provider.closeAllConnections(); await new Promise(accept => provider.close(accept)); }
   if (fake) await fake.close(); if (temporary) await rm(temporary, { recursive: true, force: true });
+  if (negativeTemporary) await rm(negativeTemporary, { recursive: true, force: true });
 }
 const report = { schema: "helm.executor.codex.installed-client-probe.v1", consumer_source_sha: consumerSha, core_source_sha: pin.source_sha,
   binary, binary_sha256: binarySha, inspected_version: inspected.version, local_result: failed ? "FAIL" : "PASS", steps, client_diagnostics: clientDiagnostics, diagnostics_log: diagnosticsPath, hook_readback: hookReadback,
   tool_readback: [...toolReadback.values()], mcp_transport: mcpTransport.diagnostics, T100: "NOT_QUALIFIED",
+  confinement: confinementReadback, hook_trust: hookTrustReadback, execution_path: "app-server turn/start externalSandbox inside the actual outer Seatbelt profile",
   scope: "Installed local Codex user configuration/hook engine, actual shared core and loopback fake CP/MCP/Responses only",
   managed_configuration: "NOT_RUN", managed_hook_provenance: "NOT_RUN", deployed_E1_public_edge: "NOT_RUN", signed_D24_native_D8: "NOT_RUN",
   limitations: ["CODEX_HOME does not relocate Unix /etc/codex requirements or MDM/cloud policy. This probe refuses non-null managed requirements.",
-    "The disposable profile copies hook commands from the template as user hooks and uses the documented trust flag for those vetted QA sources. This is not managed hook authority.",
+    "The disposable profile trusts only five reviewed user-hook definitions using hashes read from the installed loader. This is not managed hook authority.",
+    "The CLI workspace-write path failed with nested sandbox_apply EPERM. This probe uses the supported app-server externalSandbox policy with restricted network, retaining and challenging the outer Seatbelt controls; it does not qualify CLI inner workspace-write execution.",
     "Only the disposable profile substitutes loopback URLs and disables the production managed network proxy. Outer sandbox-exec permits loopback; writes are limited to its temporary directory and the /dev/null stdio sink.",
     "MCP session GET/DELETE use explicit QA-only route extensions. Authentication and JSON-RPC delegate to the pinned shared fake; this is not public edge or E1 protocol qualification.",
     "No provider inference, paid usage, actual user credentials, real effects, deployed QA, public TLS/network custody, signed admission or native D8 reconciliation is qualified."] };
