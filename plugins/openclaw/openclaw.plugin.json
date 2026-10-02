@@ -1,0 +1,23 @@
+{
+  "id": "helm-openclaw",
+  "name": "HELM",
+  "description": "HELM-compatible gateway tools and retained executor model route",
+  "providers": ["helm"],
+  "activation": {"onStartup": true},
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["executorHome", "slot", "edgeOrigin", "model", "maxOutputTokens", "contextWindow", "grantedTools"],
+    "properties": {
+      "executorHome": {"type": "string", "minLength": 1},
+      "slot": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"},
+      "edgeOrigin": {"type": "string", "format": "uri"},
+      "model": {"type": "string", "minLength": 1, "maxLength": 128},
+      "maxOutputTokens": {"type": "integer", "minimum": 1, "maximum": 1048576},
+      "contextWindow": {"type": "integer", "minimum": 1, "maximum": 1048576},
+      "grantedTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256},
+      "observedNativeTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256},
+      "blockedNativeTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256}
+    }
+  }
+}
