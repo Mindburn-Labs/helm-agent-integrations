@@ -1,0 +1,34 @@
+{
+  "schema": "helm.executor.codex.installed-inspection.v1",
+  "binary": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+  "version": "codex-cli 0.159.0-alpha.12.1",
+  "sha256": "1180e2d56ea06ec583092acd933345685da3441cb1769a436d76dbf320613e75",
+  "inspection": "Read-only version, help and binary symbols; no client session or configuration mutation.",
+  "supported_surface_evidence": [
+    "--strict-config, --ephemeral and --dangerously-bypass-hook-trust in installed exec help",
+    "app-server --listen stdio:// in installed app-server help",
+    "config/read, configRequirements/read, PreToolUse, managed_dir, http_headers_helper and auth fields in installed binary"
+  ],
+  "managed_isolation": "CODEX_HOME isolates user configuration. No supported isolated system requirements path was found in this CLI's help/symbols or the official managed configuration documentation. Managed requirements acceptance needs a dedicated execution environment with its own /etc/codex or managed policy; never install these templates on Ivan's host.",
+  "confinement_prerequisite": {
+    "observed_consumer_sha": "0e321f513b85f5ccdf10bc4d5bbcb4967efc7065",
+    "observed_result": "Allowed call0 exit71: sandbox-exec: sandbox_apply: Operation not permitted. The actual outer Seatbelt and CLI workspace-write attempt nested macOS sandboxing.",
+    "prepared_path": "Standalone stdio app-server with turn/start externalSandbox networkAccess=restricted inside the unchanged outer confinement, plus an extra QA canary denial. Runtime qualification NOT_RUN.",
+    "required_checks": "Strict config readback, exact hooks/list inventory and installed trusted hashes in disposable hooks.state, actual outer file/network challenges, ephemeral turn completion, tool markers, raw denies, unchanged observations and MCP session cleanup.",
+    "failure_action": "Stop at the unsupported API or confinement prerequisite; preserve controls and report it. No broad sandbox disable, no owner-profile mutation and no unchanged nested CLI rerun.",
+    "source_references": [
+      "https://learn.chatgpt.com/docs/app-server#command-execution",
+      "https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/app-server-protocol/src/protocol/v2/turn.rs",
+      "https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/app-server-protocol/schema/json/v2/HooksListResponse.json",
+      "https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/config/src/hook_config.rs"
+    ],
+    "local_apple_contract": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sandbox.h:24"
+  },
+  "acceptance": "NOT_RUN",
+  "official_references": [
+    "https://learn.chatgpt.com/docs/enterprise/managed-configuration",
+    "https://learn.chatgpt.com/docs/hooks",
+    "https://learn.chatgpt.com/docs/app-server"
+  ],
+  "responses_fixture_reference": "https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/core/tests/common/responses.rs"
+}

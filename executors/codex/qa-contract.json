@@ -1,0 +1,113 @@
+{
+  "schema": "helm.executor.codex.qa-plan.v1",
+  "acceptance_ids": ["T48", "T87", "T97", "T100", "T103"],
+  "result": "NOT_RUN",
+  "scope": "local managed Codex executor; Codex Cloud excluded",
+  "core_source_sha": "337f8f47465ae8dad06fd763b22572e14f6d6ca6",
+  "core_contract_pin": "core-contract.json",
+  "wave1": "Named Claude Code adapter, Codex adapter and one release rehearsal session only; two or three sessions total through gateway API keys, all others subscriptions.",
+  "pacing": "D23: integrate when dependencies exist; dates are latest markers, not start times.",
+  "paired_adapter_constraints": {
+    "source": "https://github.com/Mindburn-Labs/helm-agent-integrations/pull/54",
+    "scope": "Controller E1-E6 findings for the shared core and Claude pair; no Claude setting is copied into Codex.",
+    "shared": "The work-item path is the retained CP UUID, not a Linear issue key.",
+    "claude_specific": ["managedMcpServers rejects headersHelper; the Claude adapter uses managed-mcp.json", "HTTP hooks cannot carry the rotating token", "API key authentication precedes apiKeyHelper", "allowedProviders requires Claude Code 2.1.285 or later"],
+    "codex": "Retain Codex's own auth.command executable with args[token], http_headers_helper and command hooks; parent qualifies support with the installed binary.",
+    "evidence_boundary": "Controller's real Claude 2.1.274 conformance 33/0 was against fakes only; Codex and deployed E1/edge remain unqualified."
+  },
+  "local_integration": {
+    "runner": "integration-conformance.mjs",
+    "result": "NOT_RUN",
+    "command": "node executors/codex/integration-conformance.mjs --core /absolute/qualified-checkout/executors/core --report /tmp/helm-codex-local-integration.json --timeout-ms 45000",
+    "dependency": "Parent builds the pinned actual core source; the runner reuses its fake CP and governed MCP flow.",
+    "coverage": ["actual provider and MCP helpers", "two slots stop then checkout", "injected successor 409", "local raw-tool deny", "original Pre/Post observation JSON", "failed observation remains zero exit", "actual MCP response drop after fake application", "same-intent retry and retained-attempt readback across slots"],
+    "limits": ["installed Codex managed hooks unrun", "native CP token/attempt drain barrier not modeled by shared fake", "public edge and signed D24 admission unrun", "one fake application is not native Kernel/provider D8 reconciliation proof", "deployed E1/edge QA unrun"]
+  },
+  "installed_client_probe": {
+    "runner": "client-conformance.mjs",
+    "inspection": "installed-client.json",
+    "result": "NOT_RUN",
+    "command": "node executors/codex/client-conformance.mjs --core /absolute/qualified-checkout/executors/core --report /tmp/helm-codex-installed-client.json --timeout-ms 60000",
+    "dependency": "Parent supplies the pinned built core and inspected macOS CLI. The standalone stdio app-server must accept externalSandbox while actual outer Seatbelt file/network controls and reviewed private hook hashes qualify. No installs or real credentials are used.",
+    "coverage": ["installed strict config RPC readback", "reviewed hooks/list hashes become trusted only in the disposable profile", "actual external confinement file/network challenges before the fixture turn", "actual provider token helper", "actual HELM MCP initialization/header helper", "installed app-server Pre/Post user-hook engine", "allowed command and five raw-tool deny sentinels", "actual client input correlation through core to the fake sink"],
+    "limits": ["CODEX_HOME does not relocate Unix system requirements or MDM/cloud policy", "probe refuses non-null host managed requirements", "QA trusted hashes are disposable user state; managed provenance remains unrun", "the outer Seatbelt plus CLI workspace-write path failed nested sandbox_apply; app-server externalSandbox does not qualify CLI inner sandbox execution", "unsupported RPCs or failed confinement require a compatible dedicated environment, without weakening controls", "loopback Responses fixture is not real inference", "production TLS/network proxy, signed D24 admission, deployed E1 and native D8 remain unrun"],
+    "managed_need": "A dedicated execution environment with its own /etc/codex or supported managed policy must parse requirements.toml and establish managed hook/readback acceptance without changing Ivan's host."
+  },
+  "deployed_smoke": {
+    "runner": "deployed-conformance.mjs",
+    "input": "deployed-input.example.json",
+    "managed_prerequisites": "managed-prerequisites.json",
+    "result": "NOT_RUN",
+    "default_mode": "Input validation only; no subprocess or network. Complete references mean READY, never runtime PASS. Null prerequisites mean BLOCKED_INPUTS/exit2 and smoke NOT_RUN.",
+    "live_mode": "Parent-only --run-live using exact enrolled dedicated QA slot and actual deployed origins. Actual core owns checkout, headers, status and stop; no fake server, provider inference or tools/call.",
+    "coverage": ["core pin and private empty slot", "actual E1 work/client binding and mint", "unauthenticated MCP/Responses rejection", "authenticated MCP initialize and required tool discovery", "native stateless GET405/DELETE405", "matching episode retirement and subsequent empty-stdout token refusal"],
+    "limits": ["deployment references are supplied, not independently verified", "managed client/configuration/provenance not run", "production CLI inner sandbox not qualified", "no signed D24 claim parsing/readback", "no native token-expiry/attempt drain or D8 reconciliation", "no governed effects or T100 qualification"],
+    "new_source_checks": ["node --check executors/codex/deployed-conformance.mjs", "node --check executors/codex/deployed-input.mjs", "node --test executors/codex/tests/deployed_input.test.mjs", "ruby scripts/check-markdown.rb"]
+  },
+  "stages": [
+    { "name": "local-core-contract-fake-and-edge-smoke", "latest_marker": "2026-10-08", "result": "NOT_RUN" },
+    { "name": "real-CP-E1-QA", "latest_marker": "2026-10-09", "result": "NOT_RUN" },
+    { "name": "integrated-both-adapters-QA", "latest_marker": "2026-10-10", "result": "NOT_RUN" },
+    { "name": "production-tier-rehearsal", "latest_marker": "2026-10-14", "result": "NOT_RUN" }
+  ],
+  "required_boundaries": [
+    "installed Codex version and supported schema",
+    "admin-managed requirements readback in the dedicated executor environment",
+    "core device auth and work-item-bound external episode",
+    "server-authorized machine credential enrollment for the work-item seat",
+    "executor edge /v1/responses and /mcp",
+    "gateway custody and actual sandbox network enforcement",
+    "D24 public audience helm-gateway-executor:<env>, signed helm_executor client, existing helm_episode, and at most 900-second lifetime",
+    "source-owned attempt, decision, receipt and deployed build digests"
+  ],
+  "scenarios": [
+    {
+      "name": "gateway-model-and-mcp",
+      "assertions": [
+        "The model request uses the configured HELM /v1/responses route and an episode token supplied by core.",
+        "The live local HELM MCP connection uses header-helper Authorization, with no static or OAuth credential taking precedence.",
+        "An expired or stopped core session cannot continue using a gateway model or effect route.",
+        "The effective requirements retain the provider pin and forbid danger-full-access."
+      ]
+    },
+    {
+      "name": "managed-observation-consumer-contract",
+      "assertions": [
+        "The effective PreToolUse and PostToolUse commands invoke shared core observe with the original hook JSON stdin unchanged, and are asynchronous.",
+        "The synchronous PreToolUse deny remains separate from shared observe and returns no submission or persistence claim.",
+        "Shared observe exits zero with empty stdout on malformed input, no episode, rejected post or transport failure; no exit is counted as proof of delivery.",
+        "CP ingestion/readback establishes persistence; core status supplies diagnostics, and coverage stays observed-only.",
+        "All helpers in a session use the same distinct HELM_EXECUTOR_SLOT; no adapter reads, parses or writes core credentials or state files."
+      ]
+    },
+    {
+      "name": "governed-push-pr-escalated-merge",
+      "assertions": [
+        "Raw push, merge, kubectl, flux and direct Linear writes are locally denied and hook actions are observed-only.",
+        "A governed push and PR creation dispatch only after a gateway ALLOW.",
+        "An ESCALATE merge does not dispatch until the designated owner approves the same intent and expected head.",
+        "The merged head and merge SHA are read back from the gateway-owned effect observation.",
+        "Actual sandbox traffic cannot reach direct GitHub or Linear write endpoints; template inspection alone is insufficient."
+      ]
+    },
+    {
+      "name": "claude-code-to-codex-switch",
+      "assertions": [
+        "Core stop in the first session precedes Codex checkout of the same CP work-item UUID in a distinct HELM_EXECUTOR_SLOT; CP allows one live episode per work item and can retain a 409 hold until the last token expires and attempts are read back.",
+        "Existing attempts, UNKNOWN states and holds survive the executor switch.",
+        "Stopping the old episode does not cancel or reissue the underlying effect."
+      ]
+    },
+    {
+      "name": "D8-lost-tool-response",
+      "assertions": [
+        "Inject loss after the provider applies the effect but before the first tool response is delivered.",
+        "Retry the same canonical target and intent from Codex, including after switching from Claude Code.",
+        "Effect identity remains derived from work_item_id, effect_type, canonical target and intent digest; never from hook call, request or episode ids.",
+        "The retry resolves to the same attempt and causes no second provider dispatch.",
+        "Reconciliation establishes the external result before accepting the work; UNKNOWN is not counted as success."
+      ]
+    }
+  ],
+  "unit_test_limit": "Unit tests use synthetic events and a command fixture. The integration runner uses actual core plus its fake CP/gateway; both cover bounded local behavior, never deployed gateway/CP or native Kernel conformance."
+}

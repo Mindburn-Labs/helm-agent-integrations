@@ -1,0 +1,78 @@
+# Admin requirements for a dedicated local managed executor. No install step
+# is performed by the renderer. The managed script directory must exist.
+model_provider = "helm"
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+allowed_web_search_modes = ["disabled"]
+allow_managed_hooks_only = true
+allow_browser_and_computer_use = false
+
+[model_providers.helm]
+name = "HELM executor edge"
+base_url = @@RESPONSES_URL@@
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+
+[model_providers.helm.auth]
+command = @@EXECUTOR@@
+args = ["token"]
+timeout_ms = 10000
+refresh_interval_ms = 300000
+
+[mcp_servers.helm]
+identity = { url = @@MCP_URL@@ }
+
+[features]
+hooks = true
+
+[hooks]
+managed_dir = @@ADAPTER@@
+
+[[hooks.PreToolUse]]
+matcher = ".*"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = @@DENY_COMMAND@@
+timeout = 10
+statusMessage = "Checking HELM local executor policy"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = @@PRE_OBSERVE_COMMAND@@
+async = true
+timeout = 10
+statusMessage = "Recording HELM executor observation"
+
+[[hooks.PostToolUse]]
+matcher = ".*"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = @@POST_OBSERVE_COMMAND@@
+async = true
+timeout = 10
+statusMessage = "Recording HELM executor observation"
+
+[rules]
+prefix_rules = [
+  { pattern = [{ token = "git" }, { token = "push" }], decision = "forbidden", justification = "Use the HELM gateway git push effect." },
+  { pattern = [{ token = "gh" }, { token = "pr" }, { token = "merge" }], decision = "forbidden", justification = "Use the HELM gateway merge effect with the expected head SHA." },
+  { pattern = [{ any_of = ["kubectl", "flux"] }], decision = "forbidden", justification = "Deployment is an owner-approved gitops merge through HELM and Flux." },
+  { pattern = [{ token = "linear" }, { any_of = ["create", "update", "delete", "archive", "comment", "write"] }], decision = "forbidden", justification = "Use HELM Linear effects." },
+]
+
+[experimental_network]
+enabled = true
+managed_allowed_domains_only = true
+allow_upstream_proxy = false
+dangerously_allow_non_loopback_proxy = false
+dangerously_allow_all_unix_sockets = false
+
+[experimental_network.domains]
+@@EDGE_HOST@@ = "allow"
+"api.github.com" = "deny"
+"github.com" = "deny"
+"api.linear.app" = "deny"
+"api.openai.com" = "deny"
+"api.anthropic.com" = "deny"

@@ -1,0 +1,27 @@
+{
+  "schema": "helm.executor.codex.core-pin.v1",
+  "version": "helm.executor.core/v1",
+  "repository": "Mindburn-Labs/helm-agent-integrations",
+  "owner": "claude:executor-adapters",
+  "source_sha": "337f8f47465ae8dad06fd763b22572e14f6d6ca6",
+  "source_branch": "main",
+  "source_merge_pr": "https://github.com/Mindburn-Labs/helm-agent-integrations/pull/54",
+  "core_tree_sha": "f81a6dd5a7cab75037ec879d2189b3a3fe79b0f3",
+  "initial_contract_sha": "2c2a62c9afcba4a515fc87d0829ca9ec663ee3fb",
+  "contract_path": "executors/core/CONTRACT.md",
+  "sha256": {
+    "CONTRACT.md": "3c17deec7aec9d3cbe5ee9c722c34045369ff593fac1d879f1c34971e4f3795f",
+    "schema/observe-input.schema.json": "d455928e80ecf06a73b5e2905ebf73e15c0f8c10838596d10c3314c10c5c162a",
+    "schema/observation.schema.json": "dad4924f2095b8fbd0a1ca4d4b2abaa8d8ab5899b549f8ae0971a0c072b67947"
+  },
+  "commands": {
+    "provider_auth_args": ["token"],
+    "mcp_headers_args": ["headers"],
+    "pre_tool_observe_args": ["observe", "--client", "codex", "--event", "PreToolUse"],
+    "post_tool_observe_args": ["observe", "--client", "codex", "--event", "PostToolUse"]
+  },
+  "stdin": "Original Codex hook JSON unchanged; passed directly by the command handler.",
+  "coverage": "observed-only",
+  "source_boundary": "Merged PR54 core tree is byte-identical to the previous 7394a3bf pin. Shared CLI and fake CP are available; merge, source presence and hash readback do not qualify either adapter or the deployed runtime.",
+  "runtime_qualification": "NOT_RUN"
+}

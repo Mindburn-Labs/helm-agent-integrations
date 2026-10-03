@@ -1,0 +1,48 @@
+# Local managed Codex executor. Render into a new review directory; do not
+# install this file in the owner's interactive Codex profile.
+model_provider = "helm"
+sandbox_mode = "workspace-write"
+web_search = "disabled"
+
+[model_providers.helm]
+name = "HELM executor edge"
+base_url = @@RESPONSES_URL@@
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+
+[model_providers.helm.auth]
+command = @@EXECUTOR@@
+args = ["token"]
+timeout_ms = 10000
+refresh_interval_ms = 300000
+
+[mcp_servers.helm]
+url = @@MCP_URL@@
+http_headers_helper = @@HEADERS_COMMAND@@
+required = true
+startup_readiness = "connection"
+
+[sandbox_workspace_write]
+network_access = true
+
+[shell_environment_policy]
+inherit = "all"
+include_only = ["PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "HELM_EXECUTOR_HOME", "HELM_EXECUTOR_CP_URL", "HELM_EXECUTOR_ORG", "HELM_EXECUTOR_CLIENT", "HELM_EXECUTOR_SLOT", "HELM_EXECUTOR_OBSERVE_SUMMARY"]
+
+[features]
+hooks = true
+
+[features.network_proxy]
+enabled = true
+allow_upstream_proxy = false
+dangerously_allow_non_loopback_proxy = false
+dangerously_allow_all_unix_sockets = false
+
+[features.network_proxy.domains]
+@@EDGE_HOST@@ = "allow"
+"api.github.com" = "deny"
+"github.com" = "deny"
+"api.linear.app" = "deny"
+"api.openai.com" = "deny"
+"api.anthropic.com" = "deny"

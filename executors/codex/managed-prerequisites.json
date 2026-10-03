@@ -1,0 +1,33 @@
+{
+  "schema": "helm.executor.codex.managed-prerequisites/v1",
+  "result": "NOT_RUN",
+  "scope": "Dedicated local managed Codex executor only; no owner profile or Codex Cloud",
+  "binary_pin": "installed-client.json",
+  "core_pin": "core-contract.json",
+  "prerequisites": [
+    "A dedicated machine or execution environment with its own system/MDM requirements. CODEX_HOME isolates only user state and does not relocate /etc/codex or enterprise policy.",
+    "Distribute rendered requirements.toml through the supported managed layer and config.toml to the dedicated user layer. Keep adapter scripts, Python and the core executable admin-owned outside the writable work tree. Render paths and actual QA TLS edge origin explicitly.",
+    "Retain the exact inspected binary pin, or obtain controller qualification for an inspected compatible dedicated binary. Do not change Ivan's app, model, effort, permissions or configuration.",
+    "Use shared core login and server-authorized CLI machine enrollment for the intended work-item seat. Distinct Wave1 slots belong only to the named Claude Code adapter, Codex adapter and optional release rehearsal session.",
+    "Supply immutable served E1/edge build references and actual QA origins, with gateway/provider credential custody and network proxy operation proven by their owners. Provider credentials must remain outside executor tools."
+  ],
+  "installed_readback": [
+    "configRequirements/read returns non-null effective requirements from the dedicated system/managed layer; retain its actual loader provenance and requirements artifact digest.",
+    "config/read retains the complete helm provider at edge /v1, wire_api responses and executable auth args[token], required helm MCP at edge /mcp with shared http_headers_helper, workspace-write and enabled hooks/network proxy.",
+    "hooks/list reports the three expected managed command definitions, their actual managed provenance and isManaged=true: synchronous PreToolUse deny, asynchronous PreToolUse observe and asynchronous PostToolUse observe. No user trusted_hash substitutes for managed authority.",
+    "Actual effective requirements pin the provider/MCP identity, allow_managed_hooks_only policy, forbidden exec prefixes, permitted sandbox modes and exclusive network domains. Native readback must use the installed field names; unsupported schema fails instead of being silently dropped."
+  ],
+  "execution_acceptance": [
+    "Qualify the production CLI inner workspace-write path on the dedicated compatible environment. The previously challenged outer Seatbelt/app-server externalSandbox path establishes only its bounded local scope.",
+    "Actual allowed tool executes, raw tools do not dispatch, required MCP connects, and original Pre/Post hook stdin reaches shared core. CP ingestion readback proves only observed-only persistence.",
+    "Challenge actual network/file policy, including permitted gateway operation and denied direct provider/GitHub/Linear access. Static requirements and helper exit status do not prove enforcement.",
+    "Signed D24 audience/client/existing episode/TTL admission and native stopped-token/retained-attempt drain need source-owned issuer/gateway/runtime evidence. Adapters never parse tokens or change native clocks.",
+    "T100 and native D8 require the actual two managed adapters on one retained UUID, stop before successor checkout, UNKNOWN reconciliation, same original attempt on lost-response retry, and no duplicate provider dispatch."
+  ],
+  "source_references": [
+    "https://learn.chatgpt.com/docs/enterprise/managed-configuration",
+    "https://learn.chatgpt.com/docs/app-server",
+    "https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/config/src/hook_config.rs",
+    "https://github.com/openai/codex/blob/d91294c39edb93d204926b33f21310dc968edc34/codex-rs/config/src/config_requirements.rs"
+  ]
+}

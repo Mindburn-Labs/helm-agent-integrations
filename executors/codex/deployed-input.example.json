@@ -1,0 +1,22 @@
+{
+  "schema": "helm.executor.codex.deployed-input/v1",
+  "stage": "core-E1-edge-discovery",
+  "environment": "qa",
+  "controller_run_ref": null,
+  "wave1_session": "codex-adapter",
+  "cp_origin": null,
+  "edge_origin": null,
+  "workspace_id": null,
+  "org_id": null,
+  "work_item_id": null,
+  "runtime_home": null,
+  "executor_home": null,
+  "slot": "codex-e1-smoke",
+  "deployment": {
+    "cp_image_digest": null,
+    "edge_image_digest": null,
+    "cp_source_sha": null,
+    "edge_source_sha": null,
+    "mcp_server_version": null
+  }
+}
