@@ -23,13 +23,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out integrations
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           path: helm-agent-integrations
           persist-credentials: false
 
       - name: Check out current Kernel source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: Mindburn-Labs/helm-ai-kernel
           path: helm-ai-kernel
