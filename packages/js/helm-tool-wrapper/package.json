@@ -42,7 +42,7 @@
     "directory": "packages/js/helm-tool-wrapper"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.3",
     "typescript": "^6.0.3"
   }
 }
