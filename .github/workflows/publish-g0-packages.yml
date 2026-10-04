@@ -1,0 +1,152 @@
+name: Publish G0 adapter packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      qualification_run_id:
+        type: string
+        required: true
+      qualification_artifact_id:
+        type: string
+        required: true
+      expected_inputs_json:
+        type: string
+        required: true
+      package_paths_json:
+        type: string
+        default: '[]'
+      dry_run:
+        type: boolean
+        default: true
+      sandbox_repository:
+        type: string
+        default: Mindburn-Labs/g0-publication-sandbox
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g0-package-publication
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: G0 release barrier
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERIFIER_REVISION: e12e92a1c2a1c4ab6da6b0b78fb1865b01d7b565
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require the scoped private-IH evidence route
+        env:
+          GH_TOKEN: ${{ secrets.G0_EVIDENCE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}" || { echo '::error::Missing scoped G0_EVIDENCE_READ_TOKEN broker route'; exit 2; }
+      - name: Checkout immutable qualification verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Mindburn-Labs/integration-helm
+          ref: ${{ env.VERIFIER_REVISION }}
+          path: .g0-verifier
+          token: ${{ secrets.G0_EVIDENCE_READ_TOKEN }}
+          persist-credentials: false
+      - name: gate.py verify before package build or registry mutation
+        env:
+          RUN_ID: ${{ inputs.qualification_run_id }}
+          ARTIFACT_ID: ${{ inputs.qualification_artifact_id }}
+          EXPECTED: ${{ inputs.expected_inputs_json }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SANDBOX: ${{ inputs.sandbox_repository }}
+          GH_TOKEN: ${{ secrets.G0_EVIDENCE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "${RUN_ID}" =~ ^[1-9][0-9]*$ && "${ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          mkdir "${RUNNER_TEMP}/g0-publication"
+          printf '%s' "${EXPECTED}" > "${RUNNER_TEMP}/g0-publication/expected.json"
+          args=()
+          if [[ "${DRY_RUN}" == true ]]; then
+            [[ "${SANDBOX}" == Mindburn-Labs/g0-publication-sandbox ]]
+            args+=(--dry-run)
+          fi
+          gh api "repos/Mindburn-Labs/integration-helm/actions/runs/${RUN_ID}" > "${RUNNER_TEMP}/g0-publication/run.json"
+          gh api "repos/Mindburn-Labs/integration-helm/actions/artifacts/${ARTIFACT_ID}" > "${RUNNER_TEMP}/g0-publication/artifact.json"
+          gh api "repos/Mindburn-Labs/integration-helm/actions/artifacts/${ARTIFACT_ID}/zip" > "${RUNNER_TEMP}/g0-publication/evidence.zip"
+          python3 .g0-verifier/release-train/verify-publication.py \
+            --artifact "${RUNNER_TEMP}/g0-publication/artifact.json" \
+            --run "${RUNNER_TEMP}/g0-publication/run.json" \
+            --archive "${RUNNER_TEMP}/g0-publication/evidence.zip" \
+            --verifier-revision "${VERIFIER_REVISION}" \
+            --expected-inputs "${RUNNER_TEMP}/g0-publication/expected.json" \
+            --target public-package-publish "${args[@]}" > "${RUNNER_TEMP}/g0-publication/receipt.json"
+          python3 scripts/g0-packages.py validate \
+            --receipt "${RUNNER_TEMP}/g0-publication/receipt.json" \
+            --expected-inputs "${RUNNER_TEMP}/g0-publication/expected.json" \
+            --source-revision "${GITHUB_SHA}" --sandbox-repository "${SANDBOX}" "${args[@]}"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: inputs.dry_run == false
+        with:
+          node-version: '24.16.0'
+      - name: Assemble and check the exact qualified tarball bytes
+        if: inputs.dry_run == false
+        env:
+          PATHS: ${{ inputs.package_paths_json }}
+        run: |
+          python3 scripts/g0-packages.py prepare \
+            --receipt "${RUNNER_TEMP}/g0-publication/receipt.json" \
+            --expected-inputs "${RUNNER_TEMP}/g0-publication/expected.json" \
+            --source-revision "${GITHUB_SHA}" --paths-json "${PATHS}" \
+            --directory "${RUNNER_TEMP}/g0-publication/tarballs"
+      - name: Retain the gate receipt, including refusals
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: g0-package-publication
+          path: ${{ runner.temp }}/g0-publication/
+          retention-days: 90
+          if-no-files-found: warn
+
+  dry-run:
+    name: Dry-run publication control
+    needs: verify
+    if: inputs.dry_run == true
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'T104 dry-run passed its verified publication barrier; zero package mutations'
+
+  publish:
+    needs: verify
+    if: inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.16.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: g0-package-publication
+          path: ${{ runner.temp }}/g0-publication
+      - name: Recheck bytes and publish through npm trusted publishing
+        env:
+          EXPECTED: ${{ inputs.expected_inputs_json }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "${EXPECTED}" > "${RUNNER_TEMP}/g0-independent-expected.json"
+          python3 scripts/g0-packages.py publish \
+            --receipt "${RUNNER_TEMP}/g0-publication/receipt.json" \
+            --expected-inputs "${RUNNER_TEMP}/g0-independent-expected.json" \
+            --source-revision "${GITHUB_SHA}" \
+            --directory "${RUNNER_TEMP}/g0-publication/tarballs"

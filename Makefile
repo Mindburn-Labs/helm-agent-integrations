@@ -2,7 +2,11 @@
 .PHONY: workers-conformance-openclaw
 
 # The CI gate (.github/workflows/ci.yml runs `make check`).
-check: lint test package-assembly markdown workers-check
+check: lint test package-assembly markdown workers-check g0-publication-check
+
+.PHONY: g0-publication-check
+g0-publication-check:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-g0-packages.py
 
 setup:
 	cd packages/python/helm_tool_wrapper && python3 -m pip install --disable-pip-version-check ".[dev]"
