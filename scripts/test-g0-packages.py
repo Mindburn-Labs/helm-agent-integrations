@@ -52,6 +52,11 @@ class PackageGateControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE["inspect_tarballs"](self.root, {self.name: self.digest, "@mindburn/missing": self.digest})
 
+    def test_build_cannot_replace_both_receipt_and_tarball_authority(self):
+        forged = {**self.receipt, "npm_tarball_digests": {self.name: "sha256:" + "3" * 64}}
+        with self.assertRaises(ValueError):
+            MODULE["validate"](forged, self.expected, "1" * 40, False, "")
+
     def test_private_package_and_duplicate_identity_refuse(self):
         self.tarball(private=True)
         with self.assertRaises(ValueError):

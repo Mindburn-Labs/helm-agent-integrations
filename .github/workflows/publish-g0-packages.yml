@@ -139,9 +139,14 @@ jobs:
           name: g0-package-publication
           path: ${{ runner.temp }}/g0-publication
       - name: Recheck bytes and publish through npm trusted publishing
+        env:
+          EXPECTED: ${{ inputs.expected_inputs_json }}
         run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "${EXPECTED}" > "${RUNNER_TEMP}/g0-independent-expected.json"
           python3 scripts/g0-packages.py publish \
             --receipt "${RUNNER_TEMP}/g0-publication/receipt.json" \
-            --expected-inputs "${RUNNER_TEMP}/g0-publication/expected.json" \
+            --expected-inputs "${RUNNER_TEMP}/g0-independent-expected.json" \
             --source-revision "${GITHUB_SHA}" \
             --directory "${RUNNER_TEMP}/g0-publication/tarballs"
