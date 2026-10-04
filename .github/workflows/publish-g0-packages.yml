@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      VERIFIER_REVISION: 1bab7ee956abb4854b2aa4a5c167996313491668
+      VERIFIER_REVISION: 00e59896c4c018837c87b02d5005ce0e0a3bb809
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
