@@ -8,7 +8,7 @@
   "properties": {
     "schema": { "const": "helm.executor.observation/v1" },
     "coverage": { "const": "observed-only" },
-    "client": { "enum": ["claude-code", "codex"] },
+    "client": { "enum": ["claude-code", "codex", "openclaw"] },
     "event": { "enum": ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd"] },
     "observed_at": { "type": "string", "format": "date-time", "description": "When `observe` ran, UTC, millisecond precision. Not the client's event time." },
     "episode_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "From the checked-out episode, never from the hook input." },
@@ -19,6 +19,18 @@
     "agent_id": { "type": "string", "minLength": 1, "maxLength": 256 },
     "agent_type": { "type": "string", "minLength": 1, "maxLength": 256 },
     "permission_mode": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "external_verdict": {
+      "type": "object",
+      "description": "Untrusted client policy metadata, observed-only. Never a Kernel decision, receipt or admission.",
+      "required": ["source", "decision", "tool", "observed_at"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "decision": { "enum": ["ALLOW", "DENY", "ESCALATE"] },
+        "tool": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "observed_at": { "type": "string", "format": "date-time", "maxLength": 64, "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
+      },
+      "additionalProperties": false
+    },
     "tool": {
       "type": "object",
       "required": ["name", "phase", "input_digest"],
