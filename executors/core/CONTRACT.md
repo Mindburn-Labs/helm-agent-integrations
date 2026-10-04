@@ -6,6 +6,11 @@ executor routes were checked against cp-org's OpenAPI the same day. The code in
 `executors/core/` implements this file. If the two disagree, the code is wrong;
 open an issue on the lane instead of working around it.
 
+D36 (2026-10-04) transfers core and both adapters to codex:executors. Its
+additive v1 observation extension below accepts OpenClaw and external policy
+metadata. P7 consumes this source contract; CP intake/OpenAPI parity and
+served acceptance remain separate producer qualifications.
+
 `helm-executor` is the one auth and observation client for every HELM executor
 front-end (Claude Code, Codex, later the OCE plugin). Adapters call it as a
 subprocess. They hold no credential, parse no token and carry no copy of the
@@ -34,10 +39,10 @@ Every command is a plain subcommand. It works as `command` plus `args` with no
 shell, from any working directory and with a minimal environment (only `HOME`
 is needed). Only `observe` reads stdin.
 
-`<c>` is `claude-code`, `codex` or `openclaw` for `checkout`, and `claude-code`
-or `codex` for `observe`. `<e>` is `PreToolUse` or `PostToolUse` for both
-clients. Claude Code may also send `PostToolUseFailure`; both may send
-`SessionStart` and `SessionEnd`.
+`<c>` is `claude-code`, `codex` or `openclaw` for both `checkout` and
+`observe`. `<e>` is `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
+`SessionStart` or `SessionEnd`. Adapters emit only events supported by their
+actual client ABI; the core does not infer an event from a tool result.
 
 The binary needs Node 22 or later. The adapter installers decide where it is
 installed and write an absolute path into the client configuration.
@@ -200,6 +205,41 @@ checked-out episode, never from the hook input.
 
 **Stdin envelope.** [schema/observe-input.schema.json](schema/observe-input.schema.json)
 is the schema. Unknown fields are ignored. Input over 8 MiB is skipped.
+The in-process API enforces the same byte cap before parsing JSON.
+
+**OpenClaw and external policy metadata.** The public library call is
+`observe(ctx, {client: "openclaw", event: "PreToolUse", input: JSON.stringify(envelope)})`;
+the CLI form is `helm-executor observe --client openclaw --event PreToolUse`
+with that original JSON on stdin. No new auth or token API is introduced.
+Both read the current episode and work item only from the checked-out slot.
+
+An optional top-level `external_verdict` in the input and posted body has
+exactly four required fields:
+
+| Field | Accepted value |
+|---|---|
+| `source` | Nonempty label, at most 128 Unicode characters |
+| `decision` | `ALLOW`, `DENY` or `ESCALATE` |
+| `tool` | Nonempty label, at most 256 Unicode characters |
+| `observed_at` | RFC3339 event time with uppercase `T`/`Z`, valid calendar date, seconds 00–59, up to 9 fractional digits and at most 64 characters |
+
+No extra keys or null values are accepted inside this object. Labels are
+never truncated, and credential-shaped labels are rejected before transport.
+Malformed supplied metadata rejects the entire report with a failed outcome
+and generic stderr reason; the CLI still exits 0 with empty stdout. Absent
+metadata is valid for all three clients, including post and session events.
+
+P7's native producer uses fixed source `openclaw.helm.before_tool_call`, the
+exact hook tool name and its local policy decision before dispatch. This is
+a report about that policy, never an external-system verdict inferred from
+arguments, a tool response, another hook's result, or a Kernel receipt. Core
+copies a valid report unchanged and does not act on its decision. Its time is
+untrusted; the body's top-level `observed_at` remains the time core ran, and
+CP records its own receive time. `coverage` is always `observed-only`.
+
+The existing idempotency key remains `episode_id|event|tool_use_id`; metadata
+does not create an effect identity. CP owns replay conflict handling, storage
+and rate limits. No observation outcome authorizes a proposal or dispatch.
 
 | Field | Claude Code | Codex | Read for |
 |---|---|---|---|

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:mindburn:helm:executor:observe-input:v1",
   "title": "helm-executor observe: hook stdin envelope (v1)",
-  "description": "The JSON a client hook writes to the stdin of `helm-executor observe`, passed through unchanged. Claude Code and Codex hook inputs both satisfy this schema. Unknown fields are allowed and ignored. `tool_input` and `tool_response` are read only to compute a digest and a short summary (the shape of a Bash command, the path of a file tool); they are never sent whole.",
+  "description": "The JSON a client hook writes to the stdin of `helm-executor observe`, passed through unchanged. Claude Code, Codex and the OpenClaw plugin use this envelope. Unknown fields are allowed and ignored. Optional external_verdict is validated and copied as observed-only metadata; malformed metadata rejects the report. `tool_input` is read only to compute a digest and a short summary (the shape of a Bash command, the path of a file tool); it and tool_response are never sent whole.",
   "type": "object",
   "required": ["session_id"],
   "anyOf": [
@@ -21,6 +21,18 @@
     "tool_use_id": { "type": "string", "maxLength": 256 },
     "cwd": { "type": "string", "maxLength": 4096, "description": "Read for the Bash/file summaries only. Never sent on its own." },
     "permission_mode": { "type": "string", "maxLength": 64 },
+    "external_verdict": {
+      "type": "object",
+      "description": "Untrusted client policy metadata, observed-only. Never a Kernel decision, receipt or admission.",
+      "required": ["source", "decision", "tool", "observed_at"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "decision": { "enum": ["ALLOW", "DENY", "ESCALATE"] },
+        "tool": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "observed_at": { "type": "string", "format": "date-time", "maxLength": 64, "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
+      },
+      "additionalProperties": false
+    },
     "agent_id": { "type": "string", "maxLength": 256, "description": "Present only when the hook fires inside a subagent." },
     "agent_type": { "type": "string", "maxLength": 256 },
     "duration_ms": { "type": "integer", "minimum": 0, "description": "Claude Code PostToolUse only." },

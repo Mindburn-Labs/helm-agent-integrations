@@ -10,11 +10,20 @@ import { redactSecrets } from "./redact.js";
 import { commandShape } from "./shape.js";
 import type { SlotState } from "./state.js";
 
-export const OBSERVE_CLIENTS = ["claude-code", "codex"] as const;
+export const OBSERVE_CLIENTS = ["claude-code", "codex", "openclaw"] as const;
 export const OBSERVE_EVENTS = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd"] as const;
+export const EXTERNAL_VERDICT_DECISIONS = ["ALLOW", "DENY", "ESCALATE"] as const;
 
 export type ObserveClient = (typeof OBSERVE_CLIENTS)[number];
 export type ObserveEvent = (typeof OBSERVE_EVENTS)[number];
+
+/** An untrusted client policy report. It is never an admission or a Kernel decision. */
+export interface ExternalVerdict {
+  source: string;
+  decision: (typeof EXTERNAL_VERDICT_DECISIONS)[number];
+  tool: string;
+  observed_at: string;
+}
 
 const PHASE: Partial<Record<ObserveEvent, "before" | "after" | "failed">> = {
   PreToolUse: "before",
@@ -36,6 +45,7 @@ export interface Observation {
   agent_id?: string;
   agent_type?: string;
   permission_mode?: string;
+  external_verdict?: ExternalVerdict;
   tool?: {
     name: string;
     use_id?: string;
@@ -54,6 +64,32 @@ type Json = Record<string, unknown>;
 
 const isRecord = (v: unknown): v is Json => v !== null && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): string | undefined => (typeof v === "string" && v !== "" ? v.slice(0, max) : undefined);
+
+function label(value: unknown, max: number): value is string {
+  return typeof value === "string" && value !== "" && [...value].length <= max && redactSecrets(value) === value;
+}
+
+/** Match the RFC3339 subset the CP's Go parser accepts, including calendar validity. */
+function eventTime(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 64) return false;
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,9})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(value);
+  if (!match || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  return day <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+}
+
+function externalVerdict(raw: unknown): ExternalVerdict {
+  const fail = (): never => { throw new ExecutorError("rejected", "invalid external_verdict metadata"); };
+  if (!isRecord(raw) || Object.keys(raw).length !== 4 || !["source", "decision", "tool", "observed_at"].every((key) => Object.hasOwn(raw, key))) return fail();
+  const { source, decision, tool, observed_at } = raw;
+  if (!label(source, 128) || !label(tool, 256) || !eventTime(observed_at)) return fail();
+  const named = EXTERNAL_VERDICT_DECISIONS.find((name) => name === decision);
+  if (!named) return fail();
+  return { source, decision: named, tool, observed_at };
+}
 
 /** JSON with object keys sorted and no whitespace. Used only to digest tool input. */
 export function canonicalJson(value: unknown): string {
@@ -153,6 +189,7 @@ export function buildObservation(args: BuildArgs): Observation {
     const value = text(envelope[from], key === "permission_mode" ? 64 : 256);
     if (value) observation[key] = value;
   }
+  if (Object.hasOwn(envelope, "external_verdict")) observation.external_verdict = externalVerdict(envelope.external_verdict);
 
   const phase = PHASE[event];
   if (phase) {
