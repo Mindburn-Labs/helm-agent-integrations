@@ -13,11 +13,13 @@ gateway owns admission, effects, credentials, receipts and D8 effect identity.
 Hooks are observations; gateway admission authorizes effects.
 
 [core-contract.json](core-contract.json) pins the shared CLI and fake CP source
-at merged `337f8f47465ae8dad06fd763b22572e14f6d6ca6` from PR54, including the
-exact contract/schema hashes and core tree. The core tree is identical to the
-previous `7394a3bf` pin. Its [published contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/337f8f47465ae8dad06fd763b22572e14f6d6ca6/executors/core/CONTRACT.md)
-supersedes the earlier provisional adapter payload. Runtime qualification
-remains separate from source presence and hash readback.
+at D36 checkpoint `611e9f14d5f9f61a83775e95b336c386bc72c143`, including the
+exact contract/schema hashes and core tree. Its [source contract](https://github.com/Mindburn-Labs/helm-agent-integrations/blob/611e9f14d5f9f61a83775e95b336c386bc72c143/executors/core/CONTRACT.md)
+adds OpenClaw and optional observed-only external policy metadata to v1.
+D36 transfers core and both adapters to `codex:executors`. CP intake/OpenAPI
+parity and runtime qualification remain separate from this source pin. The
+earlier installed-client report used core337; its proof remains bounded to
+that exact source.
 
 ## Supported configuration
 
