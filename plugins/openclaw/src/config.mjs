@@ -24,7 +24,7 @@ export const CONFIG_SCHEMA = {
     model: {type: "string", minLength: 1, maxLength: 128},
     maxOutputTokens: {type: "integer", minimum: 1, maximum: 1048576},
     contextWindow: {type: "integer", minimum: 1, maximum: 1048576},
-    grantedTools: names, observedNativeTools: names, blockedNativeTools: names,
+    grantedTools: names, observedNativeTools: names, blockedNativeTools: names, deniedGatewayTools: names,
   },
 };
 
@@ -53,10 +53,15 @@ export function configuration(raw) {
   };
   const granted = list(raw.grantedTools, true);
   const observed = list(raw.observedNativeTools);
+  const denied = list(raw.deniedGatewayTools);
   const blocked = [...new Set([...BLOCKED_NATIVE_TOOLS, ...list(raw.blockedNativeTools)])];
+  if (denied.some((tool) => !granted.includes(tool))) {
+    throw new Error("Gateway policy refusals must name a configured gateway tool");
+  }
   if (observed.some((tool) => granted.includes(tool) || blocked.includes(tool))) {
     throw new Error("Native tools must be distinct from gateway and blocked tools");
   }
   return Object.freeze({...raw, edgeOrigin: edge.origin, grantedTools: Object.freeze(granted),
-    observedNativeTools: Object.freeze(observed), blockedNativeTools: Object.freeze(blocked)});
+    observedNativeTools: Object.freeze(observed), blockedNativeTools: Object.freeze(blocked),
+    deniedGatewayTools: Object.freeze(denied)});
 }

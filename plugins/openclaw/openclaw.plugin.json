@@ -17,7 +17,8 @@
       "contextWindow": {"type": "integer", "minimum": 1, "maximum": 1048576},
       "grantedTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256},
       "observedNativeTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256},
-      "blockedNativeTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256}
+      "blockedNativeTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256},
+      "deniedGatewayTools": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}, "uniqueItems": true, "maxItems": 256}
     }
   }
 }

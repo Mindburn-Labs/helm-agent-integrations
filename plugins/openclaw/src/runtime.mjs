@@ -13,6 +13,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const correlation = (value) => typeof value === "string" && value.length > 0 && value.length <= 256
   && !/[\x00-\x1f\x7f]/.test(value);
 const transmittedHeaders = new Set(["accept", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"]);
+const NATIVE_POLICY_SOURCE = "openclaw.helm.before_tool_call";
+const MAX_TOOL_CALLS = 256;
 
 let installedModelHost;
 function installModelTransport() {
@@ -48,6 +50,9 @@ export function createRuntime(raw, dependencies = {}) {
   const abort = new AbortController();
   let binding, session, client, tools = [], transport, guardedFetch, config, initialization;
   const catalogNames = new Set();
+  // Correlate this runtime's native hook with its tool factory. This is an
+  // observation-delivery cache, never an effect/admission or replay ledger.
+  const preflights = new Map();
   let calls = 0, turns = 0, closed = false;
 
   async function snapshot() {
@@ -197,12 +202,17 @@ export function createRuntime(raw, dependencies = {}) {
     return tools.map((tool) => ({name: tool.name, label: tool.name,
       description: tool.description ?? "HELM gateway tool", parameters: tool.inputSchema,
       resultContentSource: "network", executionMode: "sequential",
-      execute: async (_callId, args, signal) => {
+      execute: async (callId, args, signal) => {
         assertSession(context); context.assertInvocationCurrent();
-        if (calls++ >= 256 || Buffer.byteLength(JSON.stringify(args)) > MAX_RESPONSE_BYTES) throw new Error("HELM tool call bound");
+        if (calls++ >= MAX_TOOL_CALLS || Buffer.byteLength(JSON.stringify(args)) > MAX_RESPONSE_BYTES) throw new Error("HELM tool call bound");
         await assertBinding(); context.assertInvocationCurrent();
         const combined = AbortSignal.any([abort.signal, signal].filter(Boolean));
         combined.throwIfAborted();
+        // Hooks can time out or be bypassed by the host. Repeat the actual
+        // narrowing policy at our MCP boundary, with the same observation.
+        const blocked = await preflight({toolName: tool.name, toolCallId: callId, params: args}, context);
+        if (blocked) throw new Error(blocked.blockReason);
+        assertSession(context); context.assertInvocationCurrent(); combined.throwIfAborted();
         const response = await currentModelRequest.run({assertCurrent: context.assertInvocationCurrent}, () =>
           client.callTool({name: tool.name, arguments: args}, undefined, {signal: combined, timeout: 60000}));
         await assertBinding(); assertSession(context); context.assertInvocationCurrent(); combined.throwIfAborted();
@@ -212,27 +222,61 @@ export function createRuntime(raw, dependencies = {}) {
     }));
   }
 
-  async function observation(event, context, phase) {
+  async function observation(event, context, phase, externalVerdict) {
     try {
       assertSession(context); await assertBinding();
       const envelope = {hook_event_name: phase, session_id: context.sessionId, agent_id: context.agentId,
         tool_name: event.toolName, tool_use_id: event.toolCallId ?? context.toolCallId,
         tool_input: event.params, duration_ms: event.durationMs};
-      // Core owns canonical digest/redaction/intake, including its unsupported
-      // client refusal until its additive OpenClaw observation port is published.
+      if (externalVerdict) envelope.external_verdict = externalVerdict;
+      // Core owns canonical digest/redaction/intake. A native ALLOW describes
+      // this hook only; the gateway still owns every admission and permit.
       return await core.observe(ctx, {client: "openclaw", event: phase, input: JSON.stringify(envelope)});
     } catch { return {status: "skipped", reason: "HELM observation binding unavailable"}; }
   }
 
-  async function beforeTool(event, context) {
-    try { assertSession(context); await assertBinding(); }
-    catch { return {block: true, blockReason: "No current HELM executor binding"}; }
+  async function preflight(event, context) {
+    assertSession(context); await assertBinding();
+    if (!correlation(event.toolName) || Buffer.byteLength(JSON.stringify(event.params)) > MAX_RESPONSE_BYTES) {
+      throw new Error("HELM native tool observation bound");
+    }
     const gateway = profile.grantedTools.includes(event.toolName);
     const native = profile.observedNativeTools.includes(event.toolName);
-    await observation(event, context, "PreToolUse");
-    if (!gateway && (!native || catalogNames.has(event.toolName) || profile.blockedNativeTools.includes(event.toolName))) {
-      return {block: true, blockReason: "Use HELM gateway tools for catalog effects; this native tool is outside the observed-only surface"};
+    const blocked = gateway ? profile.deniedGatewayTools.includes(event.toolName)
+      : !native || catalogNames.has(event.toolName) || profile.blockedNativeTools.includes(event.toolName);
+    const refusal = blocked ? {block: true, blockReason: gateway ? "The native HELM policy refuses this gateway tool"
+      : "Use HELM gateway tools for catalog effects; this native tool is outside the observed-only surface"} : undefined;
+    const callId = event.toolCallId ?? context.toolCallId;
+    if ((callId !== undefined && !correlation(callId))
+        || (event.toolCallId !== undefined && context.toolCallId !== undefined && event.toolCallId !== context.toolCallId)) {
+      throw new Error("Native tool-call correlation changed");
     }
+    // Use the canonical core digest; no tool arguments or result go into the
+    // verdict metadata, and a reused native id cannot hide changed input.
+    const digest = executor.inputDigest(event.params);
+    let record = callId === undefined ? undefined : preflights.get(callId);
+    if (record && (record.tool !== event.toolName || record.digest !== digest)) {
+      throw new Error("Native tool-call identity was reused with different input");
+    }
+    if (!record) {
+      if (preflights.size >= MAX_TOOL_CALLS) throw new Error("HELM native observation call bound");
+      const verdict = Object.freeze({source: NATIVE_POLICY_SOURCE, decision: blocked ? "DENY" : "ALLOW",
+        tool: event.toolName, observed_at: new Date(ctx.now()).toISOString()});
+      record = {tool: event.toolName, digest, refusal,
+        delivery: observation(event, context, "PreToolUse", verdict)};
+      if (callId !== undefined) preflights.set(callId, record);
+    }
+    await record.delivery;
+    // A status refresh/stop during observation never leaves an old local
+    // decision usable by a retained factory or a native tool.
+    assertSession(context); await assertBinding(); assertSession(context);
+    if (executor.inputDigest(event.params) !== digest) throw new Error("Native tool input changed during observation");
+    return record.refusal;
+  }
+
+  async function beforeTool(event, context) {
+    try { return await preflight(event, context); }
+    catch { return {block: true, blockReason: "No current HELM executor binding or native tool-call identity"}; }
   }
 
   async function close() {

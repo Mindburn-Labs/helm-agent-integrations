@@ -70,7 +70,7 @@ export async function observe(ctx: Ctx, opts: ObserveOptions): Promise<ObserveOu
     if (!slot) return { status: "skipped", reason: "no episode is checked out" };
     if (slot.ended || ctx.now() >= localMs(slot, slot.deadline)) return { status: "skipped", reason: "the episode has ended" };
 
-    if (opts.input === null) return fail("rejected", "hook input was larger than 8 MiB or did not end within 3 s; skipped");
+    if (opts.input === null || Buffer.byteLength(opts.input, "utf8") > MAX_INPUT_BYTES) return fail("rejected", "hook input was larger than 8 MiB or did not end within 3 s; skipped");
     let envelope: unknown;
     try {
       envelope = JSON.parse(opts.input);

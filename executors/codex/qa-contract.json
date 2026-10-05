@@ -3,7 +3,7 @@
   "acceptance_ids": ["T48", "T87", "T97", "T100", "T103"],
   "result": "NOT_RUN",
   "scope": "local managed Codex executor; Codex Cloud excluded",
-  "core_source_sha": "337f8f47465ae8dad06fd763b22572e14f6d6ca6",
+  "core_source_sha": "611e9f14d5f9f61a83775e95b336c386bc72c143",
   "core_contract_pin": "core-contract.json",
   "wave1": "Named Claude Code adapter, Codex adapter and one release rehearsal session only; two or three sessions total through gateway API keys, all others subscriptions.",
   "pacing": "D23: integrate when dependencies exist; dates are latest markers, not start times.",

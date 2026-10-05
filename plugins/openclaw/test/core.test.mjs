@@ -8,7 +8,7 @@ import * as core from "../../../executors/core/dist/index.js";
 import {startFakeCp} from "../../../executors/core/dist/testing/fake-cp.js";
 import {createRuntime} from "../src/runtime.mjs";
 
-test("actual core OpenClaw checkout/token/status and stop bind the native plugin; unsupported observe is explicit", async (t) => {
+test("actual core binds OpenClaw native verdict intake to the retained episode and minimizes hook data", async (t) => {
   // The producer-owned fake is a contract fixture, not a second effect ledger.
   const cp = await startFakeCp({pollsBeforeApproval: 0});
   const home = await mkdtemp(join(tmpdir(), "helm-oce-core-"));
@@ -29,8 +29,25 @@ test("actual core OpenClaw checkout/token/status and stop bind the native plugin
   assert.equal(runtime.binding().workItemId, workItem);
   assert.ok(await core.episodeToken(ctx));
   const outcome = await runtime.afterTool({toolName: "read", params: {path: "work.txt"}}, context);
-  assert.equal(outcome.status, "failed");
-  assert.equal(cp.observations.length, 0); // Current core refuses openclaw; do not claim T98.
+  assert.equal(outcome.status, "posted");
+  assert.equal(cp.observations.length, 1);
+  const marker = randomUUID(), callId = randomUUID(), params = {path: "work.txt", content: marker};
+  assert.equal(await runtime.beforeTool({toolName: "read", toolCallId: callId, params}, context), undefined);
+  assert.equal(cp.observations.length, 2);
+  const observation = cp.observations[1];
+  assert.equal(observation.coverage, "observed-only"); assert.equal(observation.client, "openclaw");
+  assert.equal(observation.episode_id, checked.slot.episode_id); assert.equal(observation.work_item_id, workItem);
+  assert.equal(observation.session_id, context.sessionId); assert.equal(observation.tool.use_id, callId);
+  assert.equal(observation.tool.input_digest, core.inputDigest(params));
+  assert.equal(observation.tool.input_summary, undefined);
+  assert.deepEqual(observation.external_verdict, {source: "openclaw.helm.before_tool_call", decision: "ALLOW",
+    tool: "read", observed_at: observation.external_verdict.observed_at});
+  assert.ok(Number.isFinite(Date.parse(observation.external_verdict.observed_at)));
+  assert.equal(cp.observations[0].external_verdict, undefined); // Post events contain no inferred verdict from results.
+  assert.equal(JSON.stringify(cp.observations).includes(marker), false);
+  assert.equal(observation.tool_input, undefined); assert.equal(observation.tool_response, undefined);
+  assert.equal(observation.result, undefined); assert.equal(observation.admission, undefined); assert.equal(observation.permit, undefined);
+  // Canonical producer-owned CP contract fixture, not deployed CP or live T98.
   await core.runCli(["stop"], ctx.env, {stdout: () => {}, stderr: () => {}, readStdin: async () => null});
   assert.equal((await runtime.beforeTool({toolName: "read", params: {}}, context)).block, true);
   assert.equal(requests.length, 0);
