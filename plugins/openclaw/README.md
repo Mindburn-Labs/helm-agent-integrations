@@ -2,7 +2,7 @@
 
 This HELM-compatible plugin registers native tools, hooks and a Responses
 provider through the published OpenClaw 2026.9.6 plugin SDK. It reuses the
-executor core at `337f8f4` and the qualified worker transport boundary at
+executor core at `611e9f14` and the qualified worker transport boundary at
 `c43eb189`. It creates no Agent, A2A server, device-auth flow or effect ledger.
 Its npm target is `@mindburn/helm-openclaw`, licensed Apache-2.0.
 
@@ -73,10 +73,11 @@ refusal unchanged. It grants no permit and triggers no direct provider call.
 A failed observation cannot change a native refusal to an allow. Raw output,
 tokens, prompts and transcripts are not added to the observation envelope.
 
-Canonical core/CP support for the additive OpenClaw client and verdict
-metadata is required for intake. Source checks and contract fixtures do not
-prove that the observation was persisted by a deployed CP or that live T98
-passed.
+Core `611e9f14` accepts the additive OpenClaw client and validates all four
+verdict fields without granting authority. Malformed or credential-shaped
+labels reject the whole observation; absent post-event metadata stays absent.
+Deployed CP support is required for intake. Source checks and contract
+fixtures do not prove deployed observation persistence or live T98.
 
 D19 admission and D20 worst-case reserve/cap/settlement remain gateway-owned.
 The SDK's zero cost display metadata grants no free model route. Native D6

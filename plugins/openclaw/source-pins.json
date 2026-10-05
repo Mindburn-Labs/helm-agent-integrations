@@ -1,5 +1,5 @@
 {
-  "core": {"commit": "337f8f47465ae8dad06fd763b22572e14f6d6ca6", "directory": "executors/core"},
+  "core": {"commit": "611e9f14d5f9f61a83775e95b336c386bc72c143", "directory": "executors/core"},
   "boundary": {"commit": "c43eb189d46269456c5bb542496f52ff886e2a53", "path": "workers/openclaw/boundary.mjs"},
   "openclaw": "2026.9.6"
 }
