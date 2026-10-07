@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         adapter: [claude-agent-sdk, openai-agents, langgraph, openclaw]
-    uses: Mindburn-Labs/platform-actions/.github/workflows/release-image.yml@v2
+    uses: Mindburn-Labs/platform-actions/.github/workflows/release-image.yml@v2.0.1
     permissions:
       contents: read
       packages: write
