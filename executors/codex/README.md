@@ -129,9 +129,15 @@ The root coordinator owns local test/build/QA jobs. The focused source
 commands to run from the owning worktree are:
 
 ```sh
-python3 -m unittest discover -s executors/codex/tests -v
+npm ci --prefix executors/codex
+npm test --prefix executors/codex
 ruby scripts/check-markdown.rb
 ```
+
+The committed package manifest makes the existing `make test-executors` loop
+run both the Codex Python unit suite and Node input-guard suite. Python 3.11
+or later is required for `tomllib`; Node 22 or later is required. These checks
+do not launch a real client or qualify T87 or T100.
 
 After rendering, `verify_schema.py --config PATH --schema PATH` requires
 `jsonschema` and the pinned OpenAI config schema. That check covers

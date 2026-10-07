@@ -1,0 +1,19 @@
+{
+  "name": "@mindburn/helm-executor-codex",
+  "version": "0.1.0",
+  "description": "Local Codex executor templates, policy and bounded conformance harnesses",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests -p 'test_*.py' && node --test \"tests/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "executors/codex"
+  }
+}
