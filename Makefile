@@ -13,6 +13,7 @@ g0-agent-rows-check:
 .PHONY: g0-publication-check
 g0-publication-check:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-g0-packages.py
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-g0-publication-receipts.py
 
 setup:
 	cd packages/python/helm_tool_wrapper && python3 -m pip install --disable-pip-version-check ".[dev]"

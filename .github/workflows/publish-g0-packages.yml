@@ -41,6 +41,111 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Record sanitized G0 request before verification
+        if: always()
+        env:
+          G0_REQUEST_TARGET: public-package-publish
+          G0_CALLER_REPOSITORY: ${{ github.repository }}
+          G0_CALLER_SOURCE_REVISION: ${{ github.sha }}
+          G0_CALLER_WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          G0_CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          G0_CALLER_RUN_ID: ${{ github.run_id }}
+          G0_CALLER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          G0_CALLER_EVENT: ${{ github.event_name }}
+          G0_DRY_RUN: ${{ inputs.dry_run }}
+          G0_SANDBOX: ${{ inputs.sandbox_repository }}
+          G0_QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+          G0_QUALIFICATION_ARTIFACT_ID: ${{ inputs.qualification_artifact_id }}
+          G0_EXPECTED_INPUTS: ${{ inputs.expected_inputs_json }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY_RECEIPT'
+          import hashlib, json, os, re
+
+          env = os.environ.get
+          errors = []
+          def checked(value, pattern, field):
+              if re.fullmatch(pattern, value):
+                  return value
+              errors.append(field)
+              return None
+          def boolean(value, field):
+              if value in ("", "false"):
+                  return False
+              if value == "true":
+                  return True
+              errors.append(field)
+              return None
+          targets = {
+              "promote-staging": ("Mindburn-Labs/gitops-platform", ".github/workflows/promote-staging.yml"),
+              "promote-production": ("Mindburn-Labs/gitops-platform", ".github/workflows/promote-production.yml"),
+              "signup-flag-flip": ("Mindburn-Labs/gitops-platform", ".github/workflows/flip-g0-signup.yml"),
+              "public-package-publish": ("Mindburn-Labs/helm-agent-integrations", ".github/workflows/publish-g0-packages.yml"),
+          }
+          target = env("G0_REQUEST_TARGET", "")
+          repository, workflow = targets[target]
+          observed_repository = env("G0_CALLER_REPOSITORY", "")
+          if observed_repository != repository:
+              errors.append("caller_repository")
+              observed_repository = None
+          workflow_ref = env("G0_CALLER_WORKFLOW_REF", "")
+          if not workflow_ref.startswith(repository + "/" + workflow + "@"):
+              errors.append("caller_workflow_ref")
+          event = env("G0_CALLER_EVENT", "")
+          if event not in ("workflow_dispatch", "push", "schedule"):
+              errors.append("caller_event")
+              event = None
+          sandbox = env("G0_SANDBOX", "")
+          if sandbox not in ("", "Mindburn-Labs/g0-publication-sandbox"):
+              errors.append("sandbox_repository")
+              sandbox = None
+          raw = env("G0_EXPECTED_INPUTS", "").encode("utf-8")
+          descriptor = "invalid"
+          if len(raw) <= 1048576:
+              try:
+                  value = json.loads(raw)
+                  if isinstance(value, dict) and value.get("schema") == "helm.release-train.inputs.v1" and value.get("release") == "G0":
+                      descriptor = "present"
+              except (ValueError, RecursionError):
+                  pass
+          receipt = {
+              "schema": "helm.g0.publication-request.v1",
+              "target": target,
+              "caller": {
+                  "repository": observed_repository, "workflow": workflow, "event": event,
+                  "source_revision": checked(env("G0_CALLER_SOURCE_REVISION", ""), r"[0-9a-f]{40}", "caller_source_revision"),
+                  "workflow_revision": checked(env("G0_CALLER_WORKFLOW_REVISION", ""), r"[0-9a-f]{40}", "caller_workflow_revision"),
+                  "workflow_ref_digest": "sha256:" + hashlib.sha256(workflow_ref.encode("utf-8")).hexdigest(),
+                  "run_id": checked(env("G0_CALLER_RUN_ID", ""), r"[1-9][0-9]{0,18}", "caller_run_id"),
+                  "run_attempt": checked(env("G0_CALLER_RUN_ATTEMPT", ""), r"[1-9][0-9]{0,3}", "caller_run_attempt"),
+              },
+              "request": {
+                  "dry_run": boolean(env("G0_DRY_RUN", ""), "dry_run"),
+                  "sandbox_repository": sandbox or None,
+                  "qualification_run_id": checked(env("G0_QUALIFICATION_RUN_ID", ""), r"[1-9][0-9]{0,18}", "qualification_run_id"),
+                  "qualification_artifact_id": checked(env("G0_QUALIFICATION_ARTIFACT_ID", ""), r"[1-9][0-9]{0,18}", "qualification_artifact_id"),
+                  "expected_inputs_digest": "sha256:" + hashlib.sha256(raw).hexdigest(),
+                  "expected_inputs_bytes": len(raw), "descriptor": descriptor,
+                  "enabled": boolean(env("G0_ENABLED", ""), "enabled") if target == "signup-flag-flip" else None,
+              },
+          }
+          receipt["invalid_fields"] = sorted(errors)
+          path = os.path.join(env("RUNNER_TEMP"), "g0-request.json")
+          fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+          with os.fdopen(fd, "w") as output:
+              json.dump(receipt, output, sort_keys=True, separators=(",", ":"))
+              output.write("\n")
+          PY_RECEIPT
+      - name: Retain sanitized G0 request including refusals
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: g0-publication-request
+          path: ${{ runner.temp }}/g0-request.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Require the scoped private-IH evidence route
         env:
           GH_TOKEN: ${{ secrets.G0_EVIDENCE_READ_TOKEN }}
@@ -77,17 +182,94 @@ jobs:
           gh api "repos/Mindburn-Labs/integration-helm/actions/runs/${RUN_ID}" > "${RUNNER_TEMP}/g0-publication/run.json"
           gh api "repos/Mindburn-Labs/integration-helm/actions/artifacts/${ARTIFACT_ID}" > "${RUNNER_TEMP}/g0-publication/artifact.json"
           gh api "repos/Mindburn-Labs/integration-helm/actions/artifacts/${ARTIFACT_ID}/zip" > "${RUNNER_TEMP}/g0-publication/evidence.zip"
+          verifier_rc=0
           python3 .g0-verifier/release-train/verify-publication.py \
             --artifact "${RUNNER_TEMP}/g0-publication/artifact.json" \
             --run "${RUNNER_TEMP}/g0-publication/run.json" \
             --archive "${RUNNER_TEMP}/g0-publication/evidence.zip" \
             --verifier-revision "${VERIFIER_REVISION}" \
             --expected-inputs "${RUNNER_TEMP}/g0-publication/expected.json" \
-            --target public-package-publish "${args[@]}" > "${RUNNER_TEMP}/g0-publication/receipt.json"
+            --target public-package-publish "${args[@]}" > "${RUNNER_TEMP}/g0-verifier-output" || verifier_rc=$?
+          printf '%s' "${verifier_rc}" > "${RUNNER_TEMP}/g0-verifier-exit"
+          cp "${RUNNER_TEMP}/g0-verifier-output" "${RUNNER_TEMP}/g0-publication/receipt.json"
+          if ((verifier_rc != 0)); then exit "${verifier_rc}"; fi
           python3 scripts/g0-packages.py validate \
             --receipt "${RUNNER_TEMP}/g0-publication/receipt.json" \
             --expected-inputs "${RUNNER_TEMP}/g0-publication/expected.json" \
             --source-revision "${GITHUB_SHA}" --sandbox-repository "${SANDBOX}" "${args[@]}"
+      - name: Record sanitized G0 verification outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY_OUTCOME'
+          import hashlib, json, os, stat
+
+          directory = os.environ["RUNNER_TEMP"]
+          def private(name, limit):
+              path = os.path.join(directory, name)
+              try:
+                  fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+              except FileNotFoundError:
+                  return None
+              with os.fdopen(fd, "rb") as source:
+                  meta = os.fstat(source.fileno())
+                  if not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.getuid() or meta.st_nlink != 1 or meta.st_mode & 0o077 or meta.st_size > limit:
+                      raise ValueError("bounded private verifier output required")
+                  data = source.read(limit + 1)
+                  if len(data) > limit:
+                      raise ValueError("bounded private verifier output required")
+                  return data
+          request_bytes = private("g0-request.json", 16384)
+          if request_bytes is None:
+              raise ValueError("original sanitized request required")
+          request = json.loads(request_bytes)
+          output = private("g0-verifier-output", 65536)
+          exit_bytes = private("g0-verifier-exit", 4)
+          code = None
+          if exit_bytes is not None:
+              text = exit_bytes.decode("ascii")
+              if not text.isdecimal() or str(int(text)) != text or not 0 <= int(text) <= 255:
+                  raise ValueError("native verifier exit required")
+              code = int(text)
+          status = "NOT_INVOKED" if output is None and code is None else "INCOMPLETE"
+          if output is not None and code is not None:
+              status = "INVALID_OUTPUT"
+              try:
+                  rows = [json.loads(line) for line in output.decode("utf-8").splitlines() if line.strip()]
+              except (ValueError, UnicodeError, RecursionError):
+                  rows = []
+              expected_refusal = [{"result": "REFUSED", "reason": "no PASS release evidence"}]
+              if request["target"] != "public-package-publish":
+                  expected_refusal.append({"result": "REFUSED", "reason": "gate.py verify refused publication evidence"})
+              if code == 2 and rows == expected_refusal:
+                  status = "NO_PASS_RELEASE_EVIDENCE"
+              elif code == 0 and len(rows) == 1 and isinstance(rows[0], dict) and rows[0].get("result") == "PASS" and rows[0].get("target") == request["target"] and rows[0].get("dry_run") is request["request"]["dry_run"]:
+                  status = "VERIFIED_PASS"
+              elif code != 0:
+                  status = "REFUSED_OTHER"
+          outcome = {
+              "schema": "helm.g0.publication-outcome.v1",
+              "request_digest": "sha256:" + hashlib.sha256(request_bytes).hexdigest(),
+              "target": request["target"], "caller": request["caller"],
+              "verifier": {"exit_code": code, "outcome": status,
+                  "stdout_digest": "sha256:" + hashlib.sha256(output).hexdigest() if output is not None else None,
+                  "stdout_bytes": len(output) if output is not None else None},
+          }
+          fd = os.open(os.path.join(directory, "g0-outcome.json"), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+          with os.fdopen(fd, "w") as destination:
+              json.dump(outcome, destination, sort_keys=True, separators=(",", ":"))
+              destination.write("\n")
+          PY_OUTCOME
+      - name: Retain sanitized G0 verification outcome
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: g0-publication-outcome
+          path: ${{ runner.temp }}/g0-outcome.json
+          retention-days: 90
+          if-no-files-found: error
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: inputs.dry_run == false
         with:
