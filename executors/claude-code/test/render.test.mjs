@@ -33,12 +33,19 @@ test("the managed settings carry exactly the keys the Claude Code docs define, w
   assert.deepEqual(mcp, { mcpServers: { helm: { type: "http", url: "https://executor.helm.example/mcp", headersHelper: `${BIN} headers` } } });
 });
 
-test("every hook runs `helm-executor observe` in exec form, asynchronously, and never decides anything", () => {
+test("the managed local deny is synchronous and every observer stays decision-free", () => {
   const { settings } = renderManaged(opts);
   assert.deepEqual(Object.keys(settings.hooks).sort(), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "SessionEnd", "SessionStart"]);
   for (const [event, groups] of Object.entries(settings.hooks)) {
     for (const group of groups) {
       for (const hook of group.hooks) {
+        if (event === "PreToolUse" && hook === group.hooks[0]) {
+          assert.equal(hook.type, "command");
+          assert.equal(hook.onFailure, "block");
+          assert.equal(hook.async, undefined);
+          assert.equal(hook.timeout, 5);
+          continue;
+        }
         assert.deepEqual(Object.keys(hook).filter((k) => !["timeout", "async"].includes(k)).sort(), ["args", "command", "type"]);
         assert.equal(hook.type, "command");
         assert.equal(hook.command, BIN);
@@ -123,7 +130,7 @@ test("helper commands are shell-quoted so a path with spaces still runs", () => 
       const r = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8" });
       assert.equal(r.stdout, `ran ${word}\n`, command);
     }
-    assert.equal(renderManaged({ ...opts, helmExecutor: spaced }).settings.hooks.PreToolUse[0].hooks[0].command, spaced, "exec form takes the raw path");
+    assert.equal(renderManaged({ ...opts, helmExecutor: spaced }).settings.hooks.PreToolUse[0].hooks[1].command, spaced, "observer exec form takes the raw path");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

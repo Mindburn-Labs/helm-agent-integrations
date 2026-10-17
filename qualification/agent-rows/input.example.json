@@ -1,0 +1,55 @@
+{
+  "schema": "helm.agent-rows.producer-input/v1",
+  "slot": "dev-1",
+  "namespace": "dev-1",
+  "profile": "g0-disposable-managed-fake-stub",
+  "model_upstream": "stub",
+  "provider_endpoints": "fakes",
+  "source_revision": "0000000000000000000000000000000000000000",
+  "image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "node_runtime_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "artifact_root": "/run/g0-private/agent-rows",
+  "fixtures": {
+    "allowedTool": "github_branch_create_from_changes",
+    "externalDeniedTool": "github_pull_request_create_draft",
+    "nativeDuplicateTool": "github_branch_create_from_changes",
+    "allowedTarget": "github.com/qa/fake",
+    "excludedTarget": "github.com/qa/excluded",
+    "calls": {
+      "t87ControlCall": {
+        "tool": "github_branch_create_from_changes",
+        "target": "github.com/qa/fake",
+        "arguments": {"schema": "helm.github.branch.create_from_changes.v1", "base": "main", "base_sha": "0000000000000000000000000000000000000000", "head": "helm/qa/t87-control", "message": "QA fixture", "files": [{"path": "qa/t87.txt", "mode": "100644", "content_utf8": "QA fixture\n"}]}
+      },
+      "t98ExcludedCall": {
+        "tool": "github_branch_create_from_changes",
+        "target": "github.com/qa/excluded",
+        "arguments": {"schema": "helm.github.branch.create_from_changes.v1", "base": "main", "base_sha": "0000000000000000000000000000000000000000", "head": "helm/qa/t98-excluded", "message": "QA fixture", "files": [{"path": "qa/t98-excluded.txt", "mode": "100644", "content_utf8": "QA fixture\n"}]}
+      },
+      "t98ExternalDeniedCall": {
+        "tool": "github_pull_request_create_draft",
+        "target": "github.com/qa/fake",
+        "arguments": {"schema": "helm.github.pull_request.create_draft.v1", "branch_attempt_id": "00000000-0000-0000-0000-000000000000", "base": "main", "head": "helm/qa/t98-control", "head_sha": "0000000000000000000000000000000000000000", "title": "QA fixture", "body": "QA fixture"}
+      },
+      "t98ControlCall": {
+        "tool": "github_branch_create_from_changes",
+        "target": "github.com/qa/fake",
+        "arguments": {"schema": "helm.github.branch.create_from_changes.v1", "base": "main", "base_sha": "0000000000000000000000000000000000000000", "head": "helm/qa/t98-control", "message": "QA fixture", "files": [{"path": "qa/t98-control.txt", "mode": "100644", "content_utf8": "QA fixture\n"}]}
+      }
+    }
+  },
+  "references": {
+    "model-stub": {"path": "/run/g0-private/agent-rows/model-stub.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "provider-fakes": {"path": "/run/g0-private/agent-rows/provider-fakes.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "network-policy": {"path": "/run/g0-private/agent-rows/network-policy.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "claude-effective-managed": {"path": "/run/g0-private/agent-rows/claude-effective-managed.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "codex-effective-managed": {"path": "/run/g0-private/agent-rows/codex-effective-managed.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "openclaw-installed-plugin": {"path": "/run/g0-private/agent-rows/openclaw-installed-plugin.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  },
+  "core": {"binary": "/opt/helm/bin/helm-executor", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "clients": {
+    "claude-code": {"binary": "/opt/helm/bin/claude", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "version": "2.1.295", "slot": "claude", "work_item_id": "00000000-0000-0000-0000-000000000001", "commitment_id": "00000000-0000-0000-0000-000000000000", "cwd": "/run/g0-private/agent-rows/claude/cwd", "home": "/run/g0-private/agent-rows/claude/home", "config": "/run/g0-private/agent-rows/claude/config"},
+    "codex": {"binary": "/opt/helm/bin/codex", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "version": "0.159.0-alpha.12.1", "slot": "codex", "work_item_id": "00000000-0000-0000-0000-000000000002", "commitment_id": "00000000-0000-0000-0000-000000000000", "cwd": "/run/g0-private/agent-rows/codex/cwd", "home": "/run/g0-private/agent-rows/codex/home", "config": "/run/g0-private/agent-rows/codex/config"},
+    "openclaw": {"binary": "/opt/helm/bin/openclaw", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "version": "2026.9.6", "slot": "openclaw", "work_item_id": "00000000-0000-0000-0000-000000000003", "commitment_id": "00000000-0000-0000-0000-000000000000", "cwd": "/run/g0-private/agent-rows/openclaw/cwd", "home": "/run/g0-private/agent-rows/openclaw/home", "config": "/run/g0-private/agent-rows/openclaw/config.json", "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  }
+}

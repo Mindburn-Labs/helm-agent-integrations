@@ -164,6 +164,17 @@ test("bypassing the native hook or losing observation delivery cannot dispatch a
   assert.equal(JSON.parse(f.observations[0].input).external_verdict.decision, "DENY");
 });
 
+test("missing ALLOW observation intake refuses an MCP proposal", async (t) => {
+  const f = await prepared(t);
+  f.core.observe = async (_ctx, opts) => { f.observations.push(opts); return {status: "failed", line: "intake unavailable"}; };
+  const [tool] = f.runtime.factory(f.context);
+  await assert.rejects(tool.execute(randomUUID(), {target: "github.com/Mindburn-Labs/helm-qa-sandbox"}), /observation was not accepted/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.tokens.length, 0);
+  assert.equal(f.observations.length, 1);
+  assert.equal(JSON.parse(f.observations[0].input).external_verdict.decision, "ALLOW");
+});
+
 test("hook observation is correlated once and cannot be reused for changed arguments or tool identity", async (t) => {
   const f = await prepared(t);
   const callId = randomUUID(), event = {toolName: f.profile.grantedTools[0], toolCallId: callId, params: {target: "one"}};

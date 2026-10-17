@@ -1,5 +1,5 @@
 {
-  "requiredMinimumVersion": "2.1.285",
+  "requiredMinimumVersion": "2.1.295",
   "allowedProviders": ["customEndpoint"],
   "env": {
     "ANTHROPIC_BASE_URL": "{{EDGE_URL}}",
@@ -37,7 +37,10 @@
     "PreToolUse": [
       {
         "matcher": "^(Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|mcp__.*)$",
-        "hooks": [{ "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "PreToolUse"], "async": true }]
+        "hooks": [
+          { "type": "command", "command": "{{HELM_DENY_COMMAND}}", "onFailure": "block", "timeout": 5 },
+          { "type": "command", "command": "{{HELM_EXECUTOR}}", "args": ["observe", "--client", "claude-code", "--event", "PreToolUse"], "async": true }
+        ]
       }
     ],
     "PostToolUse": [

@@ -40,12 +40,15 @@ class LocalDenyTests(unittest.TestCase):
             "kubectl get pods",
             "/usr/local/bin/flux reconcile source git platform",
             "linear issue update HELM-1",
+            "curl --fail https://api.github.com/repos/Mindburn-Labs/repo",
+            "wget https://api.linear.app/graphql",
         ):
             with self.subTest(command=command):
                 self.assertIsNotNone(policy.shell_deny(command))
 
     def test_local_read_and_file_edits_do_not_claim_a_gateway_allow(self):
         self.assertIsNone(policy.shell_deny("git -C /tmp/repo diff --check"))
+        self.assertIsNone(policy.shell_deny("curl https://executor.qa.example/mcp"))
         self.assertIsNone(policy.tool_deny(hook_event("apply_patch", {"command": "*** Add File: guide.md\n+git push\n"})))
         result = pre_tool_use.response(None)
         self.assertNotIn("permissionDecision", result["hookSpecificOutput"])

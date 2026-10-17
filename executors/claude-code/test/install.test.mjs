@@ -21,7 +21,7 @@ function fixture() {
     writeFileSync(claude, `#!/bin/sh\necho "${version} (Claude Code)"\n`);
     chmodSync(claude, 0o755);
   };
-  stubClaude("2.1.290");
+  stubClaude("2.1.300");
   const prefix = join(root, "prefix");
   const managed = join(root, "managed");
   const args = (extra = []) => ["managed", "--edge-url", "https://executor.helm.example", "--cp-url", "https://cp.helm.example", "--org", "org-1", "--prefix", prefix, "--managed-dir", managed, "--claude", claude, ...extra];
@@ -82,6 +82,7 @@ test("managed --yes installs the CLI, the drop-in and the MCP file, then proves 
     assert.match(r.out, /ok {3}helm-executor --version runs/);
     assert.match(r.out, /ok {3}apiKeyHelper fails closed with nothing on stdout/);
     assert.match(r.out, /ok {3}headersHelper fails closed/);
+    assert.match(r.out, /ok {3}the managed local deny blocks raw git push/);
     assert.match(r.out, /ok {3}the observe hook exits 0 and prints nothing/);
     assert.ok(!/FAIL/.test(r.out));
     const installedDist = readdirSync(join(f.prefix, "lib", "helm-executor", "dist"), { recursive: true, encoding: "utf8" });
@@ -135,10 +136,10 @@ test("a file this installer did not write is never overwritten without --force",
 test("a Claude Code older than the floor is refused unless the check is skipped", async () => {
   const f = fixture();
   try {
-    f.stubClaude("2.1.274");
+    f.stubClaude("2.1.285");
     const refused = await run(f.args(["--yes"]));
     assert.equal(refused.code, 1);
-    assert.match(refused.err, /claude 2\.1\.274 is older than 2\.1\.285/);
+    assert.match(refused.err, /claude 2\.1\.285 is older than 2\.1\.295/);
     assert.equal(existsSync(f.managed), false);
     assert.equal((await run(f.args(["--yes", "--skip-version-check"]))).code, 0);
   } finally {

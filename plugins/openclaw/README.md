@@ -68,7 +68,9 @@ The tool factory repeats the same narrowing policy if the host skips its
 hook. Hook and factory observation delivery share one bounded native call
 correlation; a reused call id with changed tool or arguments is refused.
 Binding and cancellation are checked again after delivery awaits. A native
-`ALLOW` proceeds through the actual MCP boundary and preserves a Kernel
+`ALLOW` proceeds through the actual MCP boundary only after the control plane
+accepts its observed-only record. An unavailable or rejected observation
+stops the proposal. The MCP boundary preserves a Kernel
 refusal unchanged. It grants no permit and triggers no direct provider call.
 A failed observation cannot change a native refusal to an allow. Raw output,
 tokens, prompts and transcripts are not added to the observation envelope.
