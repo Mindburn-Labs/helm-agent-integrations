@@ -7,6 +7,7 @@ check: lint test package-assembly markdown workers-check g0-publication-check g0
 .PHONY: g0-agent-rows-check
 g0-agent-rows-check:
 	node --check qualification/agent-rows/run.mjs
+	node --check qualification/agent-rows/trace-contract.mjs
 	node --test qualification/agent-rows/test/*.test.mjs
 
 .PHONY: g0-publication-check

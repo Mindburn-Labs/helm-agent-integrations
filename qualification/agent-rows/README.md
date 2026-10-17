@@ -85,3 +85,11 @@ effect identities against the source-owned catalog before starting the runner.
 The current CP observation migration in the inspected native-row branch allows
 Claude Code and Codex clients only. The CP owner must add OpenClaw intake and
 readback before T98 can pass. This repository does not change CP migrations.
+
+[`trace-contract.mjs`](trace-contract.mjs) parses the pinned private client
+stdout formats and the optional OpenClaw trajectory export. Its exact source
+pins, fields and CP join limits are in [`TRACE-CONTRACT.md`](TRACE-CONTRACT.md).
+The parser never upgrades the producer report into a row verdict. OpenClaw
+`agent exec --json` is a run summary: its `toolSummary` cannot prove an
+individual invocation. Preserve a per-case retained state and trajectory
+export, or report T98 as unqualified. Stderr is diagnostic bytes only.
