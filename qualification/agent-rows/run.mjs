@@ -47,6 +47,13 @@ function inside(path, root) { return path.startsWith(root + sep); }
 function sha(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 function plain(value) { return value && typeof value === "object" && !Array.isArray(value); }
 function safeLabel(value) { return typeof value === "string" && /^[a-zA-Z0-9_.:/-]{1,160}$/.test(value); }
+function httpsOrigin(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash
+      && url.pathname === "/" && url.origin === value;
+  } catch { return false; }
+}
 function privatePath(value, root) {
   check(typeof value === "string" && resolve(value) === value && inside(value, root), "Path must be absolute and under the private artifact root");
   return value;
@@ -56,6 +63,8 @@ export function validateInput(input) {
   check(plain(input) && input.schema === SCHEMA, "Wrong input schema");
   check(/^dev-[1-5]$/.test(input.slot) && input.namespace === input.slot, "An existing dev slot and matching namespace are required");
   check(input.profile === "g0-disposable-managed-fake-stub" && input.model_upstream === "stub" && input.provider_endpoints === "fakes", "The disposable fake/stub profile is required");
+  check(httpsOrigin(input.control_plane_origin) && httpsOrigin(input.edge_origin) && UUID.test(input.organization_id ?? ""),
+    "Exact noncredential CP, edge and organization bindings are required");
   check(/^[0-9a-f]{40}$/.test(input.source_revision) && /^sha256:[0-9a-f]{64}$/.test(input.image_digest)
     && SHA.test(input.node_runtime_sha256), "Exact adapter source, applied image and Node runtime references are required");
   check(typeof input.artifact_root === "string" && resolve(input.artifact_root) === input.artifact_root && inside(input.artifact_root, ROOT), "Use an existing private artifact root under /run/g0-private");
@@ -138,7 +147,8 @@ async function capture(binary, args, options) {
 function environment(input, name) {
   const client = input.clients[name];
   const env = {PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: client.home, HELM_EXECUTOR_HOME: client.home,
-    HELM_EXECUTOR_SLOT: client.slot, TERM: "dumb", CI: "1"};
+    HELM_EXECUTOR_SLOT: client.slot, HELM_EXECUTOR_CP_URL: input.control_plane_origin, HELM_EXECUTOR_ORG: input.organization_id,
+    HELM_EXECUTOR_CLIENT: name, TERM: "dumb", CI: "1"};
   if (name === "claude-code") env.CLAUDE_CONFIG_DIR = client.config;
   if (name === "codex") env.CODEX_HOME = client.config;
   if (name === "openclaw") { env.OPENCLAW_CONFIG_PATH = client.config; env.OPENCLAW_STATE_DIR = client.home; }
@@ -147,7 +157,7 @@ function environment(input, name) {
 }
 
 function invocation(name, binary, prompt) {
-  if (name === "claude-code") return [binary, ["-p", prompt, "--permission-mode", "dontAsk", "--output-format", "stream-json", "--verbose"]];
+  if (name === "claude-code") return [binary, ["-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose"]];
   if (name === "codex") return [binary, ["exec", "--json", "--strict-config", "--ephemeral", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]];
   throw new Error("OpenClaw requires its pinned host config");
 }
@@ -213,6 +223,7 @@ export async function run(input, reportPath) {
   }
   const report = {schema: "helm.agent-rows.producer-report/v1", slot: input.slot, namespace: input.namespace,
     profile: input.profile, source: "helm-agent-integrations", source_revision: input.source_revision,
+    control_plane_origin: input.control_plane_origin, edge_origin: input.edge_origin, organization_id: input.organization_id,
     image_digest: input.image_digest, node_runtime_sha256: input.node_runtime_sha256,
     producer_sha256: sha(await readFile(new URL(import.meta.url))), result: "PRODUCED_UNQUALIFIED",
     qualification: {T87: "NOT_QUALIFIED", T98: "NOT_QUALIFIED"},

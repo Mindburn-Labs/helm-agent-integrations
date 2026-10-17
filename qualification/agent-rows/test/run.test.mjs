@@ -16,6 +16,8 @@ const clients = Object.fromEntries(["claude-code", "codex", "openclaw"].map((nam
 const input = {
   schema: "helm.agent-rows.producer-input/v1", slot: "dev-1", namespace: "dev-1",
   profile: "g0-disposable-managed-fake-stub", model_upstream: "stub", provider_endpoints: "fakes",
+  control_plane_origin: "https://cp.qa.example", edge_origin: "https://edge.qa.example",
+  organization_id: "00000000-0000-0000-0000-000000000000",
   source_revision: "b".repeat(40), image_digest: `sha256:${digest}`, node_runtime_sha256: digest, artifact_root: root,
   fixtures: {allowedTool: "github_branch_create_from_changes", externalDeniedTool: "github_pull_request_create",
     nativeDuplicateTool: "github_branch_create_from_changes", allowedTarget: "github.com/qa/fake",
@@ -42,6 +44,7 @@ test("input validation is fail closed on scope, references and binary pins", () 
     i => {i.slot = "production";},
     i => {i.namespace = "dev-2";},
     i => {i.model_upstream = "paid";},
+    i => {i.control_plane_origin = "https://user:secret@cp.qa.example";},
     i => {i.provider_endpoints = "real";},
     i => {i.clients.codex.sha256 = "wrong";},
     i => {i.references["provider-fakes"].path = "/tmp/fakes";},

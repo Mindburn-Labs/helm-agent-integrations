@@ -10,7 +10,9 @@ The integration harness supplies `producer-input/v1` as a noncredential JSON
 file in the private QA mount. `--input` validates its structure without starting
 clients. `--run-live` additionally requires an in-cluster Job in the named
 namespace, six byte-pinned readback artifacts, byte-pinned executables and
-three active executor episodes. All paths, including `--report`, are absolute.
+three active executor episodes. The CP, edge and organization bindings are
+explicit noncredential input fields passed to the clients. All paths,
+including `--report`, are absolute.
 The private artifact root must be a real directory below `/run/g0-private`.
 [`input.example.json`](input.example.json) shows the shape. Its zero digests,
 base SHAs and branch attempt id are placeholders; the slot owner substitutes
@@ -35,6 +37,12 @@ private root and puts only hashes, sizes, exit status and case identity in the
 report. It copies no ambient provider credential variable into a child. An
 executor episode and controlled stub model route are prerequisites; the runner
 never makes a paid model call intentionally.
+
+The disposable Claude probe uses `bypassPermissions` to make the client attempt
+both negative and allowed calls without an interactive prompt. Managed deny
+rules and `PreToolUse` hooks still apply in that mode; the independent network
+profile and gateway custody remain required. This mode is confined to the
+throwaway fake/stub QA Job.
 
 The report always says `PRODUCED_UNQUALIFIED` and marks both rows
 `NOT_QUALIFIED`, even when every client process exits zero. A successful exit
