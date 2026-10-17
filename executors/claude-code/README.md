@@ -17,14 +17,14 @@ The tables below say which is which.
 |---|---|---|
 | Model calls | `ANTHROPIC_BASE_URL` pinned to the executor edge, `apiKeyHelper` = `helm-executor token`, `allowedProviders: ["customEndpoint"]`. The gateway holds the provider key | enforced by the gateway; the managed file stops a session being re-pointed |
 | GitHub, Linear and deploy writes | HELM MCP tools only (`managed-mcp.json`, `allowManagedMcpServersOnly`). The gateway holds the tokens | enforced by the gateway |
-| Raw `git push`, `gh pr merge`, `kubectl`, `flux`, Linear write tools, `WebSearch`, `WebFetch` | `permissions.deny` rules | convenience: Claude Code documents Bash rules as not a security boundary. `git -C . push`, `/usr/bin/git push` and `sh -c '…'` get past them. Without a credential the call fails anyway |
+| Raw `git push`, `gh pr merge`, `kubectl`, `flux`, direct provider HTTP, Linear write tools, `WebSearch`, `WebFetch` | `permissions.deny` rules and a synchronous managed `PreToolUse` local deny | convenience: shell aliases, scripts and tool escapes still require gateway credential custody and the executor network profile for enforcement |
 | Reading the machine credential in `~/.config/helm-executor` | `Read` and `Edit` deny rules on that directory | convenience, and weaker than the rows above: the rules cover Claude's file tools and a few file commands it recognizes (`cat`, `head`, `sed`), not `base64`, `cp`, `tar` or a script. The control is the file mode (0600, directory 0700, one OS user) and revocation at the control plane. The gateway is not a second line here: a stolen refresh token mints episodes for the enrolled seat until the credential is revoked |
 | What the session did | `observe` hooks on Bash, file edits, subagents, MCP calls and session start and end | observed-only. Lossy by design; nothing in it proves enforcement. A Bash call is reported as its shape (`git push origin`), never its arguments |
 | Active time | OpenTelemetry metrics, see below | observation |
 
-Not covered here: other raw writes such as `gh pr create` or `gh api`, and
-`curl` to a provider API. They fail for lack of a credential, and GitHub
-rulesets are the second line.
+Other raw writes such as `gh pr create` or `gh api` are not classified by the
+local deny. They fail for lack of a provider credential and by the executor
+network profile; independent QA readback must prove both conditions.
 
 To make the credential directory unreadable for Bash commands at the operating
 system level, Claude Code's sandbox has a documented layer: `sandbox.enabled:
@@ -58,10 +58,10 @@ The installed `helm-executor` wrapper pins the Node that is named by `--node`
 users share.
 
 Nothing is written without `--yes`. The installer refuses to overwrite a file it
-did not write, refuses a Claude Code older than 2.1.285 (the policy would lock it
+did not write, refuses a Claude Code older than 2.1.295 (the policy would lock it
 out), and after installing runs the pieces the way Claude Code will: the wrapper,
 the `apiKeyHelper` and `headersHelper` command lines against an empty state
-directory (they must fail closed with nothing on stdout), and the observe hook.
+directory (they must fail closed with nothing on stdout), the local deny and the observe hook.
 `uninstall` removes only what the manifest lists, only inside the installer's own
 locations (the library directory, the wrapper and the three policy files), and
 keeps anything edited since.
@@ -120,7 +120,7 @@ to a different executor is `stop` here and `checkout` there.
 
 | Key | Why |
 |---|---|
-| `requiredMinimumVersion` 2.1.285 | `allowedProviders` needs it. An older binary would ignore the key |
+| `requiredMinimumVersion` 2.1.295 | the synchronous deny hook needs `onFailure: block`; an older binary cannot qualify this profile |
 | `allowedProviders: ["customEndpoint"]`, `env.ANTHROPIC_BASE_URL` | the gateway is the only provider. Claude Code admits a custom endpoint only for the exact value pinned in managed `env` |
 | `env.ANTHROPIC_API_KEY`, `env.ANTHROPIC_AUTH_TOKEN` = `""` | both outrank `apiKeyHelper` in Claude Code's credential order. An ambient key would be used instead of the episode token and sent to the edge. The empty override is checked by the conformance run |
 | `apiKeyHelper`, `env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS` 240000 | Claude Code reruns the helper every four minutes and after a 401. Each run mints a 15-minute token |
@@ -129,7 +129,7 @@ to a different executor is `stop` here and `checkout` there.
 | `allowManagedHooksOnly` | only the managed hooks run |
 | `allowManagedMcpServersOnly`, `allowedMcpServers` | only the HELM MCP server is allowed |
 | `permissions.deny` | the table above |
-| `hooks` | `helm-executor observe` in exec form on PreToolUse, PostToolUse, PostToolUseFailure and SessionStart, asynchronously; on SessionEnd synchronously with a 5 second limit |
+| `hooks` | a synchronous fail-closed local deny on PreToolUse, plus `helm-executor observe` in exec form on PreToolUse, PostToolUse, PostToolUseFailure and SessionStart asynchronously; SessionEnd observation is synchronous with a 5 second limit |
 | `managed-mcp.json` | the HELM server, `type: http`, `headersHelper` = `helm-executor headers` |
 
 It sets no `forceLoginMethod` (that blocks `apiKeyHelper`), no
@@ -195,10 +195,10 @@ The merge step of the QA scenario (an escalated merge approved in the Console) i
 in it: the merge effect is not served yet.
 
 Run against the fake edge with Claude Code 2.1.274: 33 checks, 0 failed, 1
-informational skip (2.1.274 is below the managed profile's floor of 2.1.285, which
+informational skip (2.1.274 is below the managed profile's floor of 2.1.295, which
 the session profile does not need). Against a live edge, `--claude` runs `claude -p`
 once and checks it completes; the scripted-model checks need the fake. The managed
-profile itself, which needs root and Claude Code 2.1.285, has not been exercised on a
+profile itself, which needs root and Claude Code 2.1.295, has not been exercised on a
 real managed host.
 
 ## Tests

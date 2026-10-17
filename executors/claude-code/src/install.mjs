@@ -100,8 +100,11 @@ export function planManaged(opts) {
   const libDir = join(prefix, "lib", "helm-executor");
   const bin = join(prefix, "bin", "helm-executor");
   const node = opts.node ?? process.execPath;
-  const rendered = renderManaged({ edgeUrl: opts.edgeUrl, cpUrl: opts.cpUrl, orgId: opts.orgId, helmExecutor: bin, otelEndpoint: opts.otelEndpoint });
+  const denyScript = join(libDir, "claude-code", "local-deny.mjs");
+  const rendered = renderManaged({ edgeUrl: opts.edgeUrl, cpUrl: opts.cpUrl, orgId: opts.orgId, helmExecutor: bin, otelEndpoint: opts.otelEndpoint,
+    denyCommand: `${shellQuote(node)} ${shellQuote(denyScript)}` });
   const files = programFiles(resolve(opts.coreDir ?? join(here, "..", "..", "core"))).map((f) => ({ path: join(libDir, f.rel), mode: 0o644, content: f.buf }));
+  files.push({path: denyScript, mode: 0o644, content: readFileSync(join(here, "local-deny.mjs"))});
   files.push({ path: bin, mode: 0o755, content: wrapper(node, join(libDir, "dist", "cli.js")) });
   files.push({ path: join(managedDir, "managed-settings.d", "50-helm-executor.json"), mode: 0o644, content: json(rendered.settings), policy: true });
   files.push({ path: join(managedDir, "managed-mcp.json"), mode: 0o644, content: json(rendered.mcp), policy: true });
@@ -122,7 +125,7 @@ export function preflight(plan, opts = {}) {
     const installed = claude.status === 0 ? parseVersion(claude.stdout) : null;
     if (!installed) warnings.push("claude was not found on PATH; requiredMinimumVersion will stop an older binary from starting");
     else if (compareVersions(installed, parseVersion(MIN_CLAUDE_VERSION)) < 0) {
-      problems.push(`claude ${installed.join(".")} is older than ${MIN_CLAUDE_VERSION}, which allowedProviders needs; this policy would lock it out. Run \`claude update\` or pass --skip-version-check`);
+      problems.push(`claude ${installed.join(".")} is older than ${MIN_CLAUDE_VERSION}, required by managed hook onFailure:block; this policy would lock it out. Run \`claude update\` or pass --skip-version-check`);
     }
   }
 
@@ -201,7 +204,13 @@ export function verifyManaged(plan) {
       const r = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8", env });
       check(`${label} fails closed with nothing on stdout when no episode is checked out`, r.status === 4 && r.stdout === "" && /^helm-executor: no_episode: /.test(r.stderr), `exit ${r.status}`);
     }
-    const hook = plan.rendered.settings.hooks.PreToolUse[0].hooks[0];
+    const deny = plan.rendered.settings.hooks.PreToolUse[0].hooks[0];
+    const denied = spawnSync("/bin/sh", ["-c", deny.command], { encoding: "utf8", env,
+      input: JSON.stringify({session_id: "install-check", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: "git push origin main"}}) });
+    let decision;
+    try { decision = JSON.parse(denied.stdout); } catch { decision = null; }
+    check("the managed local deny blocks raw git push", denied.status === 0 && decision?.hookSpecificOutput?.permissionDecision === "deny", `exit ${denied.status}`);
+    const hook = plan.rendered.settings.hooks.PreToolUse[0].hooks[1];
     const observe = spawnSync(hook.command, hook.args, { encoding: "utf8", env, input: JSON.stringify({ session_id: "install-check", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "true" } }) });
     check("the observe hook exits 0 and prints nothing", observe.status === 0 && observe.stdout === "", `exit ${observe.status}`);
   } finally {

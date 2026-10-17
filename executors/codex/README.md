@@ -111,8 +111,8 @@ prerequisite, and checkout rejects missing authority. The adapter never reads
 or writes core state files. Use `HELM_EXECUTOR_OBSERVE_SUMMARY=off` when the
 managed session should omit summaries; core still owns input digests.
 
-The hook denies common raw command forms, including git/gh global flags and
-shell wrappers, plus direct Linear MCP writes. Exec rules independently deny
+The hook denies common raw command forms, including git/gh global flags,
+direct provider HTTP, shell wrappers and direct Linear MCP writes. Exec rules independently deny
 the direct command prefixes. These controls are convenience coverage labelled
 observed-only: shell aliases, scripts, tool paths and hook failures require
 the gateway credentials and actual network restriction for enforcement.

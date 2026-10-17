@@ -8,6 +8,16 @@ import shlex
 LINEAR_WRITES = re.compile(r"(?:^|_)(?:create|update|delete|archive|save|write|comment|add)(?:_|$)")
 SEPARATORS = frozenset((";", "&&", "||", "|", "&", "(", ")", "\n"))
 SHELLS = frozenset(("sh", "bash", "zsh", "dash", "fish"))
+DIRECT_PROVIDER_HOSTS = frozenset(("api.github.com", "github.com", "api.linear.app"))
+
+
+def _direct_provider_url(value):
+    from urllib.parse import urlsplit
+
+    try:
+        return urlsplit(value).hostname in DIRECT_PROVIDER_HOSTS
+    except ValueError:
+        return False
 
 
 def _subcommand(tokens, value_flags):
@@ -55,6 +65,9 @@ def shell_deny(command, depth=0):
         elif executable == "linear":
             if any(LINEAR_WRITES.search(arg.lower()) for arg in remaining if arg not in SEPARATORS):
                 return "Raw Linear write is disabled; use HELM Linear effects."
+        elif executable in ("curl", "wget", "http"):
+            if any(_direct_provider_url(arg) for arg in remaining):
+                return "Direct provider HTTP is disabled; use HELM gateway tools."
         elif executable in SHELLS:
             for i, arg in enumerate(remaining[:-1]):
                 if arg.startswith("-") and "c" in arg[1:]:

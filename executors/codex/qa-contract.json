@@ -11,7 +11,7 @@
     "source": "https://github.com/Mindburn-Labs/helm-agent-integrations/pull/54",
     "scope": "Controller E1-E6 findings for the shared core and Claude pair; no Claude setting is copied into Codex.",
     "shared": "The work-item path is the retained CP UUID, not a Linear issue key.",
-    "claude_specific": ["managedMcpServers rejects headersHelper; the Claude adapter uses managed-mcp.json", "HTTP hooks cannot carry the rotating token", "API key authentication precedes apiKeyHelper", "allowedProviders requires Claude Code 2.1.285 or later"],
+    "claude_specific": ["managedMcpServers rejects headersHelper; the Claude adapter uses managed-mcp.json", "HTTP hooks cannot carry the rotating token", "API key authentication precedes apiKeyHelper", "allowedProviders requires Claude Code 2.1.285 or later; the current managed profile requires 2.1.295 for hook onFailure:block"],
     "codex": "Retain Codex's own auth.command executable with args[token], http_headers_helper and command hooks; parent qualifies support with the installed binary.",
     "evidence_boundary": "Controller's real Claude 2.1.274 conformance 33/0 was against fakes only; Codex and deployed E1/edge remain unqualified."
   },

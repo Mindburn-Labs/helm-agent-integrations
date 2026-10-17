@@ -1,4 +1,4 @@
-// Renders the Claude Code adapter's configuration from templates/. Pure: no file writes, no environment reads.
+// Renders the Claude Code adapter's configuration from templates/. No file writes or environment reads.
 // Every key in the templates was checked against code.claude.com/docs (settings reference, managed settings,
 // hooks, MCP, LLM gateway) when this was written; README.md lists the checks and the Claude Code version floor.
 
@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const TEMPLATES = fileURLToPath(new URL("../templates/", import.meta.url));
 
-/** `allowedProviders` is refused by older binaries, so the managed file also sets requiredMinimumVersion. */
-export const MIN_CLAUDE_VERSION = "2.1.285";
+/** `onFailure:block` needs this floor; the managed file also sets requiredMinimumVersion. */
+export const MIN_CLAUDE_VERSION = "2.1.295";
 
 /** Keys only a managed source honors. A --settings or user file ignores them, so the session profile drops them. */
 export const MANAGED_ONLY_KEYS = ["requiredMinimumVersion", "allowedProviders", "allowManagedHooksOnly", "allowManagedMcpServersOnly", "allowedMcpServers"];
@@ -67,6 +67,7 @@ export function valuesFor(opts, { allowLoopbackHttp = false } = {}) {
     ORG_ID: opts.orgId,
     HELM_EXECUTOR: opts.helmExecutor,
     HELM_EXECUTOR_SH: shellQuote(opts.helmExecutor),
+    HELM_DENY_COMMAND: opts.denyCommand ?? `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL("local-deny.mjs", import.meta.url)))}`,
   };
   if (opts.otelEndpoint) values.OTEL_ENDPOINT = origin("the OpenTelemetry endpoint", opts.otelEndpoint, allowLoopbackHttp);
   return values;
@@ -87,8 +88,11 @@ export function assertProfile({ settings, mcp }, values) {
   const hooks = Object.values(settings.hooks ?? {}).flatMap((groups) => groups.flatMap((g) => g.hooks));
   if (hooks.length === 0) fail("no hooks");
   for (const h of hooks) {
-    if (h.type !== "command" || h.command !== values.HELM_EXECUTOR || h.args?.[0] !== "observe") fail("a hook is not `helm-executor observe`");
+    if (h.command === values.HELM_DENY_COMMAND) {
+      if (h.type !== "command" || h.onFailure !== "block" || h.async || h.timeout !== 5) fail("local deny is not synchronous and fail-closed");
+    } else if (h.type !== "command" || h.command !== values.HELM_EXECUTOR || h.args?.[0] !== "observe") fail("an observation hook is not `helm-executor observe`");
   }
+  if (!settings.hooks?.PreToolUse?.[0]?.hooks?.some((h) => h.command === values.HELM_DENY_COMMAND)) fail("managed local deny is missing");
 }
 
 /** The machine-wide profile: managed-settings drop-in, managed-mcp.json and, with an endpoint, the OTEL drop-in. */

@@ -266,7 +266,12 @@ export function createRuntime(raw, dependencies = {}) {
         delivery: observation(event, context, "PreToolUse", verdict)};
       if (callId !== undefined) preflights.set(callId, record);
     }
-    await record.delivery;
+    const delivered = await record.delivery;
+    // A native ALLOW is evidence only when the control plane accepted its
+    // observation. Missing intake cannot silently precede an MCP proposal.
+    if (gateway && !blocked && delivered?.status !== "posted") {
+      throw new Error("HELM native policy observation was not accepted");
+    }
     // A status refresh/stop during observation never leaves an old local
     // decision usable by a retained factory or a native tool.
     assertSession(context); await assertBinding(); assertSession(context);
