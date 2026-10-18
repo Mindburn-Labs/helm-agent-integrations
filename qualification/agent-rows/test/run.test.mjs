@@ -1,6 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {CASES, validateInput} from "../run.mjs";
+import {createHash} from "node:crypto";
+import {chmod, link, mkdtemp, rm, stat, symlink, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {CASES, invocation, retainedClaudeDebug, validateInput} from "../run.mjs";
 
 const digest = "a".repeat(64);
 const root = "/run/g0-private/agent-rows";
@@ -57,4 +61,37 @@ test("input validation is fail closed on scope, references and binary pins", () 
     mutate(copy);
     assert.throws(() => validateInput(copy));
   }
+});
+
+test("each Claude process writes a separate private native debug trace", () => {
+  const caseDir = "/run/g0-private/agent-rows/traces/T87.claude-code.raw_git_push";
+  const [binary, args] = invocation("claude-code", "/opt/helm/bin/claude", "probe", caseDir);
+  assert.equal(binary, "/opt/helm/bin/claude");
+  assert.deepEqual(args.slice(-2), ["--debug-file", `${caseDir}/claude-debug.log`]);
+  assert.throws(() => invocation("claude-code", binary, "probe", "relative/path"), /absolute case directory/);
+  assert.equal(invocation("codex", "/opt/helm/bin/codex", "probe", caseDir)[1].includes("--debug-file"), false);
+});
+
+test("native debug retention pins only owner regular file bytes and refuses alternate paths", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "helm-claude-debug-"));
+  t.after(() => rm(directory, {recursive: true, force: true}));
+  const debug = join(directory, "claude-debug.log");
+  const data = Buffer.from("loaded plugin trace\n");
+  await writeFile(debug, data);
+  await chmod(debug, 0o644);
+  const retained = await retainedClaudeDebug(debug);
+  assert.deepEqual(retained, {status: "RETAINED_PRIVATE", path: debug,
+    sha256: createHash("sha256").update(data).digest("hex"), bytes: data.length});
+  assert.equal((await stat(debug)).mode & 0o777, 0o600);
+  const linked = join(directory, "linked-debug.log");
+  await link(debug, linked);
+  assert.deepEqual(await retainedClaudeDebug(debug), {status: "UNAVAILABLE"});
+  await rm(linked);
+  await symlink(debug, linked);
+  assert.deepEqual(await retainedClaudeDebug(linked), {status: "UNAVAILABLE"});
+  assert.deepEqual(await retainedClaudeDebug(join(directory, "absent")), {status: "UNAVAILABLE"});
+  await writeFile(debug, Buffer.alloc(0));
+  assert.deepEqual(await retainedClaudeDebug(debug), {status: "UNAVAILABLE"});
+  await writeFile(debug, Buffer.alloc(1024 * 1024 + 1));
+  assert.deepEqual(await retainedClaudeDebug(debug), {status: "UNAVAILABLE"});
 });
