@@ -21,6 +21,15 @@ plugin bytes, source revision, Node runtime SHA-256, and effective managed
 policy. The producer already records or requires these fields. A package
 integrity string is never an installed executable readback.
 
+Claude's per-case private `--debug-file` trace is retained by the producer as
+`claude_debug` with a digest and byte count. If the file is unavailable, T87
+cannot qualify. The trace does not itself prove the complete loaded Mod set:
+the harness must independently read back each native session's loaded Mod IDs,
+origins and source hashes (or built-in client-binary binding), effective
+managed policy and post-rewrite admitted tool arguments. A Mod's own process
+and network effects are outside the Bash sandbox and require trusted-host
+readback. Keep debug bytes private.
+
 ## Stdout and stderr parser
 
 Call `parseCaseTrace({client, version, stdout, stderr, trajectory?})` with raw

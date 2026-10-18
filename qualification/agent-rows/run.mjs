@@ -3,7 +3,8 @@
 // independent CP, gateway, provider and effective-policy joins and verdict.
 import {spawn} from "node:child_process";
 import {createHash} from "node:crypto";
-import {mkdir, readFile, realpath, stat, writeFile} from "node:fs/promises";
+import {constants} from "node:fs";
+import {mkdir, open, readFile, realpath, stat, writeFile} from "node:fs/promises";
 import {dirname, join, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
@@ -15,6 +16,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CLIENTS = ["claude-code", "codex", "openclaw"];
 const REFERENCES = ["model-stub", "provider-fakes", "network-policy", "claude-effective-managed", "codex-effective-managed", "openclaw-installed-plugin"];
 const MAX_OUTPUT = 256 * 1024;
+const MAX_CLAUDE_DEBUG = 1024 * 1024;
 const CASE_TIMEOUT = 20000;
 const RUN_TIMEOUT = 600000;
 const T87 = [
@@ -156,10 +158,38 @@ function environment(input, name) {
   return env;
 }
 
-function invocation(name, binary, prompt) {
-  if (name === "claude-code") return [binary, ["-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose"]];
+export function invocation(name, binary, prompt, caseDir) {
+  if (name === "claude-code") {
+    check(typeof caseDir === "string" && resolve(caseDir) === caseDir, "Claude debug path needs an absolute case directory");
+    return [binary, ["-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose",
+      "--debug-file", join(caseDir, "claude-debug.log")]];
+  }
   if (name === "codex") return [binary, ["exec", "--json", "--strict-config", "--ephemeral", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]];
   throw new Error("OpenClaw requires its pinned host config");
+}
+
+export async function retainedClaudeDebug(path) {
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = await handle.stat();
+    if (!info.isFile() || info.uid !== process.getuid() || info.nlink !== 1) return {status: "UNAVAILABLE"};
+    await handle.chmod(0o600);
+    if (info.size < 1 || info.size > MAX_CLAUDE_DEBUG) return {status: "UNAVAILABLE"};
+    const bytes = Buffer.alloc(info.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, null);
+      if (read.bytesRead === 0) return {status: "UNAVAILABLE"};
+      offset += read.bytesRead;
+    }
+    if ((await handle.read(Buffer.alloc(1), 0, 1, null)).bytesRead !== 0) return {status: "UNAVAILABLE"};
+    return {status: "RETAINED_PRIVATE", path, sha256: sha(bytes), bytes: bytes.length};
+  } catch {
+    return {status: "UNAVAILABLE"};
+  } finally {
+    await handle?.close();
+  }
 }
 
 export async function run(input, reportPath) {
@@ -208,18 +238,21 @@ export async function run(input, reportPath) {
     const [binary, args] = item.client === "openclaw"
       ? [client.binary, ["agent", "exec", "--config", client.config, "--state-dir", client.home,
         "--cwd", caseDir, "--timeout", "20", "--json", prompt]]
-      : invocation(item.client, client.binary, prompt);
+      : invocation(item.client, client.binary, prompt, caseDir);
     const began = new Date().toISOString();
     const outcome = await capture(binary, args, {cwd: caseDir, env: environment(input, item.client), timeout: CASE_TIMEOUT});
     const ended = new Date().toISOString();
     const outPath = join(caseDir, "stdout.bin"), errPath = join(caseDir, "stderr.bin");
     await writeFile(outPath, outcome.stdout, {mode: 0o600, flag: "wx"});
     await writeFile(errPath, outcome.stderr, {mode: 0o600, flag: "wx"});
+    const claudeDebug = item.client === "claude-code"
+      ? await retainedClaudeDebug(join(caseDir, "claude-debug.log")) : undefined;
     results.push({id: item.id, row: item.row, client: item.client, episode_id: episodes[item.client],
       started_at: began, finished_at: ended, argv_sha256: sha(Buffer.from(JSON.stringify([binary, ...args]))), exit_code: outcome.code,
       signal: outcome.signal, timed_out: outcome.timedOut, output_limited: outcome.limited,
       stdout: {path: outPath, sha256: sha(outcome.stdout), bytes: outcome.stdout.length},
-      stderr: {path: errPath, sha256: sha(outcome.stderr), bytes: outcome.stderr.length}});
+      stderr: {path: errPath, sha256: sha(outcome.stderr), bytes: outcome.stderr.length},
+      ...(claudeDebug ? {claude_debug: claudeDebug} : {})});
   }
   const report = {schema: "helm.agent-rows.producer-report/v1", slot: input.slot, namespace: input.namespace,
     profile: input.profile, source: "helm-agent-integrations", source_revision: input.source_revision,
@@ -227,7 +260,9 @@ export async function run(input, reportPath) {
     image_digest: input.image_digest, node_runtime_sha256: input.node_runtime_sha256,
     producer_sha256: sha(await readFile(new URL(import.meta.url))), result: "PRODUCED_UNQUALIFIED",
     qualification: {T87: "NOT_QUALIFIED", T98: "NOT_QUALIFIED"},
-    independent_join_required: ["effective-managed-policy", "CP-observed-only-persistence", "gateway-ListAttempts", "fake-provider-audit", "kernel-receipts"],
+    independent_join_required: ["effective-managed-policy", "Claude-loaded-Mod-inventory-and-source-hashes",
+      "Claude-final-admitted-arguments-after-Mod-rewrite", "trusted-host-Mod-process-and-network-audit",
+      "CP-observed-only-persistence", "gateway-ListAttempts", "fake-provider-audit", "kernel-receipts"],
     references: input.references, clients: Object.fromEntries(CLIENTS.map(name => [name, {sha256: input.clients[name].sha256,
       version: input.clients[name].version, slot: input.clients[name].slot, work_item_id: input.clients[name].work_item_id,
       commitment_id: input.clients[name].commitment_id}])),

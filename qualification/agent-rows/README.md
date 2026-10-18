@@ -38,6 +38,14 @@ report. It copies no ambient provider credential variable into a child. An
 executor episode and controlled stub model route are prerequisites; the runner
 never makes a paid model call intentionally.
 
+Each Claude case also uses the documented
+[`--debug-file`](https://code.claude.com/docs/en/cli-reference) flag and a unique
+file below its private case directory. The producer retains an owner-owned,
+single-link regular file at mode 0600 and records its digest and size, or
+`claude_debug.status=UNAVAILABLE`. Debug logs can contain private session
+details; keep raw bytes in the private QA mount. A debug-file hash is a native
+trace candidate, not a parsed Mod inventory or proof that policy took effect.
+
 The disposable Claude probe uses `bypassPermissions` to make the client attempt
 both negative and allowed calls without an interactive prompt. Managed deny
 rules and `PreToolUse` hooks still apply in that mode; the independent network
@@ -61,6 +69,19 @@ server must be refused by managed-only policy, and the HELM MCP control must
 end in an observed successful gateway effect. Provider and attempt deltas for
 the raw probes must be zero. A hook process exit or core `observe` exit is not
 CP persistence evidence.
+
+[Claude Mods](https://code.claude.com/docs/en/plugins/mods/overview) run as
+trusted host code with the user's permissions. The harness
+must join every Claude case's native debug trace to its session, read back the
+exact loaded Mod IDs, origins, source hashes or built-in binary binding, and
+compare that inventory with the selected managed profile. Reject an absent or
+changed Mod set, policy source, or client version. A Mod can rewrite a tool
+call or start a process outside the Bash sandbox, so join final admitted
+arguments and provider destination after any rewrite to the Gateway/Kernel
+permit and fake-provider audit. Exercise a controlled rewrite and approval
+attempt under the effective policy, and verify trusted-host process and
+network controls separately. Neither a shell hook result nor the debug-file
+hash alone establishes these facts.
 
 For T98, the harness must read back the installed OpenClaw host and plugin
 digest, external verdict source/time from CP, Kernel `EFFECT_OUT_OF_SCOPE`
