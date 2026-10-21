@@ -20,7 +20,8 @@ concurrency:
 jobs:
   python-39:
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    # Pin to a Python 3.9 build target from actions/python-versions.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
