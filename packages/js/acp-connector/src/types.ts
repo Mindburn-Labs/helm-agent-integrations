@@ -34,6 +34,9 @@ export interface ToolCallUpdate {
   title?: string;
   kind?: string;
   status?: string;
+  name?: string;
+  rawInput?: unknown;
+  rawOutput?: unknown;
   [key: string]: unknown;
 }
 
@@ -97,6 +100,25 @@ export interface InitializeResponse {
   [key: string]: unknown;
 }
 
+/** Explicit host-selected MCP servers. Approval policy is owned by HELM. */
+export type AcpMcpServer =
+  | { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> }
+  | { name: string; type: "http"; url: string; headers: Array<{ name: string; value: string }> };
+
+export interface ToolAction {
+  server?: string;
+  tool: string;
+  arguments: unknown;
+  url?: string;
+  browserContext?: { url: string; sourceToolCallId: string };
+}
+
+export interface ProcessTermination {
+  adapterExited: boolean;
+  descendantsExited: boolean;
+  forced: boolean;
+}
+
 export interface NewSessionResponse {
   sessionId: string;
   configOptions?: unknown;
@@ -109,8 +131,8 @@ export interface NewSessionResponse {
 export type AcpRunEvent =
   | { type: "message"; role: "user" | "agent"; text: string }
   | { type: "thought" }
-  | { type: "tool_call"; id?: string; title?: string; kind?: string; status?: string }
-  | { type: "tool_call_update"; id?: string; status?: string; diffs: string[] }
+  | { type: "tool_call"; id?: string; title?: string; kind?: string; status?: string; rawInput?: unknown; rawOutput?: unknown; content?: unknown; action?: ToolAction }
+  | { type: "tool_call_update"; id?: string; status?: string; diffs: string[]; rawInput?: unknown; rawOutput?: unknown; content?: unknown; action?: ToolAction }
   | { type: "plan"; entries: Array<{ content: string; status?: string; priority?: string }> }
   | { type: "usage"; used?: number; size?: number }
   | { type: "permission"; ask: PermissionAsk; decision: PermissionDecision; auto: boolean; receiptId?: string }
@@ -131,6 +153,8 @@ export interface PermissionAsk {
    * kernel evaluator; also feeds sticky-allow target keying.
    */
   toolInput?: unknown;
+  /** Concrete operation, never inferred from a permission's generic kind. */
+  action?: ToolAction;
 }
 
 /** Internal decision vocabulary before mapping onto offered options. */
@@ -144,4 +168,6 @@ export type ApprovalPolicy = "ask" | "auto-approve-reads";
 export interface RunPromptResult {
   stopReason: string;
   sessionId: string;
+  cancelled?: boolean;
+  termination?: ProcessTermination;
 }

@@ -88,7 +88,7 @@ test("lifecycle: start → newSession → prompt → events → dispose", async 
     assert.equal(res.stopReason, "end_turn");
     const messages = events.filter((e) => e.type === "message");
     assert.ok(messages.some((m) => m.type === "message" && m.text === "turn-complete"));
-    client.dispose();
+    await client.dispose();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -109,7 +109,7 @@ test("startup deadline: a wedged engine fails loudly instead of pending forever"
       onEvent: () => {},
     });
     await assert.rejects(client.start(), /timed out after 0\.3s/);
-    client.dispose();
+    await client.dispose();
   } finally {
     if (prev === undefined) delete process.env.HELM_ACP_STARTUP_TIMEOUT_MS;
     else process.env.HELM_ACP_STARTUP_TIMEOUT_MS = prev;
@@ -147,7 +147,7 @@ test("session/load resume with stale-session fallback to session/new", async () 
     assert.match(res.sessionId, /^fake-session-pid\d+$/);
     const persisted = await store.read("run-2");
     assert.equal(persisted?.sessionId, res.sessionId);
-    manager.disposeAll();
+    await manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -194,7 +194,7 @@ test("cancel → grace → force-kill: a turn that ignores cancel still unwinds"
     const res = await promptP;
     assert.equal(res.stopReason, "cancelled");
     assert.ok(Date.now() - started < 3000, "force-kill must bound the unwind");
-    manager.disposeAll();
+    await manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -225,7 +225,7 @@ test("graceful cancel: agent that honors session/cancel resolves cancelled witho
     setTimeout(() => controller.abort(), 200);
     const res = await promptP;
     assert.equal(res.stopReason, "cancelled");
-    manager.disposeAll();
+    await manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -252,7 +252,7 @@ test("session binding: forged adapter permission is cancelled before kernel eval
     const message = events.find((event) => event.type === "message" && event.text.startsWith("permission:"));
     assert.ok(message && message.type === "message" && message.text === "permission:cancelled:");
   } finally {
-    client?.dispose();
+    await client?.dispose();
     await cleanupTmpDir(cwd);
   }
 });
@@ -274,7 +274,7 @@ test("session binding rejects config and cancel operations for another session",
     await assert.rejects(client.setSessionConfigOption("forged", "model", "x"), /unknown session id/);
     await assert.rejects(client.cancel("forged"), /unknown session id/);
   } finally {
-    client?.dispose();
+    await client?.dispose();
     await cleanupTmpDir(cwd);
   }
 });
@@ -308,7 +308,7 @@ test("warm-connection reuse: back-to-back turns within the grace window share on
     });
     // Same session id ⇒ same pid ⇒ the warm adapter was reused, not respawned.
     assert.equal(first.sessionId, second.sessionId);
-    manager.disposeAll();
+    await manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -348,7 +348,7 @@ test("manager rejects a concurrent prompt for one run before handlers can be swa
     );
     controller.abort();
     assert.equal((await first).stopReason, "cancelled");
-    manager.disposeAll();
+    await manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -385,7 +385,7 @@ test("dispose grace 0: each turn cold-starts a fresh adapter", async () => {
     // disposed, and the fake agent does not support load, so a NEW session is
     // created on a NEW adapter: pids differ.
     assert.notEqual(first.sessionId, second.sessionId);
-    manager.disposeAll();
+    await manager.disposeAll();
   } finally {
     await cleanupTmpDir(cwd);
   }

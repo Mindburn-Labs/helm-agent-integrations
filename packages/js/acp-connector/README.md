@@ -1,8 +1,10 @@
 # @mindburn/helm-acp-connector
 
-HELM-governed ACP (Agent Client Protocol) connector for coding agents. Claude
-Code and Codex run through their ACP bridge executables; Gemini CLI, Kimi CLI,
-and OpenCode expose ACP directly (`gemini --acp`, `kimi acp`, `opencode acp`).
+HELM-governed ACP (Agent Client Protocol) connector for coding agents. The
+reviewed runtime supports Claude Code and Codex through their ACP bridges.
+Native launch helpers remain available for Gemini, Kimi, and OpenCode, but
+starting a governed session requires a verified permission-mode contract;
+unknown native contracts fail closed.
 
 The positioning matches this repository: engines propose and orchestrate
 work; HELM governs execution and produces evidence. The connector drives
@@ -24,7 +26,9 @@ routing every interactive permission decision through the HELM boundary.
   60 s startup deadline on handshake phases only
   (`HELM_ACP_STARTUP_TIMEOUT_MS` override); cancel is a protocol
   notification; stderr-tail + exit-code error enrichment; handler swapping
-  for warm-connection reuse.
+  for warm-connection reuse. Codex is forced to `workspace-write` with the
+  `user` reviewer. Session creation and each prompt read back the safe mode;
+  missing mode/config capabilities or a mode change stop the connection.
 - **Kernel-gated permission broker** (`permission.ts` + `kernel-evaluator.ts`) —
   every `session/request_permission` is routed through a Kernel verdict.
   Fail-closed default: DENY / ESCALATE / transport error / timeout all
@@ -33,9 +37,10 @@ routing every interactive permission decision through the HELM boundary.
   `auto-approve-reads` only classifies read-only tool kinds (read/search/
   fetch/think) as low-risk for the kernel — the kernel still issues the
   verdict on every request unless it explicitly grants an exact-payload sticky
-  allow with decision + receipt ids. Option-family fallback mapping ensures a
-  decision always lands on an option the agent actually offered, and a reject
-  or allow with no recognized same-family option answers `cancelled`.
+  allow with decision + receipt ids. MCP tools always require a fresh Kernel
+  decision and use `allow_once`; HELM never grants the adapter persistent MCP
+  approval. Missing concrete tool input, conflicting call IDs/arguments, or
+  the absence of an offered single-use allow answers `cancelled`.
 - **Allowlisted fs handlers** (`fs-guard.ts`) — the counter-position to the
   open-fs-handler anti-pattern: `fs/read_text_file` / `fs/write_text_file`
   are served only when the requested path canonicalizes inside a declared
@@ -57,8 +62,16 @@ routing every interactive permission decision through the HELM boundary.
   ledger, manifest digest, and path containment before returning an executable.
 - **Session manager** (`manager.ts` + `session-store.ts`) — warm-connection
   reuse with an unref'd dispose grace window (default 60 s),
-  cancel → grace (default 2 s) → force-kill so a wedged adapter can never
-  lock a turn, per-run session-id persistence with stale-session fallback.
+  cancel → protocol grace (default 2 s) → SIGTERM → bounded SIGKILL escalation.
+  Stop cancels pending policy evaluation and awaits the owned process group
+  and observed descendants. A pre-aborted run never launches or prompts.
+  Session persistence binds the agent, workspace path, and MCP configuration.
+  The supervised runtime requires POSIX process groups.
+- **Concrete action evidence** — joins sparse permission requests to ACP
+  `tool_call` updates by session and call ID. Kernel input includes actual MCP
+  server, tool, complete arguments, and an explicit navigation URL or the last
+  confirmed selected-page URL for browser operations. Raw tool input, output,
+  and content are retained in events; oversized evidence fails closed.
 - **Process credential boundary** — spawned adapters inherit only basic OS
   runtime variables. Provider/cloud credentials must be delegated explicitly
   through `extraEnv`; ambient parent-process secrets are not copied by default.
@@ -81,7 +94,8 @@ const { executablePath } = await ensureEngine("claude", {
 const manager = new AcpSessionManager({
   sessionStore: new SessionStore("/var/lib/helm/acp-sessions"),
   fsGuard: new FsGuard({ roots: [{ path: "/work/project", read: true, write: true }] }),
-  evaluator: new HelmKernelEvaluator({ apiKey, tenantId, principal }),
+  evaluator: new HelmKernelEvaluator({ apiKey, tenantId, principal, workspaceId }),
+  mcpServers: [{ name: "browser", command: "/path/to/mcp-browser", args: [], env: [] }],
   launchSpecFor: (agent) => buildAdapterLaunchSpec({
     agent, adapterEntry: "/path/to/acp-adapter.js", engineExecutablePath: executablePath,
   }),
@@ -94,20 +108,76 @@ const result = await manager.runPrompt({
 });
 ```
 
-For a native ACP CLI, keep the same manager and change only the launch factory:
-
-```ts
-launchSpecFor: (agent) => {
-  if (agent === "gemini" || agent === "kimi" || agent === "opencode") {
-    return buildNativeAcpLaunchSpec({ agent });
-  }
-  return buildAdapterLaunchSpec({ agent, adapterEntry: "/path/to/vendor-acp-bridge.js" });
-},
-```
-
 The executable must already be installed and authenticated. HELM does not copy
 ambient credentials into the child; pass any non-interactive credential
 explicitly through `extraEnv`.
+
+`runPrompt` accepts a per-session `mcpServers` override, an `AbortSignal`, and
+an awaited `onSessionReady(sessionId)` callback for durable session binding.
+`stop(runId)`, `dispose(runId)`, and `disposeAll()` are asynchronous. Await them
+before reporting cleanup. Stop returns `{adapterExited, descendantsExited,
+forced}` and rejects when termination cannot be confirmed. Explicit model and
+effort selections must be applied and read back; they never silently fall back.
+Codex's effort option is `reasoning_effort`.
+
+MCP servers use ACP stdio or HTTP shapes. The default is an empty list. For
+Codex, the connector supplies the complete server map through `CODEX_CONFIG`
+and forces `default_tools_approval_mode="prompt"` with no static tool grants;
+the bridge's ACP MCP translation drops those approval fields. Caller-supplied
+servers outside the declared map are disabled. Claude receives explicit ACP
+servers and SDK ask settings with ambient settings sources disabled. The
+connector rejects permission requests for undeclared MCP servers.
+
+## Organization runtime process bridge
+
+Run `node dist/bridge.js`. The process accepts one episode through NDJSON on
+stdin and emits NDJSON on stdout. Diagnostic adapter output stays on stderr.
+The host supplies trusted launch configuration and FS grants; this command is
+an internal process boundary, not a public remote execution service.
+
+```json
+{"id":"run-command","method":"run","params":{"runId":"episode-id","agent":"codex","cwd":"/work/project","prompt":"Inspect the page","policy":"ask","model":"selected-model","effort":"max","evaluator":"host","launch":{"adapterEntry":"/managed/codex-acp/dist/index.js","engineExecutablePath":"/managed/codex"},"mcpServers":[{"name":"browser","command":"/managed/browser-mcp","args":[],"env":[]}],"fsRoots":[{"path":"/work/project","read":true,"write":false}]}}
+```
+
+The bridge emits `{"type":"session","runId":"episode-id","sessionId":"actual-vendor-id"}`
+after safe-session and model/effort verification. It waits for
+`{"id":"bind-command","method":"session_bound","params":{"sessionId":"actual-vendor-id"}}`
+before prompting. The host must persist its task/session binding before ACK.
+Startup metadata is buffered until the ACK; tool execution before binding is
+rejected. Missing ACK, disconnect, and Stop all prevent prompting.
+
+Each permission emits `{type:"permission",runId,id,request,tier,agent,cwd,policy}`.
+`request` is a `PermissionAsk` with `sessionId`, `toolCallId`, `title`, `kind`,
+`isRead`, complete `toolInput`, and `action:{server?,tool,arguments,url?,browserContext?}`.
+Browser context includes its confirming `sourceToolCallId`; it does not infer
+URLs hidden inside JavaScript. Navigation arguments and script contents remain
+available to the host policy as complete arguments.
+
+The authenticated host evaluates the request and verifies its receipt, then sends
+`{id,method:"permission_result",params:{permissionId,decision:{verdict,decisionId,receiptId,reason?,reasonCode?}}}`.
+`ALLOW` requires nonempty decision and receipt IDs. Unknown, late, malformed,
+and missing replies never authorize execution. Aborted waits emit
+`{type:"permission_cancelled",runId,id}`. The bridge does not verify signatures;
+that responsibility remains with the authenticated Kernel client in the host.
+Standalone callers may use `evaluator:"kernel"` and explicit `kernel` options.
+
+Tool and result events emit `{type:"event",runId,event}`. Tool events retain
+`rawInput`, `rawOutput`, `content`, and normalized `action` when available.
+An individual retained event is limited to 1 MiB; authorization input remains
+limited to 8192 UTF-8 bytes. Exceeding a limit closes/rejects the boundary rather
+than silently truncating evidence used to authorize an action.
+
+`{id,method:"stop",params:{runId}}` may arrive during any phase. Its result is
+`{id,result:{termination}}`; the run result becomes `cancelled`. Normal run
+completion also tears down tracked workers before returning
+`{id,result:{sessionId,stopReason,termination}}`. Unconfirmed termination is an
+error with termination metadata. Close stdin after receiving the final result
+and await bridge process exit. Restarts must treat an uncertain old process
+handle as unresolved; this command does not relaunch an interrupted episode.
+
+These controls supervise the owned POSIX process group and observed descendants.
+They do not revoke effects already accepted by a remote service or replace an
+OS sandbox against an intentionally escaping executable.
 
 ## Contract notes
 

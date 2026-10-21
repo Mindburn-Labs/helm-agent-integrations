@@ -15,6 +15,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type {
   AcpRunEvent,
+  AcpMcpServer,
   BridgedCodingAgent,
   CodingAgent,
   InitializeResponse,
@@ -25,11 +26,16 @@ import type {
   RequestPermissionRequest,
   SessionNotification,
   WriteTextFileRequest,
+  ProcessTermination,
 } from "./types.js";
 import { ACP_PROTOCOL_VERSION } from "./types.js";
 import { NdJsonRpcPeer, JsonRpcError, JSON_RPC_INTERNAL_ERROR, JSON_RPC_METHOD_NOT_FOUND } from "./jsonrpc.js";
 import type { FsGuard } from "./fs-guard.js";
 import type { GovernedPermissionBroker } from "./permission.js";
+import { canonicalJson } from "./kernel-evaluator.js";
+import { ACP_EVENT_PAYLOAD_CAP, ToolCallTracker } from "./tool-calls.js";
+import { assertSessionModes, checkedMcpServers, expectedSessionMode, reviewedLaunch, sessionParams } from "./session-safety.js";
+import { abortable, OwnedProcessTree, throwIfAborted } from "./process-tree.js";
 
 /** How to launch the ACP adapter process for an engine. */
 export interface AdapterLaunchSpec {
@@ -125,6 +131,7 @@ export interface GovernedAcpClientOptions {
   broker: GovernedPermissionBroker;
   fsGuard: FsGuard;
   onEvent: (event: AcpRunEvent) => void;
+  mcpServers?: AcpMcpServer[];
 }
 
 /** Map a raw session/update notification onto the small run-event union. */
@@ -145,6 +152,9 @@ function toEvent(update: { sessionUpdate?: string; [k: string]: unknown }): AcpR
         title: update.title as string | undefined,
         kind: (update.kind as string | undefined) ?? undefined,
         status: (update.status as string | undefined) ?? undefined,
+        ...(update.rawInput !== undefined ? { rawInput: update.rawInput } : {}),
+        ...(update.rawOutput !== undefined ? { rawOutput: update.rawOutput } : {}),
+        ...(update.content !== undefined ? { content: update.content } : {}),
       };
     case "tool_call_update": {
       const diffs = ((update.content as Array<{ type?: string; path?: string }> | undefined) ?? [])
@@ -155,6 +165,9 @@ function toEvent(update: { sessionUpdate?: string; [k: string]: unknown }): AcpR
         id: update.toolCallId as string | undefined,
         status: (update.status as string | undefined) ?? undefined,
         diffs,
+        ...(update.rawInput !== undefined ? { rawInput: update.rawInput } : {}),
+        ...(update.rawOutput !== undefined ? { rawOutput: update.rawOutput } : {}),
+        ...(update.content !== undefined ? { content: update.content } : {}),
       };
     }
     case "plan": {
@@ -188,11 +201,21 @@ export class GovernedAcpClient {
   /** The session this connection actually opened. Inbound adapter requests
    *  naming any other session id are forged/stale and fail closed. */
   private activeSessionId: string | null = null;
+  private readonly mcpServers: AcpMcpServer[];
+  private readonly tracker = new ToolCallTracker();
+  private readonly controller = new AbortController();
+  private runSignal?: AbortSignal;
+  private tree?: OwnedProcessTree;
+  private fault?: Error;
+  private disposal?: Promise<ProcessTermination>;
+  private configOptions: Array<Record<string, unknown>> = [];
+  private promptEnd?: Promise<unknown>;
 
   constructor(opts: GovernedAcpClientOptions) {
     this.agent = opts.agent;
     this.cwd = opts.cwd;
-    this.launchSpec = opts.launchSpec;
+    this.mcpServers = checkedMcpServers(opts.mcpServers ?? []);
+    this.launchSpec = reviewedLaunch(opts.agent, opts.launchSpec, this.mcpServers);
     this.fsGuard = opts.fsGuard;
     this.broker = opts.broker;
     this.onEvent = opts.onEvent;
@@ -203,19 +226,26 @@ export class GovernedAcpClient {
   }
 
   /** Re-point the live connection at a new prompt's broker / event sink. */
-  setHandlers(broker: GovernedPermissionBroker, onEvent: (event: AcpRunEvent) => void): void {
+  setHandlers(broker: GovernedPermissionBroker, onEvent: (event: AcpRunEvent) => void, signal?: AbortSignal): void {
     this.broker = broker;
     this.onEvent = onEvent;
+    this.runSignal = signal;
   }
 
   /** Spawn the adapter and negotiate the protocol. Returns once initialized. */
-  async start(): Promise<void> {
+  async start(signal?: AbortSignal): Promise<void> {
+    throwIfAborted(signal);
+    throwIfAborted(this.controller.signal);
+    if (process.platform === "win32") throw new Error("HELM ACP: supervised runtime requires POSIX process groups");
+    this.runSignal = signal;
     const child = spawn(this.launchSpec.command, this.launchSpec.args, {
       cwd: this.cwd,
       env: this.launchSpec.env,
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
     });
     this.child = child;
+    this.tree = new OwnedProcessTree(child);
     child.stderr?.on("data", (d: Buffer) => {
       this.stderrTail = (this.stderrTail + d.toString()).slice(-STDERR_TAIL_BYTES);
     });
@@ -230,7 +260,7 @@ export class GovernedAcpClient {
     this.wireIncoming(this.peer);
 
     try {
-      const init = await this.withStartupTimeout(
+      const init = await this.withStartupTimeout(abortable(
         this.peer.request<InitializeResponse>("initialize", {
           protocolVersion: ACP_PROTOCOL_VERSION,
           clientInfo: { name: "helm-acp-connector", version: "0.1.0" },
@@ -241,8 +271,10 @@ export class GovernedAcpClient {
             // terminal backdoor.
             terminal: false,
           },
-        }),
-      );
+        }), this.signal()));
+      if (init.protocolVersion !== ACP_PROTOCOL_VERSION || !init.agentCapabilities || typeof init.agentCapabilities !== "object") {
+        throw new Error("HELM ACP: missing or incompatible protocol capabilities (fail-closed)");
+      }
       this.loadSession_ = init.agentCapabilities?.loadSession === true;
     } catch (e) {
       throw this.enrich(e, "initialize");
@@ -263,6 +295,19 @@ export class GovernedAcpClient {
     );
   }
 
+  private signal(): AbortSignal { return this.runSignal ? AbortSignal.any([this.runSignal, this.controller.signal]) : this.controller.signal; }
+
+  private check(): void {
+    if (this.fault) throw this.fault;
+    throwIfAborted(this.signal());
+  }
+
+  private fail(error: unknown): void {
+    this.fault = error instanceof Error ? error : new Error(String(error));
+    this.controller.abort();
+    void this.dispose().catch(() => {});
+  }
+
   private wireIncoming(peer: NdJsonRpcPeer): void {
     const self = this;
     peer.on(
@@ -277,16 +322,25 @@ export class GovernedAcpClient {
           switch (method) {
             case "session/request_permission": {
               const req = params as RequestPermissionRequest;
-              if (!self.sessionMatches(req.sessionId)) {
+              if (!self.sessionMatches(req.sessionId) || self.signal().aborted || self.fault) {
                 // Forged/mismatched session — never reach the kernel, never
                 // allow. `cancelled` is the protocol-level fail-closed answer.
                 respond({ outcome: { outcome: "cancelled" } });
                 return;
               }
-              respond(await self.broker.resolve(req));
+              try {
+                const toolCall = self.tracker.correlate(req.toolCall);
+                const action = self.tracker.action(toolCall);
+                if (action.server && !self.mcpServers.some(server => server.name === action.server)) throw new Error("HELM ACP: undeclared MCP server");
+                const fingerprint = canonicalJson(toolCall);
+                const result = await self.broker.resolve({ ...req, toolCall }, self.signal(), action);
+                if (self.signal().aborted || fingerprint !== canonicalJson(self.tracker.correlate(req.toolCall))) respond({ outcome: { outcome: "cancelled" } });
+                else respond(result);
+              } catch { respond({ outcome: { outcome: "cancelled" } }); }
               return;
             }
             case "fs/read_text_file": {
+              self.check();
               const req = params as ReadTextFileRequest;
               if (!self.sessionMatches(req.sessionId)) {
                 throw new Error("HELM ACP: fs/read_text_file with an unknown session id (fail-closed)");
@@ -295,6 +349,7 @@ export class GovernedAcpClient {
               return;
             }
             case "fs/write_text_file": {
+              self.check();
               const req = params as WriteTextFileRequest;
               if (!self.sessionMatches(req.sessionId)) {
                 throw new Error("HELM ACP: fs/write_text_file with an unknown session id (fail-closed)");
@@ -320,7 +375,23 @@ export class GovernedAcpClient {
       if (method === "session/update") {
         const n = params as SessionNotification;
         if (!self.sessionMatches(n.sessionId)) return;
-        self.onEvent(toEvent(n.update ?? { sessionUpdate: "unknown" }));
+        if (self.signal().aborted) return;
+        try {
+          if (Buffer.byteLength(canonicalJson(n.update), "utf8") > ACP_EVENT_PAYLOAD_CAP) throw new Error("HELM ACP: event exceeds retained evidence limit");
+          if (n.update.sessionUpdate === "current_mode_update" && n.update.currentModeId !== expectedSessionMode(self.agent)) throw new Error("HELM ACP: adapter changed its reviewed session mode (fail-closed)");
+          if (n.update.sessionUpdate === "config_option_update") {
+            assertSessionModes(self.agent, n.update, false);
+            self.configOptions = n.update.configOptions as Array<Record<string, unknown>>;
+          }
+          const event = toEvent(n.update);
+          if (n.update.sessionUpdate === "tool_call" || n.update.sessionUpdate === "tool_call_update") {
+            self.tracker.observe(n.update);
+            if (event.type === "tool_call" || event.type === "tool_call_update") {
+              try { event.action = self.tracker.action(self.tracker.correlate(n.update, true)); } catch { /* A later permission without concrete input rejects. */ }
+            }
+          }
+          self.onEvent(event);
+        } catch (error) { self.fail(error); }
       }
     });
   }
@@ -352,10 +423,14 @@ export class GovernedAcpClient {
 
   async newSession(): Promise<string> {
     try {
+      this.check();
       const res = await this.withStartupTimeout(
-        this.conn().request<NewSessionResponse>("session/new", { cwd: this.cwd, mcpServers: [] }),
+        abortable(this.conn().request<NewSessionResponse>("session/new", sessionParams(this.agent, this.cwd, this.mcpServers)), this.signal()),
       );
+      assertSessionModes(this.agent, res, true);
       this.activeSessionId = res.sessionId;
+      this.configOptions = res.configOptions as Array<Record<string, unknown>>;
+      await this.verifySession();
       return res.sessionId;
     } catch (e) {
       throw this.enrich(e, "newSession");
@@ -364,10 +439,14 @@ export class GovernedAcpClient {
 
   async loadSession(sessionId: string): Promise<void> {
     try {
-      await this.withStartupTimeout(
-        this.conn().request("session/load", { sessionId, cwd: this.cwd, mcpServers: [] }),
+      this.check();
+      const res = await this.withStartupTimeout(
+        abortable(this.conn().request<Record<string, unknown>>("session/load", { sessionId, ...sessionParams(this.agent, this.cwd, this.mcpServers) }), this.signal()),
       );
+      assertSessionModes(this.agent, res, true);
       this.activeSessionId = sessionId;
+      this.configOptions = res.configOptions as Array<Record<string, unknown>>;
+      await this.verifySession();
     } catch (e) {
       throw this.enrich(e, "loadSession");
     }
@@ -377,7 +456,7 @@ export class GovernedAcpClient {
   async describeModelOptions(): Promise<unknown> {
     try {
       const res = await this.withStartupTimeout(
-        this.conn().request<NewSessionResponse>("session/new", { cwd: this.cwd, mcpServers: [] }),
+        this.conn().request<NewSessionResponse>("session/new", sessionParams(this.agent, this.cwd, this.mcpServers)),
       );
       return { configOptions: res.configOptions ?? null, models: res.models ?? null };
     } catch (e) {
@@ -386,23 +465,47 @@ export class GovernedAcpClient {
   }
 
   async setSessionConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+    this.check();
     if (!this.sessionMatches(sessionId)) {
       throw new Error("HELM ACP: config update for an unknown session id (fail-closed)");
     }
-    await this.conn().request("session/set_config_option", { sessionId, configId, value });
+    if (configId === "mode" && value !== expectedSessionMode(this.agent)) throw new Error("HELM ACP: unsafe mode change forbidden");
+    const res = await this.withStartupTimeout(abortable(this.conn().request<Record<string, unknown>>("session/set_config_option", { sessionId, configId, value }), this.signal()));
+    assertSessionModes(this.agent, res, false);
+    const option = (res.configOptions as Array<Record<string, unknown>>).find(option => option.id === configId);
+    if (!option || option.currentValue !== value) throw new Error(`HELM ACP: ${configId} was not applied (fail-closed)`);
+    this.configOptions = res.configOptions as Array<Record<string, unknown>>;
   }
 
-  async prompt(sessionId: string, text: string): Promise<PromptResponse> {
+  async verifySession(): Promise<void> {
+    if (!this.activeSessionId) throw new Error("HELM ACP: no active session");
+    await this.setSessionConfigOption(this.activeSessionId, "mode", expectedSessionMode(this.agent));
+  }
+
+  configId(category: "model" | "effort"): string {
+    const id = category === "effort" && this.agent === "codex" ? "reasoning_effort" : category;
+    if (!this.configOptions.some(option => option.id === id)) throw new Error(`HELM ACP: missing ${category} configuration capability`);
+    return id;
+  }
+
+  async prompt(sessionId: string, text: string, signal?: AbortSignal): Promise<PromptResponse> {
+    this.runSignal = signal;
+    this.check();
     if (!this.sessionMatches(sessionId)) {
       throw new Error("HELM ACP: prompt for an unknown session id (fail-closed)");
     }
     try {
-      return await this.conn().request<PromptResponse>("session/prompt", {
+      await this.verifySession();
+      this.check();
+      this.tracker.beginPrompt();
+      const pending = this.conn().request<PromptResponse>("session/prompt", {
         sessionId,
         prompt: [{ type: "text", text }],
       });
+      this.promptEnd = pending.then(() => {}, () => {});
+      return await abortable(pending, this.signal());
     } catch (e) {
-      throw this.enrich(e, "prompt");
+      throw this.enrich(this.fault ?? e, "prompt");
     }
   }
 
@@ -412,6 +515,14 @@ export class GovernedAcpClient {
       throw new Error("HELM ACP: cancel for an unknown session id (fail-closed)");
     }
     this.conn().notify("session/cancel", { sessionId });
+    this.controller.abort();
+  }
+
+  async waitForPromptEnd(graceMs: number): Promise<void> {
+    if (!this.promptEnd) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try { await Promise.race([this.promptEnd, new Promise<void>(resolve => { timer = setTimeout(resolve, Math.max(0, graceMs)); })]); }
+    finally { if (timer) clearTimeout(timer); }
   }
 
   /** Wrap a connection error with adapter exit/stderr context. */
@@ -424,14 +535,15 @@ export class GovernedAcpClient {
     return new Error(parts.length ? `${base} — ${parts.join(" | ")} [during ${phase}]` : `${base} [during ${phase}]`);
   }
 
-  dispose(): void {
-    try {
-      this.child?.kill();
-    } catch {
-      // already gone
-    }
-    this.child = undefined;
-    this.peer = undefined;
+  dispose(): Promise<ProcessTermination> {
+    this.controller.abort();
+    return this.disposal ??= (async () => {
+      const result = this.tree ? await this.tree.terminate() : { adapterExited: true, descendantsExited: true, forced: false };
+      this.peer?.close();
+      this.child = undefined;
+      this.peer = undefined;
+      return result;
+    })();
   }
 
   private conn(): NdJsonRpcPeer {

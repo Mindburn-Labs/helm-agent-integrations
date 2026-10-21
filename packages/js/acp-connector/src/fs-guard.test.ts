@@ -178,7 +178,7 @@ test("end-to-end: engine fs/read_text_file outside the allowlist is denied over 
       assert.ok(msg.text.startsWith("read-denied:"), `expected denial, got: ${msg.text}`);
       assert.ok(msg.text.includes("fs guard"), "denial should come from the fs guard");
     }
-    client.dispose();
+    await client.dispose();
   } finally {
     await cleanupTmpDir(cwd);
     await cleanupTmpDir(outside);
@@ -212,7 +212,7 @@ test("session binding: forged engine fs/write_text_file is denied before it can 
     const message = events.find((event) => event.type === "message" && event.text.startsWith("write-denied:"));
     assert.ok(message && message.type === "message" && message.text.includes("unknown session id"));
   } finally {
-    client?.dispose();
+    await client?.dispose();
     await cleanupTmpDir(cwd);
   }
 });
@@ -241,7 +241,7 @@ test("end-to-end: engine fs/write_text_file inside the allowlist succeeds over t
     assert.equal(await fs.readFile(target, "utf8"), "engine-wrote-this");
     const msg = events.find((e) => e.type === "message");
     assert.ok(msg && msg.type === "message" && msg.text === "write-ok");
-    client.dispose();
+    await client.dispose();
   } finally {
     await cleanupTmpDir(cwd);
   }

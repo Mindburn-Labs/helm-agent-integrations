@@ -26,6 +26,8 @@ import type {
   RequestPermissionResponse,
 } from "./types.js";
 import { READ_TOOL_KINDS, toolInputSha256, type KernelEvaluator } from "./kernel-evaluator.js";
+import { concreteAction } from "./tool-calls.js";
+import { abortable } from "./process-tree.js";
 
 function toAsk(request: RequestPermissionRequest): PermissionAsk {
   const tc = request.toolCall ?? {};
@@ -40,6 +42,7 @@ function toAsk(request: RequestPermissionRequest): PermissionAsk {
     // The full adapter-supplied tool-call payload (rawInput, locations,
     // content, …) — the kernel authorizes this, not the title/kind label.
     toolInput: tc,
+    action: concreteAction(tc),
   };
 }
 
@@ -54,7 +57,7 @@ export function pickPermissionOption(
 ): PermissionOption | undefined {
   const order: Record<PermissionDecision, PermissionOptionKind[]> = {
     allow_always: ["allow_always", "allow_once"],
-    allow_once: ["allow_once", "allow_always"],
+    allow_once: ["allow_once"],
     reject: ["reject_once", "reject_always"],
   };
   for (const kind of order[decision]) {
@@ -110,8 +113,11 @@ export class GovernedPermissionBroker {
     return [...this.sticky.values()];
   }
 
-  async resolve(request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-    const ask = toAsk(request);
+  async resolve(request: RequestPermissionRequest, signal?: AbortSignal, action?: PermissionAsk["action"]): Promise<RequestPermissionResponse> {
+    if (signal?.aborted) return { outcome: { outcome: "cancelled" } };
+    let ask: PermissionAsk;
+    try { ask = toAsk(request); if (action) ask.action = action; }
+    catch { return { outcome: { outcome: "cancelled" } }; }
 
     const finish = (
       decision: PermissionDecision,
@@ -136,7 +142,7 @@ export class GovernedPermissionBroker {
     // 1. Exact-payload sticky allow from earlier this session — itself the
     //    product of a kernel ALLOW, recorded with decision + receipt ids.
     const prior = this.sticky.get(key);
-    if (prior) return finish("allow_always", true, prior.receiptId);
+    if (prior && !ask.action?.server) return finish("allow_once", true, prior.receiptId);
 
     // 2. Low-risk tier classification. auto-approve-reads never decides
     //    locally; it only marks the request low-risk for the kernel.
@@ -146,25 +152,25 @@ export class GovernedPermissionBroker {
     // 3. Kernel verdict. Fail-closed: any error or non-ALLOW verdict rejects.
     let verdict;
     try {
-      verdict = await this.opts.evaluator.evaluate({
+      verdict = await abortable(this.opts.evaluator.evaluate({
         ask,
         tier,
         agent: this.opts.agent,
         cwd: this.opts.cwd,
         policy: this.opts.policy,
-      });
+      }, signal), signal);
     } catch {
       return finish("reject", true);
     }
 
-    if (verdict.verdict !== "ALLOW" || !verdict.decisionId || !verdict.receiptId) {
+    if (signal?.aborted || verdict.verdict !== "ALLOW" || !verdict.decisionId?.trim() || !verdict.receiptId?.trim()) {
       return finish("reject", true, verdict.receiptId);
     }
 
     // Reuse is permitted only when the Kernel explicitly marks the exact
     // payload sticky and the agent offered an allow-always option.
     const sticky =
-      verdict.stickyAllow === true &&
+      !ask.action?.server && verdict.stickyAllow === true &&
       (request.options ?? []).some((option) => option.kind === "allow_always");
     if (sticky) {
       const receipt: StickyAllowReceipt = {
@@ -176,7 +182,7 @@ export class GovernedPermissionBroker {
       };
       this.sticky.set(key, receipt);
       this.opts.onStickyAllow?.(receipt);
-      return finish("allow_always", true, verdict.receiptId);
+      return finish("allow_once", true, verdict.receiptId);
     }
     return finish("allow_once", true, verdict.receiptId);
   }

@@ -7,3 +7,5 @@ export * from "./client.js";
 export * from "./session-store.js";
 export * from "./manager.js";
 export * from "./provisioning.js";
+export type { BridgeRunParams, KernelPermissionDecision } from "./bridge.js";
+export { ToolCallTracker, concreteAction, ACP_EVENT_PAYLOAD_CAP } from "./tool-calls.js";
