@@ -41,7 +41,7 @@ jobs:
           cache: npm
           cache-dependency-path: helm-agent-integrations/packages/js/helm-tool-wrapper/package-lock.json
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: helm-ai-kernel/core/go.mod
           cache-dependency-path: helm-ai-kernel/core/go.sum
