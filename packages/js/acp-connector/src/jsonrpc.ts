@@ -10,6 +10,7 @@
 
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
+import { StringDecoder } from "node:string_decoder";
 
 export class JsonRpcError extends Error {
   readonly code: number;
@@ -57,6 +58,7 @@ export class NdJsonRpcPeer extends EventEmitter {
   private readonly pending = new Map<number, PendingRequest>();
   private buffer = "";
   private closed = false;
+  private readonly decoder = new StringDecoder("utf8");
 
   constructor(opts: NdJsonRpcPeerOptions) {
     super();
@@ -66,11 +68,14 @@ export class NdJsonRpcPeer extends EventEmitter {
     this.input.on("data", (chunk: Buffer) => this.onData(chunk));
     this.input.on("end", () => this.onClosed());
     this.input.on("error", () => this.onClosed());
+    this.output.on("error", () => this.onClosed());
   }
 
   get isClosed(): boolean {
     return this.closed;
   }
+
+  close(): void { this.onClosed(); }
 
   /** Send a request and await its response. */
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
@@ -95,13 +100,15 @@ export class NdJsonRpcPeer extends EventEmitter {
 
   /** Send a notification (no response expected). */
   notify(method: string, params?: unknown): void {
-    if (this.closed) return;
+    if (this.closed || this.output.destroyed || !this.output.writable) return;
     const payload = JSON.stringify({ jsonrpc: "2.0", method, params: params ?? {} });
     this.output.write(payload + "\n");
   }
 
   private onData(chunk: Buffer): void {
-    this.buffer += chunk.toString("utf8");
+    if (this.closed) return;
+    this.buffer += this.decoder.write(chunk);
+    if (Buffer.byteLength(this.buffer, "utf8") > 4 * 1024 * 1024) { this.onClosed(); return; }
     for (;;) {
       const nl = this.buffer.indexOf("\n");
       if (nl < 0) return;
@@ -125,9 +132,11 @@ export class NdJsonRpcPeer extends EventEmitter {
       if (id !== undefined && id !== null) {
         // Incoming request — dispatch and respond.
         const respond = (result: unknown): void => {
+          if (this.closed || this.output.destroyed || !this.output.writable) return;
           this.output.write(JSON.stringify({ jsonrpc: "2.0", id, result: result ?? {} }) + "\n");
         };
         const respondError = (err: JsonRpcError): void => {
+          if (this.closed || this.output.destroyed || !this.output.writable) return;
           this.output.write(
             JSON.stringify({
               jsonrpc: "2.0",

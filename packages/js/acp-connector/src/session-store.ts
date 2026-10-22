@@ -14,6 +14,7 @@ export interface StoredSession {
   agent: CodingAgent;
   cwd: string;
   sessionId: string;
+  mcpDigest?: string;
 }
 
 export class SessionStore {

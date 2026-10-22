@@ -24,7 +24,7 @@ const OPTIONS = [
 function permRequest(kind: string, rawInput?: Record<string, unknown>): RequestPermissionRequest {
   return {
     sessionId: "sess-1",
-    toolCall: { toolCallId: "tc-1", title: `${kind} something`, kind, ...(rawInput ? { rawInput } : {}) },
+    toolCall: { toolCallId: "tc-1", name: `${kind}Tool`, title: `${kind} something`, kind, rawInput: rawInput ?? { path: "/tmp/fixture" } },
     options: OPTIONS,
   };
 }
@@ -110,7 +110,7 @@ test("kernel stickyAllow hint sticks under the plain ask policy too, with receip
   evaluator.defaultVerdict = { verdict: "ALLOW", receiptId: "rcpt-sticky", decisionId: "dec-1", stickyAllow: true };
   const broker = makeBroker(evaluator, "ask");
   const res = await broker.resolve(permRequest("edit"));
-  assert.deepEqual(res.outcome, { outcome: "selected", optionId: "opt-allow-always" });
+  assert.deepEqual(res.outcome, { outcome: "selected", optionId: "opt-allow-once" });
   assert.equal(broker.stickyAllowReceipts()[0]?.receiptId, "rcpt-sticky");
   await broker.resolve(permRequest("edit"));
   assert.equal(evaluator.calls.length, 1);
@@ -209,7 +209,7 @@ test("end-to-end: fake agent's requestPermission round-trips through the kernel"
     }
     const msg = events.find((e) => e.type === "message" && e.text.startsWith("permission:"));
     assert.ok(msg && msg.type === "message" && msg.text === "permission:selected:opt-allow-once");
-    client.dispose();
+    await client.dispose();
   } finally {
     await cleanupTmpDir(cwd);
   }
@@ -234,7 +234,7 @@ test("end-to-end: kernel DENY reaches the agent as a rejection", async () => {
     await client.prompt(sessionId, "edit something");
     const msg = events.find((e) => e.type === "message" && e.text.startsWith("permission:"));
     assert.ok(msg && msg.type === "message" && msg.text === "permission:selected:opt-reject");
-    client.dispose();
+    await client.dispose();
   } finally {
     await cleanupTmpDir(cwd);
   }

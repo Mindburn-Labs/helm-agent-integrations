@@ -17,6 +17,7 @@
 
 import * as crypto from "node:crypto";
 import type { PermissionAsk } from "./types.js";
+import { throwIfAborted } from "./process-tree.js";
 
 export type KernelVerdictValue = "ALLOW" | "DENY" | "ESCALATE" | "PENDING" | string;
 
@@ -43,7 +44,7 @@ export interface KernelEvaluationRequest {
 }
 
 export interface KernelEvaluator {
-  evaluate(request: KernelEvaluationRequest): Promise<KernelVerdict>;
+  evaluate(request: KernelEvaluationRequest, signal?: AbortSignal): Promise<KernelVerdict>;
 }
 
 export type FetchLike = (
@@ -67,6 +68,7 @@ export interface HelmKernelEvaluatorOptions {
   apiKey: string;
   tenantId: string;
   principal: string;
+  workspaceId?: string;
   helmUrl?: string;
   timeoutMs?: number;
   fetch?: FetchLike;
@@ -216,19 +218,22 @@ export class HelmKernelEvaluator implements KernelEvaluator {
     this.opts = opts;
   }
 
-  async evaluate(request: KernelEvaluationRequest): Promise<KernelVerdict> {
+  async evaluate(request: KernelEvaluationRequest, signal?: AbortSignal): Promise<KernelVerdict> {
+    throwIfAborted(signal);
     const fetchImpl = this.opts.fetch ?? (globalThis.fetch as FetchLike | undefined);
     if (!fetchImpl) {
       throw new Error("No fetch implementation available for the HELM evaluator");
     }
     const { riskClass, effectClass } = classifyAsk(request.ask, request.tier);
     const actionUrn = `tool.acp.${request.agent}.${request.ask.kind ?? "unknown"}`;
+    const toolInput = kernelToolInput(request.ask.toolInput ?? null);
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 10_000);
     // The kernel authorizes the REAL effect: forward the full tool input /
     // arguments (canonicalized, digest over the complete bytes), not just the
     // agent-controlled title/kind label.
-    const toolInput = kernelToolInput(request.ask.toolInput ?? null);
     const payload = {
       principal: this.opts.principal,
       action: "EXECUTE_TOOL",
@@ -242,6 +247,13 @@ export class HelmKernelEvaluator implements KernelEvaluator {
           cwd: request.cwd,
           tool_input: toolInput.tool_input,
           tool_input_sha256: toolInput.tool_input_sha256,
+          ...(request.ask.action ? {
+            tool_name: request.ask.action.tool,
+            mcp_server: request.ask.action.server,
+            arguments: request.ask.action.arguments,
+            url: request.ask.action.url,
+            browser_context: request.ask.action.browserContext,
+          } : {}),
         },
         agent_id: this.opts.principal,
         effect_level: effectClass,
@@ -267,6 +279,7 @@ export class HelmKernelEvaluator implements KernelEvaluator {
           "Content-Type": "application/json",
           "X-Helm-Tenant-ID": this.opts.tenantId,
           "X-Helm-Principal-ID": this.opts.principal,
+          ...(this.opts.workspaceId ? { "X-Helm-Workspace-ID": this.opts.workspaceId } : {}),
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -302,6 +315,7 @@ export class HelmKernelEvaluator implements KernelEvaluator {
       };
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
     }
   }
 }

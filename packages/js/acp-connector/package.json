@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": { "helm-acp-bridge": "dist/bridge.js" },
   "files": [
     "dist",
     "!dist/**/*.test.js",
