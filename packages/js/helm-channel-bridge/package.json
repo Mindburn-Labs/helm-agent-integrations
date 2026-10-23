@@ -36,7 +36,7 @@
     "directory": "packages/js/helm-channel-bridge"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.3",
     "typescript": "^6.0.3"
   }
 }
