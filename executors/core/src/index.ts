@@ -12,3 +12,5 @@ export { buildObservation, inputDigest, summarize, EXTERNAL_VERDICT_DECISIONS, t
 export { redactSecrets } from "./redact.js";
 export { runCli, type Io } from "./main.js";
 export { VERSION } from "./http.js";
+
+export { EXECUTOR_HOSTS, type ExecutorHost } from "./contract.js";

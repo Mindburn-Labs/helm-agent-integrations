@@ -1,5 +1,6 @@
 // status and env: read-only views of the slot. Neither prints a credential.
 
+import { isExecutorHost } from "../contract.js";
 import type { Ctx } from "../ctx.js";
 import { ExecutorError } from "../errors.js";
 import { normalizeBaseUrl } from "../http.js";
@@ -94,7 +95,7 @@ export function renderStatus(report: StatusReport): string {
   return `${lines.join("\n")}\n`;
 }
 
-const OWN_KEYS = new Set(["helm.work_item_id", "helm.episode_id", "helm.executor"]);
+const OWN_KEYS = new Set(["helm.work_item_id", "helm.episode_id", "helm.executor", "helm.executor_host"]);
 
 // OpenTelemetry resource attribute values: percent-encode everything outside the unreserved set.
 const attr = (v: string): string => encodeURIComponent(v);
@@ -103,6 +104,7 @@ export function otelResourceAttributes(ctx: Ctx): string {
   const slot = loadSlot(ctx);
   if (!slot) throw new ExecutorError("no_episode", `no episode is checked out in slot "${ctx.slot}"`);
   if (slot.ended) throw new ExecutorError("episode_ended", `the episode ended: ${slot.ended.reason}`);
+  if (slot.executor_host !== undefined && !isExecutorHost(slot.executor_host)) throw new ExecutorError("usage", "the slot has an invalid executor host");
   const kept = (ctx.env.OTEL_RESOURCE_ATTRIBUTES ?? "")
     .split(",")
     .map((pair) => pair.trim())
@@ -112,6 +114,7 @@ export function otelResourceAttributes(ctx: Ctx): string {
     `helm.work_item_id=${attr(slot.work_item_id)}`,
     `helm.episode_id=${attr(slot.episode_id)}`,
     `helm.executor=${attr(slot.client)}`,
+    ...(slot.executor_host ? [`helm.executor_host=${attr(slot.executor_host)}`] : []),
   ].join(",");
 }
 

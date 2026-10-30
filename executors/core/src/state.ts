@@ -47,6 +47,7 @@ export interface CachedToken {
 export interface SlotState {
   slot: string;
   client: string;
+  executor_host?: string;
   org_id: string;
   workspace_id: string;
   work_item_id: string;
@@ -311,6 +312,7 @@ export interface PendingCheckout {
   key: string;
   work_item_id: string;
   client: string;
+  executor_host?: string;
   org_id: string;
   created_at: string;
 }

@@ -5,6 +5,7 @@
 // the working directory.
 
 import { createHash } from "node:crypto";
+import { isExecutorHost, type ExecutorHost } from "./contract.js";
 import { ExecutorError } from "./errors.js";
 import { redactSecrets } from "./redact.js";
 import { commandShape } from "./shape.js";
@@ -35,6 +36,7 @@ export interface Observation {
   schema: "helm.executor.observation/v1";
   coverage: "observed-only";
   client: ObserveClient;
+  executor_host?: ExecutorHost;
   event: ObserveEvent;
   observed_at: string;
   episode_id: string;
@@ -179,6 +181,10 @@ export function buildObservation(args: BuildArgs): Observation {
     work_item_id: slot.work_item_id.slice(0, 128),
     session_id: sessionId,
   };
+  if (slot.executor_host !== undefined) {
+    if (!isExecutorHost(slot.executor_host)) throw new ExecutorError("rejected", "the slot has an invalid executor host");
+    observation.executor_host = slot.executor_host;
+  }
   for (const [key, from] of [
     ["turn_id", "turn_id"],
     ["prompt_id", "prompt_id"],

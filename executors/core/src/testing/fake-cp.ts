@@ -20,6 +20,7 @@ export interface EpisodeRecord {
   episodeId: string;
   workItemId: string;
   client: string;
+  executorHost?: string;
   deadlineMs: number;
   stopped: boolean;
   idempotencyKey: string;
@@ -270,11 +271,14 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
         const episodeId = m[2] ? decodeURIComponent(m[2]) : undefined;
         if (!episodeId) {
           const b = isRecord(body) ? body : {};
-          if (!["claude-code", "codex", "openclaw"].includes(String(b.client)) || typeof b.idempotency_key !== "string") {
+          if (!["claude-code", "codex", "openclaw"].includes(String(b.client)) || typeof b.idempotency_key !== "string" || Object.hasOwn(b, "executor_host") && b.executor_host !== "console-runner") {
             return consoleError(res, 400, "invalid request", "invalid_request");
           }
           const known = byKey.get(b.idempotency_key);
           const existing = known ? episodes.get(known) : undefined;
+          if (existing && (existing.client !== b.client || existing.executorHost !== b.executor_host || existing.workItemId !== workItemId)) {
+            return consoleError(res, 409, "executor checkout changed", "executor_binding_changed");
+          }
           // One live episode per work item. A replay of the same request is not a second episode.
           if (!existing && [...episodes.values()].some((e) => e.workItemId === workItemId && !e.stopped && e.deadlineMs > now())) {
             return consoleError(res, 409, "the work item already has a live episode", "work_item_busy");
@@ -283,6 +287,7 @@ export async function startFakeCp(options: FakeCpOptions = {}): Promise<FakeCp> 
             episodeId: randomUUID(),
             workItemId,
             client: String(b.client),
+            ...(b.executor_host ? { executorHost: String(b.executor_host) } : {}),
             deadlineMs: now() + episodeDeadline,
             stopped: false,
             idempotencyKey: b.idempotency_key,
