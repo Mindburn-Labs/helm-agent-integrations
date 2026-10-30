@@ -24,7 +24,7 @@ export const USAGE = `usage: helm-executor <command> [options]
 
 commands:
   login     --cp-url <url> [--org <org-id>] [--name <label>]   authorize this machine (device code)
-  checkout  <work-item-id> --client <claude-code|codex|openclaw> [--org <org-id>] [--wait <seconds>] [--json]
+  checkout  <work-item-id> --client <claude-code|codex|openclaw> [--host <console-runner>] [--org <org-id>] [--wait <seconds>] [--json]
   token                                                        print a bearer token for the checked-out episode
   headers                                                      print {"Authorization":"Bearer ..."}
   observe   --client <claude-code|codex> --event <event>       report one hook event (stdin); always exits 0
@@ -94,12 +94,12 @@ async function dispatch(command: string | undefined, rest: string[], env: Env, i
       return 0;
     }
     case "checkout": {
-      const { values, positionals } = parse(rest, { client: { type: "string" }, org: { type: "string" }, json: { type: "boolean" }, wait: { type: "string" } }, 1);
+      const { values, positionals } = parse(rest, { client: { type: "string" }, host: { type: "string" }, org: { type: "string" }, json: { type: "boolean" }, wait: { type: "string" } }, 1);
       const wait = values.wait === undefined ? 0 : Number(values.wait);
       if (!Number.isInteger(wait) || wait < 0 || wait > MAX_WAIT_SECONDS) throw new ExecutorError("usage", `--wait must be a whole number of seconds from 0 to ${MAX_WAIT_SECONDS}`);
       const client = values.client ?? env.HELM_EXECUTOR_CLIENT;
       if (!client) throw new ExecutorError("usage", `--client is required (${CHECKOUT_CLIENTS.join(", ")}) or set HELM_EXECUTOR_CLIENT`);
-      const { slot, reused } = await checkout(makeCtx(env, overrides), { workItem: positionals[0] ?? "", client, org: values.org, waitSeconds: wait, say: (line) => void io.stderr(`${line}\n`) });
+      const { slot, reused } = await checkout(makeCtx(env, overrides), { workItem: positionals[0] ?? "", client, host: values.host, org: values.org, waitSeconds: wait, say: (line) => void io.stderr(`${line}\n`) });
       if (values.json) {
         await io.stdout(
           `${JSON.stringify({
@@ -107,6 +107,7 @@ async function dispatch(command: string | undefined, rest: string[], env: Env, i
             episode_id: slot.episode_id,
             work_item_id: slot.work_item_id,
             client: slot.client,
+            ...(slot.executor_host ? { executor_host: slot.executor_host } : {}),
             slot: slot.slot,
             deadline: slot.deadline,
             reused,

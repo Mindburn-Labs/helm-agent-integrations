@@ -28,7 +28,7 @@ sends is observed-only.
 | `helm-executor headers` | Claude Code MCP `headersHelper`; Codex `http_headers_helper` |
 | `helm-executor observe --client <c> --event <e>` | client hooks, on stdin |
 | `helm-executor login --cp-url <url> [--org <org-id>]` | a person, once per machine |
-| `helm-executor checkout <work-item-id> --client <c> [--org <org-id>] [--wait <seconds>] [--json]` | launcher or agent |
+| `helm-executor checkout <work-item-id> --client <c> [--host <console-runner>] [--org <org-id>] [--wait <seconds>] [--json]` | launcher or agent |
 | `helm-executor stop [--local]` | launcher or agent |
 | `helm-executor status [--json]` | people, installers, conformance |
 | `helm-executor env [--format shell\|json]` | launchers |
@@ -203,6 +203,10 @@ The hook JSON goes to stdin unchanged.
 and posts nothing. The post carries `episode_id` and `work_item_id` from the
 checked-out episode, never from the hook input.
 
+**Host provenance.** `executor_host` is optional and currently allows only
+`console-runner`. It comes from the checked-out slot, never hook stdin. Bare CLI
+observations omit it. CP binds it to the retained episode and rejects a mismatch.
+
 **Stdin envelope.** [schema/observe-input.schema.json](schema/observe-input.schema.json)
 is the schema. Unknown fields are ignored. Input over 8 MiB is skipped.
 The in-process API enforces the same byte cap before parsing JSON.
@@ -327,14 +331,20 @@ which is exit 7. An unreadable credentials file is replaced. Logging in to anoth
 control plane drops the stored organization id, which belonged to the first.
 
 **`checkout <work-item-id>`.** Creates an executor episode for the work item and
-stores it in the slot, with its deadline. `--client` is required unless
+stores it in the slot, with its deadline. `--host console-runner` records optional
+host provenance; omission means a bare CLI session. Unknown or empty host values
+are exit 2 before any request. The host is retained in the slot, added to
+observations as `executor_host`, and exposed by `env` as `helm.executor_host`.
+It grants no principal or enrollment authority. A live slot can be reused only
+with the same host; switching host requires stopping it or selecting another slot.
+`--client` is required unless
 `HELM_EXECUTOR_CLIENT` is set. The organization comes from `--org`, then
 `HELM_EXECUTOR_ORG`, then the stored one. A second `checkout` of the same work
 item in the same slot is a no-op that reports the existing episode, unless that
 episode is past its deadline, in which case it creates a new one. A different
 work item in an occupied slot is exit 2. `<work-item-id>` is the work item's id
 as the control plane knows it, a UUID. Stdout is one human line, or with
-`--json`:
+`--json` (a hosted checkout also includes `executor_host`):
 
 ```json
 {"schema":"helm.executor.checkout/v1","episode_id":"…","work_item_id":"…","client":"claude-code","slot":"default","deadline":"2026-10-08T13:00:00Z","reused":false}
@@ -348,7 +358,7 @@ retries share one idempotency key.
 The key survives the process: until the checkout is confirmed, refused for good or
 stopped (`stop --local` also drops it when the slot is empty), it is kept in the
 slot directory for up to an hour and reused by the next
-`checkout` of the same work item, client and organization. When every answer of
+`checkout` of the same work item, client, host and organization. When every answer of
 one run was lost, the control plane may still have created the episode, and the
 same key gets that episode back instead of a 409 for one nobody here holds.
 
@@ -403,7 +413,7 @@ change.
 | `POST /api/v1/auth/device/code` | none | `{"client_name","client_type":"cli"}` | 201 `{device_code,user_code,verification_uri,verification_uri_complete,expires_in,interval}` |
 | `POST /api/v1/auth/device/token` | none | `{"grant_type":"urn:ietf:params:oauth:grant-type:device_code","device_code"}` | 200 `{token_type,access_token,expires_in,refresh_token,refresh_expires_in,scope,credential_id,subject,workspace_id}`; 400 `authorization_pending`, `slow_down`, `expired_token`, `invalid_grant` |
 | `POST /api/v1/auth/device/refresh` | none | `{"grant_type":"refresh_token","refresh_token"}` | same body as the token call. The refresh token rotates |
-| `POST {ORG}/work-items/{work_item_id}/executor-episodes` | machine | `{"client","idempotency_key"}` | 201 `{episode_id,work_item_id,token,token_expires_at,deadline}` |
+| `POST {ORG}/work-items/{work_item_id}/executor-episodes` | machine | `{"client","idempotency_key","executor_host"?}` | 201 `{episode_id,work_item_id,token,token_expires_at,deadline}` |
 | `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/token` | machine | `{}` | 200 `{token,token_expires_at}`. `expires_in` seconds is accepted in place of `token_expires_at`, and the create body also fits |
 | `POST {ORG}/work-items/{work_item_id}/executor-episodes/{episode_id}/stop` | machine | `{}` | 204 (200 also accepted). Repeating it is acknowledged again |
 | `POST {ORG}/observations` | machine | [observation](schema/observation.schema.json) | 202 |

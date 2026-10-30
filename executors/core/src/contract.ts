@@ -6,6 +6,12 @@
 
 import { ExecutorError } from "./errors.js";
 
+export const EXECUTOR_HOSTS = ["console-runner"] as const;
+export type ExecutorHost = (typeof EXECUTOR_HOSTS)[number];
+export function isExecutorHost(value: unknown): value is ExecutorHost {
+  return typeof value === "string" && (EXECUTOR_HOSTS as readonly string[]).includes(value);
+}
+
 export const DEVICE_CODE_PATH = "/api/v1/auth/device/code";
 export const DEVICE_TOKEN_PATH = "/api/v1/auth/device/token";
 export const DEVICE_REFRESH_PATH = "/api/v1/auth/device/refresh";

@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { Budget, callMachine, iso, requireCredentials } from "../auth.js";
-import { episodesPath, parseEpisodeGrant } from "../contract.js";
+import { episodesPath, EXECUTOR_HOSTS, isExecutorHost, parseEpisodeGrant } from "../contract.js";
 import type { Ctx } from "../ctx.js";
 import { ExecutorError } from "../errors.js";
 import { errorDetail, failForStatus } from "../http.js";
@@ -35,6 +35,7 @@ const PENDING_MAX_AGE_MS = 3_600_000;
 export interface CheckoutOptions {
   workItem: string;
   client: string;
+  host?: string;
   org?: string;
   /** Keep trying while the work item is not free (a 409), for this many seconds at most. Default 0: one try. */
   waitSeconds?: number;
@@ -59,6 +60,9 @@ export async function checkout(ctx: Ctx, options: CheckoutOptions): Promise<Chec
   if (!(CHECKOUT_CLIENTS as readonly string[]).includes(opts.client)) {
     throw new ExecutorError("usage", `--client must be one of ${CHECKOUT_CLIENTS.join(", ")}`);
   }
+  if (opts.host !== undefined && !isExecutorHost(opts.host)) {
+    throw new ExecutorError("usage", `--host must be one of ${EXECUTOR_HOSTS.join(", ")}`);
+  }
   const creds = requireCredentials(ctx);
   const org = opts.org?.trim() || ctx.env.HELM_EXECUTOR_ORG?.trim() || creds.org_id;
   if (!org) throw new ExecutorError("usage", "no organization: pass --org, set HELM_EXECUTOR_ORG, or run login with --org");
@@ -66,7 +70,10 @@ export async function checkout(ctx: Ctx, options: CheckoutOptions): Promise<Chec
   const inspect = (): CheckoutResult | null => {
     const slot = loadSlot(ctx);
     if (!slot || !slotIsLive(slot, ctx.now())) return null;
-    if (slot.work_item_id === opts.workItem) return { slot, reused: true };
+    if (slot.work_item_id === opts.workItem) {
+      if (slot.executor_host !== opts.host) throw new ExecutorError("usage", `slot "${ctx.slot}" holds a different executor host; run stop first or use another HELM_EXECUTOR_SLOT`);
+      return { slot, reused: true };
+    }
     throw new ExecutorError("usage", `slot "${ctx.slot}" holds ${slot.work_item_id}; run stop first or use another HELM_EXECUTOR_SLOT`);
   };
   const early = inspect();
@@ -85,9 +92,9 @@ export async function checkout(ctx: Ctx, options: CheckoutOptions): Promise<Chec
     const pending = loadPendingCheckout(ctx);
     const created = pending ? Date.parse(pending.created_at) : Number.NaN;
     const resume =
-      pending !== null && pending.work_item_id === opts.workItem && pending.client === opts.client && pending.org_id === org && ctx.now() >= created && ctx.now() - created < PENDING_MAX_AGE_MS;
+      pending !== null && pending.work_item_id === opts.workItem && pending.client === opts.client && pending.executor_host === opts.host && pending.org_id === org && ctx.now() >= created && ctx.now() - created < PENDING_MAX_AGE_MS;
     const key = resume && pending ? pending.key : randomUUID();
-    if (!resume) savePendingCheckout(ctx, { key, work_item_id: opts.workItem, client: opts.client, org_id: org, created_at: iso(ctx.now()) });
+    if (!resume) savePendingCheckout(ctx, { key, work_item_id: opts.workItem, client: opts.client, ...(opts.host ? { executor_host: opts.host } : {}), org_id: org, created_at: iso(ctx.now()) });
     const waitUntil = ctx.now() + wait;
     let pause = FIRST_PAUSE_MS;
     let failures = 0;
@@ -96,7 +103,7 @@ export async function checkout(ctx: Ctx, options: CheckoutOptions): Promise<Chec
         const res = await callMachine(ctx, budget, {
           method: "POST",
           path: episodesPath(creds.workspace_id, org, opts.workItem),
-          body: { client: opts.client, idempotency_key: key },
+          body: { client: opts.client, ...(opts.host ? { executor_host: opts.host } : {}), idempotency_key: key },
           headers: { "Idempotency-Key": key },
           client: opts.client,
         });
@@ -133,6 +140,7 @@ export async function checkout(ctx: Ctx, options: CheckoutOptions): Promise<Chec
         const slot: SlotState = {
           slot: ctx.slot,
           client: opts.client,
+          ...(opts.host ? { executor_host: opts.host } : {}),
           org_id: org,
           workspace_id: creds.workspace_id,
           work_item_id: grant.work_item_id,
