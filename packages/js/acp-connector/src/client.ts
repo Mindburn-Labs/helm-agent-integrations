@@ -12,7 +12,7 @@
  * policy enum.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import type {
   AcpRunEvent,
   AcpMcpServer,
@@ -193,7 +193,6 @@ export class GovernedAcpClient {
   private readonly fsGuard: FsGuard;
   private broker: GovernedPermissionBroker;
   private onEvent: (event: AcpRunEvent) => void;
-  private child?: ChildProcess;
   private peer?: NdJsonRpcPeer;
   private loadSession_ = false;
   private stderrTail = "";
@@ -244,7 +243,6 @@ export class GovernedAcpClient {
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
     });
-    this.child = child;
     this.tree = new OwnedProcessTree(child);
     child.stderr?.on("data", (d: Buffer) => {
       this.stderrTail = (this.stderrTail + d.toString()).slice(-STDERR_TAIL_BYTES);
@@ -540,7 +538,6 @@ export class GovernedAcpClient {
     return this.disposal ??= (async () => {
       const result = this.tree ? await this.tree.terminate() : { adapterExited: true, descendantsExited: true, forced: false };
       this.peer?.close();
-      this.child = undefined;
       this.peer = undefined;
       return result;
     })();
