@@ -1,6 +1,6 @@
 ---
 name: helm-boundary
-description: Use before a Hermes tool call with a high-risk side effect, to get a HELM AI Kernel verdict and receipt first.
+description: Gets a HELM AI Kernel verdict and receipt before a Hermes tool call runs. Use when a Hermes action has a high-risk side effect, such as a file-mutating command, push, publish, external send, payment or deploy.
 version: 0.2.0
 metadata:
   hermes:
