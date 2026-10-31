@@ -1,7 +1,7 @@
 ---
 name: helm-boundary
-description: Route high-risk Hermes tool use through HELM AI Kernel before execution and attach receipts to Kanban tasks.
-version: 0.1.0
+description: Use before a Hermes tool call with a high-risk side effect, to get a HELM AI Kernel verdict and receipt first.
+version: 0.2.0
 metadata:
   hermes:
     requires_toolsets:
@@ -14,29 +14,16 @@ metadata:
 
 # HELM Boundary for Hermes
 
-Before executing a high-risk action, create an action proposal and submit it to
-HELM AI Kernel.
+A high-risk action runs only after HELM AI Kernel returns `ALLOW` with a receipt. In every other case the side effect does not happen.
 
-High-risk actions:
+High-risk: shell commands that mutate files, git push, package publishing, outbound email or messages, credential access, database writes, cloud deploys, MCP tool calls with side effects, browser form submissions, and procurement, payment or vendor actions. Reading, searching and local drafting need no evaluation.
 
-- shell commands that mutate files
-- git push
-- package publishing
-- external email or message send
-- credential access
-- database writes
-- cloud deploys
-- MCP tool calls with side effects
-- browser form submissions
-- procurement, payment, or vendor actions
+Evaluate with `POST /api/v1/evaluate` (kernel at `http://127.0.0.1:7714` unless configured; the key comes from `HELM_ADMIN_API_KEY`). Send the action URN (`tool.hermes.<tool>`, for example `tool.hermes.terminal`), the exact arguments you intend to run, and the session id. Principal, tenant, risk class and effect class come from the HELM configuration, never from the proposal, so do not supply them.
 
-Process:
+Act on the verdict:
 
-1. Classify the proposed action.
-2. Build a HELM preflight payload.
-3. Submit it to `POST /api/v1/evaluate`.
-4. Respect `ALLOW`, `DENY`, and `ESCALATE`.
-5. Dispatch only on `ALLOW`.
-6. Attach decision and receipt metadata to the Hermes task.
-7. If `DENY`, explain the blocked side effect and propose a safe alternative.
-8. If `ESCALATE`, request human approval with the receipt preview.
+- `ALLOW`: run exactly the evaluated action, and only if the response carries a `receipt_id`. Attach the verdict, `decision_id` and `receipt_id` to the Kanban task. Changed arguments need a new evaluation.
+- `DENY`: do not run it. Attach the verdict, `reason_code` and receipt to the task, say which side effect was blocked, and propose a safe alternative, evaluating it too if it is high-risk.
+- `ESCALATE`: do not run it. Ask a human to approve, showing the receipt preview. Approval does not replace `ALLOW`: run only after HELM returns `ALLOW` for the action.
+
+An unreachable kernel, an error, a missing or unknown verdict, or an `ALLOW` without a receipt counts as `DENY`.
