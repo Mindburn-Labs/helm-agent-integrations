@@ -41,6 +41,10 @@
 - Added sample policy `policies/policy.kubectl.governed.toml` with reference
   pack and deterministic sample receipts/EvidencePacks for the read-only
   ALLOW, apply ESCALATE, and delete DENY scenarios.
+- Rewrote the Hermes `helm-boundary` skill (0.2.0) as a compact contract:
+  which actions are high-risk, what goes to `POST /api/v1/evaluate`, and how to
+  act on `ALLOW`, `DENY` and `ESCALATE`, including attaching receipts to the
+  Kanban task.
 
 ## 0.1.0 - 2026-06-05
 
