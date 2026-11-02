@@ -119,9 +119,14 @@ function validCost(cost: unknown): cost is number {
 
 export async function runQualification(opts: RunOptions): Promise<RunResult> {
   const { pack, specialist, profile } = opts;
-  // A resumed repetition counts only when it ran as this release, prompt and route.
+  // A resumed repetition counts only when it ran as this release, prompt and route, and was
+  // judged validly; one without a valid judgement runs again rather than staying stuck.
   const results: RepetitionResult[] = (opts.resume ?? []).filter(
-    (result) => result.release_sha256 === opts.release_sha256 && result.prompt_sha256 === opts.prompt_sha256 && sameRoute(result.route, opts.route),
+    (result) =>
+      result.judge_valid &&
+      result.release_sha256 === opts.release_sha256 &&
+      result.prompt_sha256 === opts.prompt_sha256 &&
+      sameRoute(result.route, opts.route),
   );
   const done = new Set(results.map((result) => `${result.case_id}#${result.repetition}`));
   const detectable = judgeDetectable(pack.vocabulary, pack.action_catastrophes);

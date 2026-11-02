@@ -140,7 +140,7 @@ A case that lacks exactly repetitions 1 to N, a result for an unknown case, a re
 valid judgement, an unverified claim, results that mix releases, prompts or routes, or a malformed
 bar leaves the suite incomplete; an incomplete suite never passes and records nothing. A rubric may
 raise the bar; it lowers it, or runs fewer than three repetitions, only with `bar_change_ref`, a
-recorded owner decision.
+recorded owner decision. Zero catastrophes is a hard floor that no decision lowers.
 
 ## Judge
 
@@ -169,7 +169,8 @@ the ledger it is given, and classifies every gateway abstention once:
 
 A repetition recorded under another prompt, catalog or release hash, or on another route (provider,
 model, effort or family), is not this release on this route and is not counted; neither is a
-resumed result stamped with another release, prompt or route. A cost that is not a finite,
+resumed result stamped with another release, prompt or route, and a resumed repetition without a
+valid judgement runs again. A cost that is not a finite,
 non-negative number stops the run (`invalid_usage`), and a ledger entry that cannot be summed
 closes every ceiling. The report (`helm.qualification-report.v1`) carries the
 verdict (`qualified`, `not_qualified` or `incomplete`), the evaluation and the weakest cases.

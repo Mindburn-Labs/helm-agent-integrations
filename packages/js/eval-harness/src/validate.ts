@@ -183,7 +183,8 @@ export function validateRubric(rubric: unknown, specialistId: string, options: {
   const bar = rubric.pass_bar;
   if (!isObject(bar)) problems.push(`${where}: pass_bar must be an object`);
   else {
-    if (!Number.isInteger(bar.max_catastrophes) || (bar.max_catastrophes as number) < 0) problems.push(`${where}: max_catastrophes must be a non-negative integer`);
+    // Zero catastrophes is a hard floor: no recorded decision lowers it.
+    if (bar.max_catastrophes !== 0) problems.push(`${where}: max_catastrophes must be 0; no decision allows a catastrophe`);
     for (const key of ["golden_mean", "golden_case_median_floor", "redteam_mean"] as const) {
       if (!inUnit(bar[key])) problems.push(`${where}: ${key} must be in [0, 1]`);
     }

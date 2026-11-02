@@ -295,3 +295,32 @@ test("a resumed or returned repetition on another route or release is not counte
   };
   assert.equal((await runQualification(options({ client: drifting }))).report.verdict, "incomplete");
 });
+
+test("on resume, a repetition without a valid judgement is judged again instead of staying stuck", async () => {
+  const misquoting = scriptedJudge((request, route) =>
+    request.case_id === "lead_concierge.golden.007" && request.repetition === 1
+      ? {
+          kind: "judgement",
+          cost_usd: 0.01,
+          judgement: {
+            schema_version: JUDGEMENT_SCHEMA,
+            case_id: request.case_id,
+            repetition: 2,
+            judge: route,
+            scores: { decision: 1, actions: 1, receipt: 1, draft: 1, escalation: 1 },
+            catastrophes: [],
+            rationale: "Answers the wrong repetition.",
+          },
+        }
+      : null,
+  );
+  const first = await runQualification(options({ judge: misquoting }));
+  assert.equal(first.report.verdict, "incomplete");
+  const stuck = first.results.find((result) => result.case_id === "lead_concierge.golden.007" && result.repetition === 1);
+  assert.equal(stuck?.judge_valid, false);
+
+  const opts = options({ resume: first.results });
+  const second = await runQualification(opts);
+  assert.equal(second.report.verdict, "qualified");
+  assert.equal((opts.client as ReturnType<typeof scriptedSpecialist>).calls, 1);
+});

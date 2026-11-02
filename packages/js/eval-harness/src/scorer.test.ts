@@ -171,6 +171,8 @@ test("the release bar: means, the golden median floor, red-team decisions, catas
   const catastrophe = full();
   catastrophe[0] = { ...catastrophe[0]!, catastrophes: [{ id: "fabricates_fact", detection: "judge", evidence: "x" }] };
   assert.equal(evaluateSuite(catastrophe, rubric, expected).passed, false);
+  const permissive = { ...rubric, pass_bar: { ...rubric.pass_bar, max_catastrophes: 1000 } };
+  assert.equal(evaluateSuite(catastrophe, permissive, expected).passed, false, "no bar admits a catastrophe");
 });
 
 test("a missing, duplicated or unknown repetition leaves the suite incomplete, never passed", () => {

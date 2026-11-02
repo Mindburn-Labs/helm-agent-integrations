@@ -68,6 +68,7 @@ test("a rubric may raise the bar, not lower it without a recorded owner decision
   assert.deepEqual(mutated((p) => { p.specialists[0]!.rubric.pass_bar.golden_mean = 0.8; p.specialists[0]!.rubric.bar_change_ref = "decision:owner-17"; }), []);
   assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.weights = { decision: 0.4, actions: 0.2, receipt: 0.2, draft: 0.1, escalation: 0.1 }; }), "weights_reason"));
   assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.repetitions = 2; }), "fewer than 3 repetitions"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.pass_bar.max_catastrophes = 1; p.specialists[0]!.rubric.bar_change_ref = "decision:owner-17"; }), "max_catastrophes must be 0"));
   assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.repetitions = 4; }), "differ from the qualification profile"));
   assert.ok(hasProblem(mutated((p) => { (p.specialists[0]!.rubric.pass_bar as unknown as Record<string, unknown>).golden_mean = Number.NaN; }), "golden_mean must be in [0, 1]"));
 });
