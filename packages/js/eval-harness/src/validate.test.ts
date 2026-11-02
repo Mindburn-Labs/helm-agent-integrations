@@ -67,7 +67,9 @@ test("a rubric may raise the bar, not lower it without a recorded owner decision
   assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.pass_bar.golden_mean = 0.8; }), "without a recorded owner decision"));
   assert.deepEqual(mutated((p) => { p.specialists[0]!.rubric.pass_bar.golden_mean = 0.8; p.specialists[0]!.rubric.bar_change_ref = "decision:owner-17"; }), []);
   assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.weights = { decision: 0.4, actions: 0.2, receipt: 0.2, draft: 0.1, escalation: 0.1 }; }), "weights_reason"));
-  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.repetitions = 2; }), "differ from the qualification profile"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.repetitions = 2; }), "fewer than 3 repetitions"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.rubric.repetitions = 4; }), "differ from the qualification profile"));
+  assert.ok(hasProblem(mutated((p) => { (p.specialists[0]!.rubric.pass_bar as unknown as Record<string, unknown>).golden_mean = Number.NaN; }), "golden_mean must be in [0, 1]"));
 });
 
 test("a pack may extend the catastrophe vocabulary but not redefine it", () => {
@@ -99,4 +101,26 @@ test("release hashes are canonical and change with any component", () => {
   assert.throws(() => releaseSha256({ specialist_id: "x", components: { instructions: "b".repeat(64) } }), /catalog/);
   assert.equal(canonicalSha256({ b: 1, a: [true, null] }), canonicalSha256({ a: [true, null], b: 1 }));
   assert.throws(() => canonicalSha256({ a: Number.NaN }));
+});
+
+test("reads must be allowlisted too, and optional actions must be grantable", () => {
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.allowlist.actions = p.specialists[0]!.allowlist.actions.filter((a) => a.action_id !== "lead.read"); p.specialists[0]!.golden.cases[0]!.expected.actions.push({ action_id: "lead.read" }); }), "allowlist does not grant"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.golden.cases[0]!.expected.optional_actions = ["lead.export"]; }), "not on the allowlist"));
+  assert.ok(hasProblem(mutated((p) => { (p.specialists[0]!.golden.cases[0]!.expected as unknown as Record<string, unknown>).optional_actions = 5; }), "optional_actions must be a list"));
+});
+
+test("case policy below release grade needs a reason; the case author is required", () => {
+  assert.ok(hasProblem(mutated((p) => { delete p.manifest.case_policy_reason; }), "without a case_policy_reason"));
+  assert.ok(hasProblem(mutated((p) => { p.case_policy = { ...p.case_policy, min_golden: Number.NaN }; }), "must be a positive integer"));
+  assert.ok(hasProblem(mutated((p) => { (p.manifest as unknown as Record<string, unknown>).case_author = null; }), "case_author must name"));
+});
+
+test("more date and contact shapes are caught; a lower-case identifier still counts as visible", () => {
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.golden.cases[0]!.signal.content.text = "Come on 3 April please"; }), "calendar date"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.golden.cases[0]!.signal.content.text = "Due 2031/04/02"; }), "calendar date"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.golden.cases[0]!.signal.content.text = "Call +44 20 7946 0000"; }), "555-0100 to 555-0199"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.golden.cases[0]!.facts[0]!.data["dana@gmail.com"] = true; }), "reserved example domains"));
+  assert.ok(hasProblem(mutated((p) => { p.specialists[0]!.golden.cases[0]!.clock = { weekday: "thrusday" as "thursday" }; }), "clock takes only"));
+  assert.deepEqual(mutated((p) => { p.specialists[0]!.golden.cases[0]!.expected.actions[0]!.args_must_include = { lead_id: "l-2001", triage: "qualified", service: "repair" }; }), []);
+  assert.deepEqual(mutated((p) => { p.specialists[0]!.golden.cases[0]!.clock = { season: "winter", weekday: "monday", local_time: "08:30" }; }), []);
 });

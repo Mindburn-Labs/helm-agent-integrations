@@ -75,3 +75,14 @@ test("an incomplete report records nothing; a complete one records the exact rou
   assert.deepEqual(row?.route, { provider: "anthropic", model: "claude-sonnet-5-5", effort: "medium" });
   assert.equal(row?.passed, false);
 });
+
+test("an unusable ledger entry closes the ceilings; fewer than three repetitions is not a profile", () => {
+  const profile = exampleProfile();
+  const now = 10 * 3_600_000;
+  const poisoned: UsageEntry[] = [{ at_ms: now - 1000, kind: "specialist", specialist_id: "a", cost_usd: Number.NaN }];
+  assert.deepEqual(checkCeiling(poisoned, { kind: "specialist", specialist_id: "a", estimate_usd: 0 }, now, profile), { allowed: false, reason: "cost_ceiling", scope: "ledger" });
+  const future: UsageEntry[] = Array.from({ length: profile.ceilings.specialist.calls }, () => ({ at_ms: now + 60_000, kind: "specialist" as const, specialist_id: "a", cost_usd: 0 }));
+  assert.equal(checkCeiling(future, { kind: "specialist", specialist_id: "a", estimate_usd: 0 }, now, profile).allowed, false, "future-dated entries still count");
+  assert.ok(validateProfile({ ...exampleProfile(), repetitions: 1 }).some((problem) => problem.includes("at least 3")));
+  assert.ok(validateProfile({ ...exampleProfile(), release_bar: {} as never }).length > 0);
+});

@@ -42,19 +42,37 @@ function wellFormed(record: QualificationRecord): boolean {
   );
 }
 
+/** The key a record claims, read defensively so a malformed record can still be attributed. */
+function claimedKey(record: unknown): string | null {
+  const r = record as Partial<QualificationRecord> | null;
+  if (!r || typeof r !== "object" || typeof r.specialist_id !== "string" || typeof r.route?.provider !== "string" || typeof r.route?.model !== "string" || typeof r.release_sha256 !== "string") return null;
+  return routeKey(r.specialist_id, r.route, r.release_sha256);
+}
+
+function governing(records: QualificationRecord[], specialistId: string, route: { provider: string; model: string; effort?: string | null }, release: string): { record: QualificationRecord | null; malformed: boolean } {
+  const key = routeKey(specialistId, route, release);
+  let best: QualificationRecord | null = null;
+  let malformed = false;
+  for (const record of Array.isArray(records) ? records : []) {
+    if (claimedKey(record) !== key) continue;
+    if (!wellFormed(record)) {
+      malformed = true;
+      continue;
+    }
+    if (!best || record.sequence > best.sequence || (record.sequence === best.sequence && !record.passed)) best = record;
+  }
+  return { record: best, malformed };
+}
+
 /**
  * The record that governs a key: the highest `sequence` among well-formed
  * records. Two records at the same top sequence that disagree resolve to the
- * failed one.
+ * failed one. A malformed record that claims the key cannot be ordered, so it
+ * governs as a failure: the result is null.
  */
 export function governingRecord(records: QualificationRecord[], specialistId: string, route: { provider: string; model: string; effort?: string | null }, release: string): QualificationRecord | null {
-  const key = routeKey(specialistId, route, release);
-  let best: QualificationRecord | null = null;
-  for (const record of records) {
-    if (!wellFormed(record) || routeKey(record.specialist_id, record.route, record.release_sha256) !== key) continue;
-    if (!best || record.sequence > best.sequence || (record.sequence === best.sequence && !record.passed)) best = record;
-  }
-  return best;
+  const found = governing(records, specialistId, route, release);
+  return found.malformed ? null : found.record;
 }
 
 export interface HopDecision {
@@ -99,9 +117,9 @@ export function selectQualifiedRoute(input: {
       skipped.push({ route, reason: "same_family_as_reviewed" });
       return null;
     }
-    const record = governingRecord(input.qualifications, input.specialist_id, route, input.release_sha256 as string);
-    if (!record || !record.passed) {
-      skipped.push({ route, reason: record ? "qualification_failed" : "unqualified" });
+    const { record, malformed } = governing(input.qualifications, input.specialist_id, route, input.release_sha256 as string);
+    if (malformed || !record || !record.passed) {
+      skipped.push({ route, reason: malformed ? "malformed_record" : record ? "qualification_failed" : "unqualified" });
       return null;
     }
     return { route, qualification_id: record.qualification_id };

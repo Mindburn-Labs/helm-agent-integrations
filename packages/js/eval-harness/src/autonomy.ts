@@ -1,8 +1,9 @@
 /**
  * Earned autonomy: pure rules, no storage.
  *
- * Autonomy is set per specialist and action on the D19 ladder (Watch, Suggest,
- * Ask me first, Act within limits, Review regularly). It widens one step at a
+ * Autonomy is set per specialist and action on HELM's single autonomy ladder
+ * (controller decision D19): Watch, Suggest, Ask me first, Act within limits,
+ * Review regularly. It widens one step at a
  * time, only as a proposal an authorized person decides, and only on a track
  * record: agreement between the specialist's proposals and what people
  * decided or did, counted under the current release and step policy. It
@@ -60,7 +61,12 @@ function nextStep(step: Step): Step | null {
  * 3/n with 95% confidence. At other confidences the zero-error bound is
  * -ln(1 - confidence)/n.
  */
+function assertConfidence(confidence: number): void {
+  if (typeof confidence !== "number" || !(confidence > 0 && confidence < 1)) throw new Error("confidence must be in (0, 1)");
+}
+
 export function zeroErrorUpperBound(n: number, confidence = 0.95): number {
+  assertConfidence(confidence);
   if (!(n > 0)) return 1;
   const factor = confidence === 0.95 ? 3 : -Math.log(1 - confidence);
   return Math.min(1, factor / n);
@@ -84,6 +90,7 @@ function binomialCdf(k: number, n: number, p: number): number {
  */
 export function errorRateUpperBound(n: number, errors: number, confidence = 0.95): number {
   if (!Number.isInteger(n) || !Number.isInteger(errors) || errors < 0 || errors > n) throw new Error("need integers 0 <= errors <= n");
+  assertConfidence(confidence);
   if (n === 0) return 1;
   if (errors === 0) return zeroErrorUpperBound(n, confidence);
   if (errors === n) return 1;
@@ -101,6 +108,7 @@ export function errorRateUpperBound(n: number, errors: number, confidence = 0.95
 /** Clean cases needed to prove `targetErrorRate` at 95%: 3/target (600 for 0.5%). */
 export function requiredCleanCases(targetErrorRate: number, confidence = 0.95): number {
   if (!(targetErrorRate > 0 && targetErrorRate < 1)) throw new Error("target error rate must be in (0, 1)");
+  assertConfidence(confidence);
   const factor = confidence === 0.95 ? 3 : -Math.log(1 - confidence);
   return Math.ceil(factor / targetErrorRate - 1e-9);
 }
@@ -184,15 +192,23 @@ export interface WindowKey {
  * comparison stays.
  */
 export function summarizeWindow(decisions: AgreementDecision[], key: WindowKey, options: { maxWindow?: number; confidence?: number } = {}): WindowSummary {
-  let pair = decisions
-    .filter((d) => d.specialist_id === key.specialist_id && d.action_id === key.action_id && d.release_sha256 === key.release_sha256 && d.policy_version === key.policy_version)
-    .sort((a, b) => a.sequence - b.sequence);
+  if (options.maxWindow !== undefined && (!Number.isInteger(options.maxWindow) || options.maxWindow < 1)) throw new Error("maxWindow must be a positive integer");
+  // One decision counts once: a repeated decision_id keeps its latest sequence.
+  const byId = new Map<string, AgreementDecision>();
+  for (const d of decisions) {
+    if (d.specialist_id !== key.specialist_id || d.action_id !== key.action_id || d.release_sha256 !== key.release_sha256 || d.policy_version !== key.policy_version) continue;
+    const seen = byId.get(d.decision_id);
+    if (!seen || d.sequence >= seen.sequence) byId.set(d.decision_id, d);
+  }
+  let pair = [...byId.values()].sort((a, b) => a.sequence - b.sequence);
   if (options.maxWindow !== undefined) pair = pair.slice(-options.maxWindow);
-  const catastrophes = pair.filter((d) => d.catastrophe).length;
-  const scored = pair.filter((d) => d.comparison !== "unscored" && !(d.close_refused && d.comparison === "match"));
-  const matches = scored.filter((d) => d.comparison === "match").length;
-  const partials = scored.filter((d) => d.comparison === "partial").length;
-  const diverges = scored.filter((d) => d.comparison === "diverge").length;
+  // A comparison this module does not know reads as a divergence, never as a match.
+  const comparison = (d: AgreementDecision): Comparison => (KNOWN_COMPARISONS.has(d.comparison) ? d.comparison : "diverge");
+  const catastrophes = pair.filter((d) => d.catastrophe !== false).length;
+  const scored = pair.filter((d) => comparison(d) !== "unscored" && !(d.close_refused && comparison(d) === "match"));
+  const matches = scored.filter((d) => comparison(d) === "match").length;
+  const partials = scored.filter((d) => comparison(d) === "partial").length;
+  const diverges = scored.filter((d) => comparison(d) === "diverge").length;
   const counted = scored.length;
   const errors = partials + diverges;
   return {
@@ -207,6 +223,8 @@ export function summarizeWindow(decisions: AgreementDecision[], key: WindowKey, 
     error_upper_bound: errorRateUpperBound(counted, errors, options.confidence ?? 0.95),
   };
 }
+
+const KNOWN_COMPARISONS: ReadonlySet<string> = new Set(["match", "partial", "diverge", "unscored"]);
 
 // ----------------------------------------------------------------- promotion
 
@@ -270,6 +288,26 @@ export interface PromotionVerdict {
   requires_owner_decision: true;
 }
 
+/** Problems with a policy; a policy with any is never used to widen a step. */
+export function validateAutonomyPolicy(policy: AutonomyPolicy): string[] {
+  const problems: string[] = [];
+  if (typeof policy?.version !== "string" || policy.version === "") problems.push("version is required");
+  if (!(policy?.confidence > 0 && policy.confidence < 1)) problems.push("confidence must be in (0, 1)");
+  if (!(policy?.improvement_factor >= 1) || !Number.isFinite(policy.improvement_factor)) problems.push("improvement_factor must be at least 1");
+  if (!Number.isInteger(policy?.max_catastrophes) || policy.max_catastrophes < 0) problems.push("max_catastrophes must be a non-negative integer");
+  if (policy?.max_window !== undefined && (!Number.isInteger(policy.max_window) || policy.max_window < 1)) problems.push("max_window must be a positive integer");
+  for (const step of ["suggest", "ask_first", "within_limits", "review_regularly"] as const) {
+    const bar = policy?.bars?.[step];
+    if (!bar || !Number.isInteger(bar.min_decisions) || bar.min_decisions < 0 || !(bar.min_match_share >= 0 && bar.min_match_share <= 1) || typeof bar.statistical !== "boolean") {
+      problems.push(`bars.${step} needs min_decisions, min_match_share and statistical`);
+    }
+  }
+  for (const [severity, rate] of Object.entries(policy?.severity_max_error_rate ?? {})) {
+    if (!(rate > 0 && rate < 1)) problems.push(`severity_max_error_rate.${severity} must be in (0, 1)`);
+  }
+  return problems;
+}
+
 /** Target error rate for the statistical bar: the human rate over the improvement factor, tightened by severity. */
 export function targetErrorRate(action: ActionProfile, policy: AutonomyPolicy): number | null {
   if (action.human_error_rate === null || !(action.human_error_rate > 0)) return null;
@@ -293,13 +331,15 @@ export function evaluatePromotion(input: {
   policy?: AutonomyPolicy;
 }): PromotionVerdict {
   const policy = input.policy ?? DEFAULT_AUTONOMY_POLICY;
-  const summary = summarizeWindow(input.decisions, input.key, { maxWindow: policy.max_window, confidence: policy.confidence });
-  const blocked: string[] = [];
+  const policyProblems = validateAutonomyPolicy(policy);
+  const safe = policyProblems.length === 0 ? policy : DEFAULT_AUTONOMY_POLICY;
+  const summary = summarizeWindow(input.decisions, input.key, { maxWindow: safe.max_window, confidence: safe.confidence });
+  const blocked: string[] = policyProblems.map((problem) => `invalid policy: ${problem}`);
   const proposed = nextStep(input.current_step);
   let target: number | null = null;
   let required: number | null = null;
 
-  if (input.key.policy_version !== policy.version) blocked.push("window is not under the current step policy version");
+  if (input.key.policy_version !== safe.version) blocked.push("window is not under the current step policy version");
   if (input.action.human_only) blocked.push("human-only action");
   if (input.action.protective) blocked.push("protective actions are off the ladder");
   if (!proposed) blocked.push("already at the top step");
@@ -308,17 +348,17 @@ export function evaluatePromotion(input: {
     if (stepRank(proposed) > stepRank("ask_first") && !input.action.delegable) blocked.push("the action always asks first");
     if (input.practice_only && stepRank(proposed) > stepRank("ask_first")) blocked.push("a practice-only setting moves to asks first before it can act within limits");
     if (!input.qualified) blocked.push("no passed qualification on the route the specialist runs on");
-    if (summary.catastrophes > policy.max_catastrophes) blocked.push(`${summary.catastrophes} catastrophe(s) in the window`);
-    const bar = policy.bars[proposed as Exclude<Step, "watch">];
+    if (summary.catastrophes > safe.max_catastrophes) blocked.push(`${summary.catastrophes} catastrophe(s) in the window`);
+    const bar = safe.bars[proposed as Exclude<Step, "watch">];
     if (summary.counted < bar.min_decisions) blocked.push(`${summary.counted} compared decisions, ${bar.min_decisions} needed`);
     if (bar.min_match_share > 0 && (summary.match_share ?? 0) < bar.min_match_share) {
       blocked.push(`match share ${summary.match_share === null ? "none" : summary.match_share.toFixed(3)}, ${bar.min_match_share} needed`);
     }
     if (bar.statistical) {
-      target = targetErrorRate(input.action, policy);
+      target = targetErrorRate(input.action, safe);
       if (target === null) blocked.push("no measured human error rate to compare with");
       else {
-        required = requiredCleanCases(target, policy.confidence);
+        required = requiredCleanCases(target, safe.confidence);
         if (summary.error_upper_bound > target) {
           blocked.push(`error rate bound ${summary.error_upper_bound.toFixed(4)} above target ${target.toFixed(4)} (${required} clean cases prove it with no error)`);
         }
@@ -379,10 +419,13 @@ const PRACTICE_STOPPERS: ReadonlySet<string> = new Set(["release_changed_unquali
 export function applyDemotion(setting: Setting, trigger: DemotionTrigger | string): DemotionResult {
   const exception = trigger === "catastrophe";
   if (setting.practice_only) {
+    // Practice never sits above Ask me first; a setting that claims to is narrowed.
+    const step: Step = stepRank(setting.step) > stepRank("ask_first") ? "ask_first" : setting.step;
+    const narrowed = step !== setting.step;
     if (PRACTICE_STOPPERS.has(trigger) || !isKnownTrigger(trigger)) {
-      return { setting: { ...setting, practice_stopped: true }, changed: !setting.practice_stopped, requires_owner_confirmation: true, open_exception: exception };
+      return { setting: { ...setting, step, practice_stopped: true }, changed: narrowed || !setting.practice_stopped, requires_owner_confirmation: true, open_exception: exception };
     }
-    return { setting, changed: false, requires_owner_confirmation: false, open_exception: exception };
+    return { setting: { ...setting, step }, changed: narrowed, requires_owner_confirmation: narrowed, open_exception: exception };
   }
   return fallBack(setting, exception);
 }
@@ -413,8 +456,10 @@ function isKnownTrigger(trigger: string): boolean {
 
 /**
  * Standing check for a widened setting: when the counted window no longer
- * meets the bar of the step it sits on (a catastrophe, or a match share below
- * the bar once enough decisions are counted), it falls back to Ask me first.
+ * meets the bar of the step it sits on, it falls back to Ask me first. The
+ * share bar trips as soon as the errors exceed what the bar tolerates over
+ * its minimum window, and the statistical bar as soon as the observed error
+ * rate exceeds the target, so a bad start is not shielded by a small window.
  */
 export function checkStanding(input: {
   setting: Setting;
@@ -426,20 +471,27 @@ export function checkStanding(input: {
   const policy = input.policy ?? DEFAULT_AUTONOMY_POLICY;
   const reasons: string[] = [];
   const step = input.setting.step;
-  if (stepRank(step) <= stepRank("ask_first") || input.setting.practice_only) {
-    return { setting: input.setting, changed: false, requires_owner_confirmation: false, open_exception: false, reasons };
+  const keep = { setting: input.setting, changed: false, requires_owner_confirmation: false, open_exception: false, reasons };
+  if (stepRank(step) <= stepRank("ask_first")) return keep;
+  if (input.setting.practice_only) reasons.push("a practice-only setting sits above ask first");
+  const policyProblems = validateAutonomyPolicy(policy);
+  if (policyProblems.length > 0) reasons.push("invalid policy");
+  const safe = policyProblems.length === 0 ? policy : DEFAULT_AUTONOMY_POLICY;
+  const summary = summarizeWindow(input.decisions, input.key, { maxWindow: safe.max_window, confidence: safe.confidence });
+  const bar = safe.bars[step as Exclude<Step, "watch">];
+  if (input.key.policy_version !== safe.version) reasons.push("step policy version changed");
+  if (summary.catastrophes > safe.max_catastrophes) reasons.push("catastrophe in the window");
+  if (bar.min_match_share > 0) {
+    const tolerated = Math.floor((1 - bar.min_match_share) * Math.max(bar.min_decisions, summary.counted) + 1e-9);
+    if (summary.errors > tolerated) reasons.push("match share fell below the bar");
   }
-  const summary = summarizeWindow(input.decisions, input.key, { maxWindow: policy.max_window, confidence: policy.confidence });
-  const bar = policy.bars[step as Exclude<Step, "watch">];
-  if (input.key.policy_version !== policy.version) reasons.push("step policy version changed");
-  if (summary.catastrophes > policy.max_catastrophes) reasons.push("catastrophe in the window");
-  if (summary.counted >= bar.min_decisions && (summary.match_share ?? 0) < bar.min_match_share) reasons.push("match share fell below the bar");
   if (bar.statistical) {
-    const target = targetErrorRate(input.action, policy);
-    if (target === null || (summary.counted >= requiredCleanCases(target, policy.confidence) && summary.error_upper_bound > target)) {
+    const target = targetErrorRate(input.action, safe);
+    if (target === null) reasons.push("no measured human error rate to compare with");
+    else if ((summary.counted > 0 && summary.errors / summary.counted > target) || (summary.counted >= requiredCleanCases(target, safe.confidence) && summary.error_upper_bound > target)) {
       reasons.push("error rate bound is above the target");
     }
   }
-  if (reasons.length === 0) return { setting: input.setting, changed: false, requires_owner_confirmation: false, open_exception: false, reasons };
+  if (reasons.length === 0) return keep;
   return { ...fallBack(input.setting, reasons.includes("catastrophe in the window")), reasons };
 }

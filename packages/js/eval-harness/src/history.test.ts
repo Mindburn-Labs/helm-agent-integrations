@@ -86,3 +86,24 @@ test("history bars: a missed gating bar fails, too few records read insufficient
   assert.equal(missed.gating_missed, true);
   assert.equal(evaluateHistoryBars({}, [{ metric: "x", min: 1, gating: false }]).advisory, true);
 });
+
+test("matching survives plurals, odd whitespace, invisible characters and prototype names", () => {
+  const guard = createPromptGuard(["Smith", "12 Elm Row"]);
+  assert.equal(guard("The Smiths called").ok, false);
+  assert.equal(guard("lives at 12  Elm\nRow").ok, false);
+  assert.equal(guard("Sm​ith called").ok, false);
+  assert.equal(scrubText("Sm​ith called", { dictionary: ["Smith"] }).text, "[redacted] called");
+  const dates = scrubText("seen 3 March 2031 and March 3, 2031 and 2031/04/02 at the market", { dictionary: [] });
+  assert.equal(dates.text, "seen [redacted] and [redacted] and [redacted] at the market");
+  const classification = { record_types: { contact: { id: "identifier" as const } }, never_copied: [] };
+  assert.deepEqual(unclassifiedFields("contact", { id: "c", constructor: "x", toString: "y" }, classification), ["constructor", "toString"]);
+  assert.deepEqual(unclassifiedFields("constructor", { id: "c" }, classification), ["id"]);
+  assert.throws(() => unclassifiedFields("contact", { id: "c" }, { ...classification, never_copied: ["*"] }));
+});
+
+test("a gating bar without enough records is reported as open, and a bar needs a bound", () => {
+  const open = evaluateHistoryBars({ auc: { value: 0.9, n: 3 } }, [{ metric: "auc", min: 0.7, gating: true }]);
+  assert.equal(open.gating_missed, false);
+  assert.equal(open.gating_insufficient, true);
+  assert.throws(() => evaluateHistoryBars({}, [{ metric: "auc", gating: true }]));
+});

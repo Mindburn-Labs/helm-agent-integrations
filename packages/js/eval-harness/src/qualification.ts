@@ -11,7 +11,7 @@
 
 import { SHA256_HEX } from "./canonical.js";
 import type { SuiteEvaluation } from "./scorer.js";
-import { DEFAULT_RELEASE_BAR, barLoweredFields } from "./validate.js";
+import { DEFAULT_RELEASE_BAR, MIN_REPETITIONS, barLoweredFields } from "./validate.js";
 import { PROFILE_SCHEMA, RECORD_SCHEMA, REPORT_SCHEMA, type ReleaseBar, type Route, type Rubric } from "./types.js";
 
 export interface Ceiling {
@@ -83,9 +83,13 @@ function positive(value: unknown): value is number {
 export function validateProfile(profile: QualificationProfile): string[] {
   const problems: string[] = [];
   if (profile?.schema_version !== PROFILE_SCHEMA) return [`profile schema_version must be ${PROFILE_SCHEMA}`];
-  if (!Number.isInteger(profile.repetitions) || profile.repetitions < 1) problems.push("repetitions must be a positive integer");
+  if (!Number.isInteger(profile.repetitions) || profile.repetitions < MIN_REPETITIONS) problems.push(`repetitions must be an integer of at least ${MIN_REPETITIONS}`);
   const lowered = barLoweredFields(profile.release_bar, DEFAULT_RELEASE_BAR);
   if (lowered.length > 0) problems.push(`release_bar lowers ${lowered.join(", ")} below the default bar`);
+  for (const key of ["golden_mean", "golden_case_median_floor", "redteam_mean"] as const) {
+    const value = profile.release_bar?.[key];
+    if (typeof value !== "number" || value > 1) problems.push(`release_bar.${key} must be in [0, 1]`);
+  }
   const families = new Set((profile.judge?.routes ?? []).map((route) => route.family?.trim().toLowerCase()).filter(Boolean));
   if (families.size < 2) problems.push("judge routes must cover at least two model families, so every proposer has an independent judge");
   if (!Number.isInteger(profile.judge?.max_attempts) || profile.judge.max_attempts < 1) problems.push("judge.max_attempts must be a positive integer");
@@ -128,7 +132,7 @@ export interface UsageEntry {
   cost_usd: number;
 }
 
-export type CeilingCheck = { allowed: true } | { allowed: false; reason: "call_ceiling" | "cost_ceiling"; scope: "specialist" | "judge" | "team" | "per_call" };
+export type CeilingCheck = { allowed: true } | { allowed: false; reason: "call_ceiling" | "cost_ceiling"; scope: "specialist" | "judge" | "team" | "per_call" | "ledger" };
 
 /**
  * Whether one more call fits the rolling window. `estimate_usd` is the call's
@@ -144,8 +148,13 @@ export function checkCeiling(
   const ceilings = profile.ceilings;
   const scoped = next.kind === "judge" ? ceilings.judge : ceilings.specialist;
   if (!(next.estimate_usd >= 0) || next.estimate_usd > scoped.cost_usd_per_call) return { allowed: false, reason: "cost_ceiling", scope: "per_call" };
+  // An entry that cannot be summed would make every comparison false: the ledger is unusable.
+  if (!Number.isFinite(nowMs) || ledger.some((entry) => !Number.isFinite(entry?.at_ms) || !Number.isFinite(entry?.cost_usd) || entry.cost_usd < 0)) {
+    return { allowed: false, reason: "cost_ceiling", scope: "ledger" };
+  }
   const since = nowMs - ceilings.window_hours * 3_600_000;
-  const window = ledger.filter((entry) => entry.at_ms > since && entry.at_ms <= nowMs);
+  // Entries dated after now (clock skew) still count.
+  const window = ledger.filter((entry) => entry.at_ms > since);
   const own = window.filter((entry) => entry.kind === next.kind && entry.specialist_id === next.specialist_id);
   const sum = (entries: UsageEntry[]) => entries.reduce((total, entry) => total + entry.cost_usd, 0);
   if (own.length + 1 > scoped.calls) return { allowed: false, reason: "call_ceiling", scope: next.kind };

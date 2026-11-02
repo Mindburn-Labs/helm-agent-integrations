@@ -23,11 +23,14 @@ import {
 const KEY: WindowKey = { specialist_id: "lead_concierge", action_id: "lead.record_triage", release_sha256: "1".repeat(64), policy_version: DEFAULT_AUTONOMY_POLICY.version };
 const ACTION: ActionProfile = { delegable: true, human_only: false, protective: false, max_step: "review_regularly", severity: "standard", human_error_rate: 0.05 };
 
+let batch = 0;
+
 function decisions(spec: [Comparison, number][], overrides: Partial<AgreementDecision> = {}): AgreementDecision[] {
   const out: AgreementDecision[] = [];
+  batch += 1;
   for (const [comparison, count] of spec) {
     for (let i = 0; i < count; i += 1) {
-      out.push({ decision_id: `d${out.length}`, ...KEY, sequence: out.length, comparison, catastrophe: false, ...overrides });
+      out.push({ decision_id: `b${batch}-d${out.length}`, ...KEY, sequence: out.length, comparison, catastrophe: false, ...overrides });
     }
   }
   return out;
@@ -158,4 +161,48 @@ test("standing: a widened setting whose window falls below its bar falls back", 
   const certified = checkStanding({ setting: { step: "review_regularly", practice_only: false }, decisions: decisions([["match", 650], ["diverge", 2]]), key: KEY, action: ACTION });
   assert.equal(certified.setting.step, "ask_first");
   assert.ok(certified.reasons.includes("error rate bound is above the target"));
+});
+
+test("a repeated decision counts once, and an unknown comparison reads as a divergence", () => {
+  const one = decisions([["match", 1]])[0]!;
+  const copies = Array.from({ length: 60 }, (_, i) => ({ ...one, sequence: i }));
+  assert.equal(summarizeWindow(copies, KEY).counted, 1);
+  const base = { current_step: "ask_first" as const, practice_only: false, key: KEY, action: ACTION, qualified: true };
+  assert.equal(evaluatePromotion({ ...base, decisions: copies }).eligible, false);
+  const odd = decisions([["match", 60]]).map((d, i) => (i < 5 ? { ...d, comparison: "Match" as Comparison } : d));
+  const summary = summarizeWindow(odd, KEY);
+  assert.equal(summary.diverges, 5);
+  assert.equal(evaluatePromotion({ ...base, decisions: odd }).eligible, false);
+  assert.throws(() => summarizeWindow(odd, KEY, { maxWindow: 0 }));
+});
+
+test("an invalid policy never widens a step", () => {
+  const base = { current_step: "within_limits" as const, practice_only: false, key: KEY, action: ACTION, qualified: true, decisions: decisions([["match", 60]]) };
+  const loose = { ...DEFAULT_AUTONOMY_POLICY, confidence: 0 };
+  const verdict = evaluatePromotion({ ...base, policy: loose });
+  assert.equal(verdict.eligible, false);
+  assert.ok(verdict.blocked_by.some((reason) => reason.startsWith("invalid policy")));
+  assert.equal(evaluatePromotion({ ...base, policy: { ...DEFAULT_AUTONOMY_POLICY, improvement_factor: 0.5 } }).eligible, false);
+  assert.throws(() => errorRateUpperBound(10, 0, 1.5));
+});
+
+test("a practice-only setting that claims a widened step is narrowed, never kept", () => {
+  const stray = applyDemotion({ step: "within_limits", practice_only: true }, "done_by_person");
+  assert.equal(stray.setting.step, "ask_first");
+  assert.equal(stray.changed, true);
+  const standing = checkStanding({ setting: { step: "review_regularly", practice_only: true }, decisions: decisions([["match", 700]]), key: KEY, action: ACTION });
+  assert.equal(standing.setting.step, "ask_first");
+});
+
+test("standing trips early on a bad start, on a catastrophe, and on a new policy version", () => {
+  const early = checkStanding({ setting: { step: "within_limits", practice_only: false }, decisions: decisions([["match", 20], ["diverge", 20]]), key: KEY, action: ACTION });
+  assert.equal(early.setting.step, "ask_first");
+  const certified = checkStanding({ setting: { step: "review_regularly", practice_only: false }, decisions: decisions([["match", 95], ["diverge", 5]]), key: KEY, action: ACTION });
+  assert.ok(certified.reasons.includes("error rate bound is above the target"));
+  const withCatastrophe = decisions([["match", 60]]);
+  withCatastrophe[3] = { ...withCatastrophe[3]!, catastrophe: true };
+  const hit = checkStanding({ setting: { step: "within_limits", practice_only: false }, decisions: withCatastrophe, key: KEY, action: ACTION });
+  assert.equal(hit.open_exception, true);
+  const stale = checkStanding({ setting: { step: "within_limits", practice_only: false }, decisions: decisions([["match", 60]], { policy_version: "old" }), key: { ...KEY, policy_version: "old" }, action: ACTION });
+  assert.ok(stale.reasons.includes("step policy version changed"));
 });

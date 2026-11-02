@@ -77,3 +77,15 @@ test("at close, output is kept only under the governing passed record it names",
   assert.equal(verifyClose({ ...close, route: { ...CLAUDE_ROUTE, effort: "high" }, qualification_ref: "q-claude" }).keep, false);
   assert.equal(verifyClose({ ...close, run_class: "eval", qualification_ref: null }).keep, true);
 });
+
+test("a malformed record that claims the key governs as a failure", () => {
+  const passed = record(CLAUDE_ROUTE, { sequence: 1 });
+  const broken = record(CLAUDE_ROUTE, { qualification_id: "q-b", passed: false, sequence: 2, report_sha256: "short" });
+  const result = selectQualifiedRoute({ ...base, qualifications: [passed, broken] });
+  assert.equal(result.allowed, false);
+  assert.deepEqual(result.skipped, [{ route: CLAUDE_ROUTE, reason: "malformed_record" }]);
+  assert.equal(governingRecord([passed, broken], "lead_concierge", CLAUDE_ROUTE, RELEASE), null);
+  assert.equal(verifyClose({ specialist_id: "lead_concierge", release_sha256: RELEASE, run_class: "live", route: CLAUDE_ROUTE, qualification_ref: "q-claude", qualifications: [passed, broken] }).keep, false);
+  const otherKey = record(GPT_ROUTE, { report_sha256: "short" });
+  assert.equal(selectQualifiedRoute({ ...base, qualifications: [passed, otherKey] }).allowed, true, "a broken record for another route does not touch this one");
+});

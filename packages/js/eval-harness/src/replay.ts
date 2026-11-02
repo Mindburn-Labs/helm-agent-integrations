@@ -9,10 +9,10 @@
  * judge selection and re-asks, scoring, and the report.
  */
 
-import { classifyAbstention, checkCeiling, buildQualificationReport, type QualificationProfile, type QualificationReport, type UsageEntry } from "./qualification.js";
+import { classifyAbstention, checkCeiling, buildQualificationReport, validateProfile, type QualificationProfile, type QualificationReport, type UsageEntry } from "./qualification.js";
 import { buildJudgeRequest, mergeJudgement, selectJudgeRoute, type JudgeRequest } from "./judge.js";
 import { evaluateSuite, scoreRepetition, type RepetitionResult, type SuiteEvaluation } from "./scorer.js";
-import { expectedCaseIds, type LoadedPack, type LoadedSpecialist } from "./pack.js";
+import { expectedCaseIds, validatePack, type LoadedPack, type LoadedSpecialist } from "./pack.js";
 import { judgeDetectable } from "./validate.js";
 import { parseCaseDuration, resolveTimeMarkers } from "./time.js";
 import { TRANSCRIPT_SCHEMA, type CaseFact, type CaseSignal, type EvalCase, type Route, type Suite, type Transcript } from "./types.js";
@@ -109,13 +109,24 @@ function failedTranscript(evalCase: EvalCase, repetition: number, opts: RunOptio
   };
 }
 
+function sameRoute(a: Route | undefined, b: Route): boolean {
+  return !!a && a.provider === b.provider && a.model === b.model && (a.effort ?? null) === (b.effort ?? null) && a.family === b.family;
+}
+
+function validCost(cost: unknown): cost is number {
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0;
+}
+
 export async function runQualification(opts: RunOptions): Promise<RunResult> {
   const { pack, specialist, profile } = opts;
-  const results: RepetitionResult[] = [...(opts.resume ?? [])];
+  // A resumed repetition counts only when it ran as this release, prompt and route.
+  const results: RepetitionResult[] = (opts.resume ?? []).filter(
+    (result) => result.release_sha256 === opts.release_sha256 && result.prompt_sha256 === opts.prompt_sha256 && sameRoute(result.route, opts.route),
+  );
   const done = new Set(results.map((result) => `${result.case_id}#${result.repetition}`));
   const detectable = judgeDetectable(pack.vocabulary, pack.action_catastrophes);
   const ctx = { catalog: pack.catalog, allowlist: specialist.allowlist, actionCatastrophes: pack.action_catastrophes };
-  const judgeRoute = selectJudgeRoute(profile.judge.routes, opts.route, pack.manifest.case_author);
+  const judgeRoute = selectJudgeRoute(profile?.judge?.routes ?? [], opts.route, pack.manifest.case_author);
   const suites: [Suite, EvalCase[]][] = [
     ["golden", specialist.golden.cases],
     ["redteam", specialist.redteam.cases],
@@ -136,11 +147,17 @@ export async function runQualification(opts: RunOptions): Promise<RunResult> {
     return { status, reason, results, evaluation, report };
   };
 
+  if (validateProfile(profile).length > 0) return finish("stopped", "invalid_profile");
+  if (!pack.specialists.includes(specialist) || validatePack(pack, { repetitions: profile.repetitions, releaseBar: profile.release_bar }).length > 0) {
+    return finish("stopped", "invalid_pack");
+  }
   if (!judgeRoute) return finish("stopped", "no_independent_judge");
   if (specialist.rubric.repetitions !== profile.repetitions) return finish("stopped", "rubric_repetitions_differ_from_profile");
 
-  const book = (kind: "specialist" | "judge", cost: number) => {
+  const book = (kind: "specialist" | "judge", cost: unknown): boolean => {
+    if (!validCost(cost)) return false;
     opts.ledger.push({ at_ms: opts.now(), kind, specialist_id: specialist.specialist_id, cost_usd: cost });
+    return true;
   };
 
   for (const [suite, cases] of suites) {
@@ -152,7 +169,7 @@ export async function runQualification(opts: RunOptions): Promise<RunResult> {
         if (!allowed.allowed) return finish("paused", allowed.reason);
         const context = buildRunContext(evalCase, opts.clock_ms, pack.manifest.time_zone);
         const outcome = await opts.client.run({ specialist_id: specialist.specialist_id, case_id: evalCase.id, repetition, route: opts.route, context });
-        book("specialist", outcome.cost_usd);
+        if (!book("specialist", outcome.cost_usd)) return finish("stopped", "invalid_usage");
 
         let transcript: Transcript;
         if (outcome.kind === "abstain") {
@@ -166,20 +183,20 @@ export async function runQualification(opts: RunOptions): Promise<RunResult> {
             transcript.prompt_sha256 === opts.prompt_sha256 &&
             transcript.catalog_sha256 === pack.catalog_sha256 &&
             transcript.release_sha256 === opts.release_sha256 &&
-            transcript.route?.model === opts.route.model &&
-            transcript.route?.provider === opts.route.provider;
-          // A run under other hashes or another model is not this release on this route: it is not recorded.
+            sameRoute(transcript.route, opts.route);
+          // A run under other hashes or on another route is not this release on this route: it is not recorded.
           if (!hashesMatch) continue;
         }
 
         const caps = scoreRepetition(evalCase, transcript, ctx);
         let merged: RepetitionResult | null = null;
+        const claims = new Map<string, { id: string; evidence: string }>();
         for (let attempt = 1; attempt <= profile.judge.max_attempts; attempt += 1) {
           const judgeAllowed = checkCeiling(opts.ledger, { kind: "judge", specialist_id: specialist.specialist_id, estimate_usd: opts.estimate_usd.judge }, opts.now(), profile);
           if (!judgeAllowed.allowed) return finish("paused", judgeAllowed.reason);
           const request = buildJudgeRequest({ evalCase, suite, transcript, caps, rubric: specialist.rubric, vocabulary: pack.vocabulary, judgeDetectable: detectable, instructions: opts.instructions });
           const judged = await opts.judge.judge(request, judgeRoute);
-          book("judge", judged.cost_usd);
+          if (!book("judge", judged.cost_usd)) return finish("stopped", "invalid_usage");
           if (judged.kind === "abstain") {
             const cls = classifyAbstention(judged.reason, profile);
             if (cls === "pause") return finish("paused", judged.reason);
@@ -188,9 +205,13 @@ export async function runQualification(opts: RunOptions): Promise<RunResult> {
             continue;
           }
           merged = mergeJudgement(caps, judged.judgement, { suite, weights: specialist.rubric.weights, transcript, judge: judgeRoute, caseAuthor: pack.manifest.case_author, judgeDetectable: detectable });
+          for (const claim of merged.unverified_catastrophes) claims.set(claim.id, claim);
           if (merged.judge_valid) break;
         }
         if (merged) {
+          // A claim a rejected answer made stays open unless a valid answer proved the same catastrophe.
+          const proven = new Set(merged.catastrophes.map((hit) => hit.id));
+          merged = { ...merged, unverified_catastrophes: [...claims.values()].filter((claim) => !proven.has(claim.id)) };
           results.push(merged);
           done.add(`${evalCase.id}#${repetition}`);
         }

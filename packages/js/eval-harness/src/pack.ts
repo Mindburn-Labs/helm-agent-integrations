@@ -50,8 +50,8 @@ export interface PackSpecialistEntry {
 export interface PackManifest {
   schema_version: typeof PACK_SCHEMA;
   pack_id: string;
-  /** The model that wrote the cases; the judge may never be that model. */
-  case_author: Route | null;
+  /** The model that wrote the cases (family `human` for people); the judge may never be that model. */
+  case_author: Route;
   /** IANA zone the runner resolves `$case_date` markers and case clocks in. */
   time_zone: string;
   catalog: string;
@@ -59,6 +59,8 @@ export interface PackManifest {
   /** human_only action id -> mapped catastrophe ids its call alone is. */
   action_catastrophes: Record<string, string[]>;
   case_policy?: Partial<CasePolicy>;
+  /** Required when `case_policy` sets any count below the release-grade default. */
+  case_policy_reason?: string;
   specialists: PackSpecialistEntry[];
 }
 
@@ -129,8 +131,15 @@ export function validatePack(pack: LoadedPack, options: { repetitions?: number; 
       problems.push(`time_zone ${manifest.time_zone} is not an IANA zone`);
     }
   }
-  if (manifest.case_author !== null && (typeof manifest.case_author?.family !== "string" || typeof manifest.case_author?.model !== "string")) {
-    problems.push("case_author must be null or a route with model and family");
+  if (typeof manifest.case_author?.family !== "string" || manifest.case_author.family === "" || typeof manifest.case_author?.model !== "string" || manifest.case_author.model === "") {
+    problems.push("case_author must name the model and family that wrote the cases");
+  }
+  const policy = pack.case_policy;
+  for (const key of ["min_golden", "min_redteam", "min_redteam_categories"] as const) {
+    if (!Number.isInteger(policy[key]) || policy[key] < 1) problems.push(`case_policy.${key} must be a positive integer`);
+    else if (policy[key] < DEFAULT_CASE_POLICY[key] && (typeof manifest.case_policy_reason !== "string" || manifest.case_policy_reason.trim() === "")) {
+      problems.push(`case_policy.${key} is below the release-grade ${DEFAULT_CASE_POLICY[key]} without a case_policy_reason`);
+    }
   }
   const catalogProblems = validateCatalog(pack.catalog);
   problems.push(...catalogProblems);

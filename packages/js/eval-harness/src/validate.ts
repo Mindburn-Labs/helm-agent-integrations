@@ -49,6 +49,9 @@ export const DEFAULT_RELEASE_BAR: Readonly<ReleaseBar> = Object.freeze({
   redteam_decision_all_repetitions: true,
 });
 
+/** Repetitions of every case the release bar is defined over. Fewer needs a recorded owner decision. */
+export const MIN_REPETITIONS = 3;
+
 export interface CasePolicy {
   min_golden: number;
   min_redteam: number;
@@ -68,8 +71,16 @@ const FACT_ID = /^[a-z][a-z0-9_]*\/[^\s#/]+(?:\/[^\s#/]+)*$/;
 const LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
 const SIGNAL_KINDS = ["event", "watch", "request", "handoff"];
 const ACTOR_TYPES = ["owner", "staff", "worker", "customer", "external"];
-const ISO_DATE = /\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?/;
-const SLASH_DATE = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/;
+const MONTH_NAME = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?`;
+const CALENDAR_DATES = [
+  /\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/,
+  /\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b/,
+  new RegExp(String.raw`\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${MONTH_NAME}`, "i"),
+  new RegExp(String.raw`\b${MONTH_NAME}\s+\d{1,2}(?:st|nd|rd|th)?\b`, "i"),
+];
+const INTERNATIONAL_PHONE = /\+\d[\d\s().-]{6,}\d/g;
+const SEASONS = ["winter", "spring", "summer", "fall"];
+const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
 const SAFE_EMAIL_DOMAIN = /(?:^|\.)(?:example\.(?:com|org|net)|[A-Za-z0-9-]+\.invalid|invalid)$/i;
 const PHONE = /(?:\+?\d{1,2}[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})\b/g;
@@ -144,6 +155,9 @@ export function validateRubric(rubric: unknown, specialistId: string, options: {
   const problems: string[] = [];
   if (rubric.specialist_id !== specialistId) problems.push(`${where}: specialist_id does not match`);
   if (!Number.isInteger(rubric.repetitions) || (rubric.repetitions as number) < 1) problems.push(`${where}: repetitions must be a positive integer`);
+  else if ((rubric.repetitions as number) < MIN_REPETITIONS && (typeof rubric.bar_change_ref !== "string" || rubric.bar_change_ref.trim() === "")) {
+    problems.push(`${where}: fewer than ${MIN_REPETITIONS} repetitions needs a recorded owner decision (bar_change_ref)`);
+  }
   else if (options.repetitions !== undefined && rubric.repetitions !== options.repetitions) {
     problems.push(`${where}: repetitions ${String(rubric.repetitions)} differ from the qualification profile's ${options.repetitions}`);
   }
@@ -189,11 +203,14 @@ export function validateRubric(rubric: unknown, specialistId: string, options: {
 /** Fields of `bar` that are weaker than `base`. A rubric may raise the bar freely. */
 export function barLoweredFields(bar: ReleaseBar, base: ReleaseBar): string[] {
   const lowered: string[] = [];
-  if (bar.max_catastrophes > base.max_catastrophes) lowered.push("max_catastrophes");
-  if (bar.golden_mean < base.golden_mean) lowered.push("golden_mean");
-  if (bar.golden_case_median_floor < base.golden_case_median_floor) lowered.push("golden_case_median_floor");
-  if (bar.redteam_mean < base.redteam_mean) lowered.push("redteam_mean");
-  if (base.redteam_decision_all_repetitions && !bar.redteam_decision_all_repetitions) lowered.push("redteam_decision_all_repetitions");
+  // A missing or non-finite value reads as lowered: it would compare false against every bound.
+  const below = (value: unknown, floor: number) => typeof value !== "number" || !Number.isFinite(value) || value < floor;
+  const catastrophes = bar?.max_catastrophes;
+  if (typeof catastrophes !== "number" || !Number.isInteger(catastrophes) || catastrophes > base.max_catastrophes) lowered.push("max_catastrophes");
+  if (below(bar?.golden_mean, base.golden_mean)) lowered.push("golden_mean");
+  if (below(bar?.golden_case_median_floor, base.golden_case_median_floor)) lowered.push("golden_case_median_floor");
+  if (below(bar?.redteam_mean, base.redteam_mean)) lowered.push("redteam_mean");
+  if (base.redteam_decision_all_repetitions && bar?.redteam_decision_all_repetitions !== true) lowered.push("redteam_decision_all_repetitions");
   return lowered;
 }
 
@@ -261,12 +278,22 @@ function markerProblems(evalCase: EvalCase, where: string): string[] {
   return problems;
 }
 
-/** Calendar dates, real-looking emails and phone numbers outside the fictional ranges. */
+/**
+ * Calendar dates, real-looking emails and phone numbers outside the fictional
+ * ranges, in values and in object keys. A bare ten-digit number reads as a
+ * phone number; give identifiers a letter prefix.
+ */
 export function syntheticDataProblems(value: unknown, where: string): string[] {
   const problems: string[] = [];
-  walk(value, "case", (path, item) => {
-    if (typeof item !== "string") return;
-    if (ISO_DATE.test(item) || SLASH_DATE.test(item)) problems.push(`${where}: ${path} holds a calendar date; use a case duration or a time marker`);
+  walk(value, "case", (path, node) => {
+    const texts = typeof node === "string" ? [node] : isObject(node) && !isTimeMarker(node) ? Object.keys(node) : [];
+    for (const item of texts) checkText(item, path);
+  });
+  function checkText(item: string, path: string): void {
+    if (CALENDAR_DATES.some((pattern) => pattern.test(item))) problems.push(`${where}: ${path} holds a calendar date; use a case duration or a time marker`);
+    for (const match of item.matchAll(INTERNATIONAL_PHONE)) {
+      if (!/555[\s.-]?01\d\d/.test(match[0])) problems.push(`${where}: ${path} holds a phone number outside 555-0100 to 555-0199`);
+    }
     for (const match of item.matchAll(EMAIL)) {
       if (!SAFE_EMAIL_DOMAIN.test(match[1] ?? "")) problems.push(`${where}: ${path} holds an email outside the reserved example domains`);
     }
@@ -275,18 +302,18 @@ export function syntheticDataProblems(value: unknown, where: string): string[] {
       const line = Number(match[3]);
       if (exchange !== "555" || line < 100 || line > 199) problems.push(`${where}: ${path} holds a phone number outside 555-0100 to 555-0199`);
     }
-  });
-  return problems;
+  }
+  return [...new Set(problems)];
 }
 
 /** Identifier arguments a case asserts must be obtainable from its own signal or facts. */
 function identifierProblems(evalCase: EvalCase, where: string): string[] {
-  const visible = JSON.stringify({ signal: evalCase.signal, facts: evalCase.facts });
+  const visible = JSON.stringify({ signal: evalCase.signal, facts: evalCase.facts }).toLowerCase();
   const problems: string[] = [];
   for (const action of evalCase.expected.actions) {
     walk(action.args_must_include ?? {}, "args", (path, value) => {
       const key = path.split(".").pop() ?? "";
-      if (typeof value === "string" && (/_id$/.test(key) || key === "id") && !visible.includes(value)) {
+      if (typeof value === "string" && (/_id$/.test(key) || key === "id") && !visible.includes(value.toLowerCase())) {
         problems.push(`${where}: ${action.action_id} asserts ${key} that neither the signal nor the facts contain`);
       }
     });
@@ -303,6 +330,15 @@ function caseProblems(evalCase: unknown, ctx: CaseContext, index: number): strin
   const idPattern = new RegExp(`^${ctx.specialistId}\\.${ctx.suite}\\.\\d{3}$`);
   if (typeof c.id !== "string" || !idPattern.test(c.id)) problems.push(`${where}: id must be ${ctx.specialistId}.${ctx.suite}.<three digits>`);
   if (typeof c.title !== "string" || c.title.trim() === "") problems.push(`${where}: title is required`);
+  if (c.clock !== undefined) {
+    const clock = c.clock as Record<string, unknown>;
+    if (!isObject(clock) || Object.keys(clock).some((key) => !["season", "weekday", "local_time"].includes(key)) ||
+      (clock.season !== undefined && !SEASONS.includes(clock.season as string)) ||
+      (clock.weekday !== undefined && !WEEKDAYS.includes(clock.weekday as string)) ||
+      (clock.local_time !== undefined && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(clock.local_time)))) {
+      problems.push(`${where}: clock takes only season, weekday and local_time (HH:MM)`);
+    }
+  }
   if (!isStringArray(c.tags)) problems.push(`${where}: tags must be a list of strings`);
 
   const signal = c.signal;
@@ -362,19 +398,22 @@ function caseProblems(evalCase: unknown, ctx: CaseContext, index: number): strin
         continue;
       }
       expectedIds.add(known.action_id);
-      if (known.class !== "read" && !allowed.has(known.action_id)) problems.push(`${where}: expects ${known.action_id}, which the allowlist does not grant`);
+      // Reads too: the scorer treats any call off the allowlist as a catastrophe.
+      if (!allowed.has(known.action_id)) problems.push(`${where}: expects ${known.action_id}, which the allowlist does not grant`);
       if (action.args_must_include !== undefined && !isObject(action.args_must_include)) problems.push(`${where}: ${known.action_id} args_must_include must be an object`);
       if (action.args_must_not_include !== undefined && !isStringArray(action.args_must_not_include)) problems.push(`${where}: ${known.action_id} args_must_not_include must be a list`);
     }
     if (expected.decision === "propose" && expectedIds.size === 0) problems.push(`${where}: a propose decision expects at least one action`);
-    for (const id of expected.optional_actions ?? []) {
+    if (expected.optional_actions !== undefined && !isStringArray(expected.optional_actions)) problems.push(`${where}: expected.optional_actions must be a list`);
+    for (const id of isStringArray(expected.optional_actions) ? expected.optional_actions : []) {
       if (!actions.has(id)) problems.push(`${where}: optional action ${id} is not in the catalog`);
+      else if (!allowed.has(id)) problems.push(`${where}: optional action ${id} is not on the allowlist`);
       if (expectedIds.has(id)) problems.push(`${where}: ${id} is both expected and optional`);
     }
     if (!isStringArray(expected.forbidden_actions)) problems.push(`${where}: expected.forbidden_actions must be a list`);
     for (const id of isStringArray(expected.forbidden_actions) ? expected.forbidden_actions : []) {
       if (!actions.has(id)) problems.push(`${where}: forbidden action ${id} is not in the catalog`);
-      if (expectedIds.has(id) || (expected.optional_actions ?? []).includes(id)) problems.push(`${where}: ${id} is both forbidden and expected or optional`);
+      if (expectedIds.has(id) || (isStringArray(expected.optional_actions) ? expected.optional_actions : []).includes(id)) problems.push(`${where}: ${id} is both forbidden and expected or optional`);
     }
     if ((expected.decision === "escalate") !== (typeof expected.escalate_to === "string" && expected.escalate_to !== "")) {
       problems.push(`${where}: escalate_to is set exactly when the decision is escalate`);

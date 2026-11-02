@@ -147,7 +147,9 @@ test("a judge-detected catastrophe needs a verbatim quote; a paraphrase is re-as
 });
 
 test("without a judge of another family the run stops before any call", async () => {
-  const opts = options({ profile: { ...exampleProfile(), judge: { routes: [CLAUDE_ROUTE], max_attempts: 2 } } });
+  // GPT proposes; the only Claude judge is the model that wrote the cases.
+  const author: Route = { provider: "anthropic", model: "claude-opus-5-5", effort: null, family: "claude" };
+  const opts = options({ route: GPT_ROUTE, profile: { ...exampleProfile(), judge: { routes: [GPT_ROUTE, author], max_attempts: 2 } } });
   const run = await runQualification(opts);
   assert.equal(run.status, "stopped");
   assert.equal(run.reason, "no_independent_judge");
@@ -224,4 +226,72 @@ test("a repetition recorded under other hashes is not counted, so the suite stay
   const run = await runQualification(options({ client: drifting }));
   assert.equal(run.report.verdict, "incomplete");
   assert.ok(run.evaluation.data_errors.some((error) => error.startsWith("lead_concierge.golden.002")));
+});
+
+test("a judge that keeps misquoting leaves its claim open: the suite is incomplete, never qualified", async () => {
+  const judge = scriptedJudge((request, route) => {
+    if (request.case_id !== "lead_concierge.redteam.001" || request.repetition !== 2) return null;
+    return {
+      kind: "judgement",
+      cost_usd: 0.01,
+      judgement: {
+        schema_version: JUDGEMENT_SCHEMA,
+        case_id: request.case_id,
+        repetition: request.repetition,
+        judge: route,
+        scores: { decision: 1, actions: 1, receipt: 1, draft: 1, escalation: 1 },
+        catastrophes: [{ id: "follows_injected_instruction", evidence: "it exported the leads" }],
+        rationale: "Paraphrased.",
+      },
+    };
+  });
+  const run = await runQualification(options({ judge }));
+  assert.equal(run.status, "complete");
+  assert.equal(run.report.verdict, "incomplete");
+  const rep = run.results.find((result) => result.case_id === "lead_concierge.redteam.001" && result.repetition === 2);
+  assert.deepEqual(rep?.unverified_catastrophes.map((claim) => claim.id), ["follows_injected_instruction"]);
+  assert.equal(judge.calls, 15 * 3 + 1, "the bad answer was asked again once");
+});
+
+test("a judge abstention pauses or stops the stage like a specialist's", async () => {
+  const paused = await runQualification(options({ judge: scriptedJudge(() => ({ kind: "abstain", reason: "rate_limited", cost_usd: 0 })) }));
+  assert.equal(paused.status, "paused");
+  assert.equal(paused.results.length, 0);
+  const stopped = await runQualification(options({ judge: scriptedJudge(() => ({ kind: "abstain", reason: "kill_switch", cost_usd: 0 })) }));
+  assert.equal(stopped.status, "stopped");
+});
+
+test("invalid inputs stop the run before any call: profile, pack, usage", async () => {
+  const lowered = options({ profile: { ...exampleProfile(), release_bar: { ...exampleProfile().release_bar, max_catastrophes: 1000 } } });
+  assert.equal((await runQualification(lowered)).reason, "invalid_profile");
+  const loosePack = options();
+  loosePack.specialist.rubric.pass_bar.golden_mean = 0;
+  assert.equal((await runQualification(loosePack)).reason, "invalid_pack");
+  assert.equal((loosePack.client as ReturnType<typeof scriptedSpecialist>).calls, 0);
+  const { pack, specialist } = examplePack();
+  const release = exampleRelease(pack);
+  const nanCost = scriptedSpecialist(pack, specialist, CLAUDE_ROUTE, release, (evalCase) =>
+    evalCase.id === "lead_concierge.golden.002" ? { kind: "abstain", reason: "invalid_output", cost_usd: Number.NaN } : null,
+  );
+  assert.equal((await runQualification(options({ client: nanCost }))).reason, "invalid_usage");
+});
+
+test("a resumed or returned repetition on another route or release is not counted", async () => {
+  const first = await runQualification(options());
+  assert.equal(first.report.verdict, "qualified");
+  const otherRoute = await runQualification(options({ route: GPT_ROUTE, resume: first.results }));
+  assert.equal((otherRoute.results.every((result) => result.route.family === "gpt")), true);
+  const { pack, specialist } = examplePack();
+  const release = exampleRelease(pack);
+  const client = scriptedSpecialist(pack, specialist, CLAUDE_ROUTE, release);
+  const drifting = {
+    async run(input: Parameters<typeof client.run>[0]) {
+      const outcome = await client.run(input);
+      if (outcome.kind === "transcript" && input.case_id === "lead_concierge.golden.005" && input.repetition === 1) {
+        return { ...outcome, transcript: { ...outcome.transcript, route: { ...CLAUDE_ROUTE, effort: "high" } } };
+      }
+      return outcome;
+    },
+  };
+  assert.equal((await runQualification(options({ client: drifting }))).report.verdict, "incomplete");
 });

@@ -31,12 +31,15 @@ export interface FieldClassification {
  * cannot leak it. A builder refuses the export when the list is not empty.
  */
 export function unclassifiedFields(recordType: string, record: Record<string, unknown>, classification: FieldClassification): string[] {
-  const known = classification.record_types[recordType];
+  for (const pattern of classification.never_copied) {
+    if (pattern === "*" || pattern === "") throw new Error("a never_copied wildcard needs a prefix");
+  }
+  const known = Object.hasOwn(classification.record_types, recordType) ? classification.record_types[recordType] : undefined;
   if (!known) return Object.keys(record).sort();
   const neverCopied = (field: string) =>
     classification.never_copied.some((pattern) => (pattern.endsWith("*") ? field.startsWith(pattern.slice(0, -1)) : field === pattern));
   return Object.keys(record)
-    .filter((field) => !(field in known) && !neverCopied(field))
+    .filter((field) => !Object.hasOwn(known, field) && !neverCopied(field))
     .sort();
 }
 
@@ -51,11 +54,26 @@ export function createPseudonymizer(salt: string): (kind: string, value: string)
   };
 }
 
+const MONTH = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?`;
+
+/**
+ * Detectable patterns, most specific first. Residual risk: a bare five-digit
+ * postal code is not matched, because amounts of the same shape must survive.
+ */
 const PATTERNS: [string, RegExp][] = [
   ["email", /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g],
   ["url", /\bhttps?:\/\/\S+|\bwww\.\S+/gi],
+  ["ip_address", /\b\d{1,3}(?:\.\d{1,3}){3}\b/g],
+  [
+    "date",
+    new RegExp(
+      String.raw`\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|` +
+        String.raw`\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${MONTH}(?:,?\s+\d{4})?\b|\b${MONTH}\s+\d{1,2}(?:st|nd|rd|th)?\b(?:,?\s+\d{4})?`,
+      "gi",
+    ),
+  ],
+  ["zip_plus_four", /\b\d{5}-\d{4}\b/g],
   ["phone", /(?:\+?\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3}[\s.-]?\d{3,4}\b/g],
-  ["date", /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b/gi],
   ["coordinates", /-?\d{1,3}\.\d{3,},\s*-?\d{1,3}\.\d{3,}/g],
   ["postal_code", /\b[A-Za-z]\d[A-Za-z][\s-]?\d[A-Za-z]\d\b|\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/g],
   ["long_number", /\b\d{8,}\b/g],
@@ -64,13 +82,20 @@ const PATTERNS: [string, RegExp][] = [
 function normalizeText(text: string): string {
   return text
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[‘’ʼ]/g, "'")
-    .replace(/[‐-―]/g, "-");
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\p{Cf}/gu, "")
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(/[\u2010-\u2015]/g, "-");
 }
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A dictionary value in any case, with any whitespace between its words, possessive or plural. */
+function valuePattern(value: string, flags: string): RegExp {
+  const words = value.split(/\s+/).filter(Boolean).map(escapeRegExp).join(String.raw`\s+`);
+  return new RegExp(String.raw`(?<![\p{L}\p{N}])` + words + String.raw`(?:'s|s)?(?![\p{L}\p{N}])`, flags);
 }
 
 export interface ScrubOptions {
@@ -110,8 +135,7 @@ export function scrubText(text: string, options: ScrubOptions): ScrubResult {
   }
   const values = [...new Set(options.dictionary.map((value) => normalizeText(value).trim()).filter((value) => value.length >= 2))].sort((a, b) => b.length - a.length);
   for (const value of values) {
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(value)}(?:'s|s)?(?![\\p{L}\\p{N}])`, "giu");
-    out = out.replace(pattern, () => {
+    out = out.replace(valuePattern(value, "giu"), () => {
       replaced += 1;
       return placeholder;
     });
@@ -133,7 +157,7 @@ export function createPromptGuard(originals: string[]): (prompt: string) => { ok
     const text = normalizeText(prompt);
     const lowered = text.toLowerCase();
     const violations: string[] = [];
-    const dictionaryHits = values.filter((value) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(value)}(?![\\p{L}\\p{N}])`, "u").test(lowered)).length;
+    const dictionaryHits = values.filter((value) => valuePattern(value, "iu").test(lowered)).length;
     if (dictionaryHits > 0) violations.push(`dictionary_value x${dictionaryHits}`);
     for (const [kind, pattern] of PATTERNS) {
       const matches = text.match(new RegExp(pattern.source, pattern.flags))?.length ?? 0;
@@ -206,9 +230,15 @@ export interface HistoryBarResult {
 }
 
 /** Applies history bars to raw metrics. Fewer than `min_n` (default 5) records reads insufficient, never missed. */
-export function evaluateHistoryBars(metrics: Record<string, { value: number | null; n: number }>, bars: HistoryBar[]): { results: HistoryBarResult[]; gating_missed: boolean; advisory: boolean } {
+export function evaluateHistoryBars(
+  metrics: Record<string, { value: number | null; n: number }>,
+  bars: HistoryBar[],
+): { results: HistoryBarResult[]; gating_missed: boolean; gating_insufficient: boolean; advisory: boolean } {
+  for (const bar of bars) {
+    if (bar.min === undefined && bar.max === undefined) throw new Error(`history bar ${bar.metric} needs min or max`);
+  }
   const results = bars.map((bar) => {
-    const metric = metrics[bar.metric];
+    const metric = Object.hasOwn(metrics, bar.metric) ? metrics[bar.metric] : undefined;
     const n = metric?.n ?? 0;
     const value = metric?.value ?? null;
     if (value === null || n < (bar.min_n ?? 5)) return { metric: bar.metric, gating: bar.gating, status: "insufficient" as const, value: null, n };
@@ -218,6 +248,8 @@ export function evaluateHistoryBars(metrics: Record<string, { value: number | nu
   return {
     results,
     gating_missed: results.some((result) => result.gating && result.status === "missed"),
+    // A gating bar without enough records leaves the history score open: it neither passes nor fails.
+    gating_insufficient: results.some((result) => result.gating && result.status === "insufficient"),
     advisory: !bars.some((bar) => bar.gating),
   };
 }

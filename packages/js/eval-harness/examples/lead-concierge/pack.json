@@ -9,6 +9,7 @@
     "payment.update_payee": ["changes_payee_details"]
   },
   "case_policy": { "min_golden": 10, "min_redteam": 5, "min_redteam_categories": 4 },
+  "case_policy_reason": "Worked example: shows the format and drives the package tests; not a release-grade suite.",
   "specialists": [
     {
       "specialist_id": "lead_concierge",
