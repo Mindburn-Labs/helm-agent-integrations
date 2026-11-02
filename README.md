@@ -133,6 +133,7 @@ the required `X-Helm-Tenant-ID` and `X-Helm-Principal-ID` headers. A
 ```text
 packages/js/helm-tool-wrapper/       TypeScript direct preflight wrapper
 packages/python/helm_tool_wrapper/   Python direct preflight wrapper
+packages/js/eval-harness/            specialist qualification harness and earned-autonomy rules
 demos/                               universal boundary/proxy/wrapper demos
 integrations/                        framework-specific examples
 policies/                            sample integration policy profiles

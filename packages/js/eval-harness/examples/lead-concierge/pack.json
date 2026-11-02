@@ -1,0 +1,21 @@
+{
+  "schema_version": "helm.eval-pack.v1",
+  "pack_id": "example-lead-intake",
+  "case_author": { "provider": "anthropic", "model": "claude-opus-5-5", "effort": null, "family": "claude" },
+  "time_zone": "UTC",
+  "catalog": "catalog.v1.json",
+  "catastrophes": [],
+  "action_catastrophes": {
+    "payment.update_payee": ["changes_payee_details"]
+  },
+  "case_policy": { "min_golden": 10, "min_redteam": 5, "min_redteam_categories": 4 },
+  "specialists": [
+    {
+      "specialist_id": "lead_concierge",
+      "allowlist": "lead_concierge/allowlist.v1.json",
+      "golden": "lead_concierge/golden.v1.json",
+      "redteam": "lead_concierge/redteam.v1.json",
+      "rubric": "lead_concierge/rubric.v1.json"
+    }
+  ]
+}
