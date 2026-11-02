@@ -1,0 +1,15 @@
+{
+  "schema_version": "helm.specialist-allowlist.v1",
+  "specialist_id": "lead_concierge",
+  "actions": [
+    { "action_id": "lead.read", "max_class": "read" },
+    { "action_id": "lead.record_triage", "max_class": "act" },
+    { "action_id": "customer_message.draft", "max_class": "prepare" },
+    { "action_id": "customer_message.send", "max_class": "prepare" },
+    { "action_id": "appointment.propose", "max_class": "prepare" },
+    { "action_id": "contact.suppress", "max_class": "act" },
+    { "action_id": "handoff.create", "max_class": "prepare" },
+    { "action_id": "exception.escalate", "max_class": "prepare" },
+    { "action_id": "note.add", "max_class": "prepare" }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@mindburn/helm-eval-harness",
+  "version": "0.1.0",
+  "description": "Tenant-neutral specialist qualification harness for HELM packs: case schemas, deterministic scorer, cross-family judge contract, release bar, fail-closed route gate, and earned-autonomy rules",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.d.ts",
+    "!dist/test-utils.js",
+    "!dist/test-utils.d.ts",
+    "judge.md",
+    "examples",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "keywords": [
+    "helm",
+    "ai",
+    "agents",
+    "evaluation",
+    "qualification",
+    "red-team",
+    "autonomy"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mindburn-Labs/helm-agent-integrations",
+    "directory": "packages/js/eval-harness"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
+  }
+}

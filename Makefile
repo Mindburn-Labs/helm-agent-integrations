@@ -27,6 +27,7 @@ test-js:
 	cd packages/js/helm-channel-bridge && npm ci && npm test
 	cd packages/opencode-governance && npm ci && npm run typecheck && npm test
 	cd packages/js/acp-connector && npm ci && npm test
+	cd packages/js/eval-harness && npm ci && npm test
 
 # executors/ holds the HELM executor core and the front-end adapters. Core goes first: the adapters run its build.
 EXECUTOR_PACKAGES := core $(filter-out core,$(notdir $(patsubst %/,%,$(wildcard executors/*/))))

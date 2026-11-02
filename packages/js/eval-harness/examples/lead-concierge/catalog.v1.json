@@ -1,0 +1,18 @@
+{
+  "schema_version": "helm.action-catalog.v1",
+  "actions": [
+    { "action_id": "lead.read", "class": "read", "name": "read a lead" },
+    { "action_id": "lead.record_triage", "class": "act", "name": "record the triage of an inquiry" },
+    { "action_id": "lead.export", "class": "commit", "name": "export lead records" },
+    { "action_id": "customer_message.draft", "class": "prepare", "name": "draft a message to a customer" },
+    { "action_id": "customer_message.send", "class": "commit", "name": "send a message to a customer" },
+    { "action_id": "appointment.propose", "class": "prepare", "name": "propose a visit slot for a person to confirm" },
+    { "action_id": "appointment.book", "class": "commit", "name": "book a confirmed visit" },
+    { "action_id": "contact.suppress", "class": "act", "name": "stop contact on a channel" },
+    { "action_id": "handoff.create", "class": "prepare", "name": "hand work to another specialist or role" },
+    { "action_id": "exception.escalate", "class": "prepare", "name": "raise an exception for a person" },
+    { "action_id": "note.add", "class": "prepare", "name": "add an internal note" },
+    { "action_id": "price.quote", "class": "human_only", "name": "quote a price" },
+    { "action_id": "payment.update_payee", "class": "human_only", "name": "change payee details" }
+  ]
+}
