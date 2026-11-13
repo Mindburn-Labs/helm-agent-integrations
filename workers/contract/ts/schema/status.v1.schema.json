@@ -47,6 +47,7 @@
             "MISSING_CREDENTIAL",
             "UNSUPPORTED_MODEL_API",
             "NO_REPORT",
+            "EFFECT_OUTCOME_PENDING",
             "MODEL_ERROR",
             "TOOL_ERROR",
             "MAX_TURNS",

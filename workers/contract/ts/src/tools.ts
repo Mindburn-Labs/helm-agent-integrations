@@ -3,6 +3,7 @@
 // The rules here are the worker half of the contract and are identical in every adapter:
 //
 //  * a tool result {status: "escalated", attempt_id} parks the episode (INPUT_REQUIRED, attempts);
+//  * an uncertain effect stops the episode (FAILED, EFFECT_OUTCOME_PENDING) for CP reconciliation;
 //  * an applied helm_work_report ends it (COMPLETED);
 //  * a successful helm_work_delegate / helm_work_request_input parks it on children / input;
 //  * ending without an applied report is FAILED (NO_REPORT).
@@ -20,7 +21,7 @@ import {
 import { statusPayload, type ReportSummary, type StatusPayload, type WaitingOn } from "./status.js";
 
 export type Kind = "ok" | "error" | "escalated";
-export type StopReason = "escalated" | "reported" | "delegated" | "input_requested";
+export type StopReason = "escalated" | "reported" | "delegated" | "input_requested" | "effect_pending";
 
 /** An MCP tool result reduced to what the rules need. */
 export interface ToolResult {
@@ -46,13 +47,12 @@ export interface Outcome {
   status: StatusPayload;
 }
 
-// Result statuses that mean the effect did not happen, even when the tool call itself succeeded.
+// Result statuses that cannot establish a successful effect.
 const NOT_APPLIED = new Set([
   "denied",
   "failed",
   "error",
   "rejected",
-  "unknown",
   "escalated",
   "expired",
   "cancelled",
@@ -105,9 +105,10 @@ export class OutcomeTracker {
   delegated = false;
   input: { question: string; options: string[] } | null = null;
   report: ReportSummary | null = null;
+  effectPending = false;
 
   get stopped(): boolean {
-    return this.attempts.length > 0 || this.delegated || this.input !== null || this.report !== null;
+    return this.effectPending || this.attempts.length > 0 || this.delegated || this.input !== null || this.report !== null;
   }
 
   observe(tool: string, argumentsValue: unknown, result: ToolResult): Observation {
@@ -119,6 +120,14 @@ export class OutcomeTracker {
     const payload = resultPayload(result);
     const status = lowerStatus(payload);
     const attemptId = payload?.attempt_id;
+
+    if (status === "reconciling" || status === "unknown") {
+      this.effectPending = true;
+      // A missing ID is not evidence that nothing happened. CP retains the
+      // episode and can inspect its gateway attempts before any new execution.
+      const id = typeof attemptId === "string" && attemptId ? attemptId : undefined;
+      return { kind: "error", stop: true, reason: "effect_pending", proposal: proposal(tool, args, "error", id) };
+    }
 
     let kind: Kind;
     if (status === "escalated" && typeof attemptId === "string" && attemptId) kind = "escalated";
@@ -161,10 +170,14 @@ export class OutcomeTracker {
   /**
    * The terminal A2A state for a loop that ended normally.
    *
-   * Escalated attempts always win: an approval must never be dropped. Then an applied report
-   * completes the episode; then children / input park it; otherwise the report is missing.
+   * Uncertain effects require reconciliation before any continuation. Otherwise approvals
+   * take priority over reports; then children / input park it, or the report is missing.
    */
   outcome(lastText = ""): Outcome {
+    if (this.effectPending) {
+      const text = "A gateway effect is still being confirmed. The episode stopped; resolve the original attempt before retrying work.";
+      return { state: "failed", text, status: statusPayload({ error: { code: "EFFECT_OUTCOME_PENDING", message: text } }) };
+    }
     if (this.attempts.length > 0) {
       const waitingOn: WaitingOn = { attempts: [...this.attempts] };
       if (this.delegated) waitingOn.children = [...this.children];

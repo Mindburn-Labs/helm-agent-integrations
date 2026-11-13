@@ -45,6 +45,7 @@ class World:
     token: str
     script: list[dict[str, Any]] = field(default_factory=list)
     mcp_structured: bool = True
+    mcp_reconciling_tool: str = ""
     mcp_calls: list[McpCall] = field(default_factory=list)
     mcp_methods: list[tuple[float, str]] = field(default_factory=list)
     model_calls: list[ModelCall] = field(default_factory=list)

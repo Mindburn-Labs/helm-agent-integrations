@@ -96,6 +96,15 @@ def _text_result(
 
 def _call_tool(world: World, req: Request, call: McpCall) -> dict[str, Any]:
     name, args = call.tool, call.arguments
+    if name == world.mcp_reconciling_tool:
+        return _text_result(
+            {
+                "status": "reconciling",
+                "state": "UNKNOWN",
+                "attempt_id": f"att-{world.next_id('attempt')}",
+            },
+            world,
+        )
     if name == "github_repository_get":
         delay = args.get("delay_seconds")
         if isinstance(delay, (int, float)) and delay > 0:

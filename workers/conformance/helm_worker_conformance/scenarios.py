@@ -68,6 +68,7 @@ class Scenario:
     allowed: list[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED))
     deadline_seconds: int = 600
     mcp_structured: bool = True
+    mcp_reconciling_tool: str = ""
     # Needs the worker to accept the run (skipped when the API is not one the worker supports).
     needs_api_support: bool = True
     # Scenarios that exercise unsupported APIs run with a different api than the sweep's.
@@ -246,6 +247,35 @@ def drive_no_report(run: Run) -> None:
     if artifact_events(run.stream, "helm.report"):
         problems.append("a helm.report artifact was mirrored although no report was made")
     run.check("fails_with_no_report", not problems, "; ".join(problems))
+
+
+def drive_reconciling(run: Run) -> None:
+    _open(run)
+    _finish(run)
+    assert run.stream is not None
+    _standard(run, {"TASK_STATE_FAILED"})
+    payload, _ = final_status(run.stream)
+    problems = status_problems(run.stream)
+    if (payload or {}).get("error", {}).get("code") != "EFFECT_OUTCOME_PENDING":
+        problems.append("uncertain effect was not distinguished from an ordinary retryable failure")
+    if artifact_events(run.stream, "helm.report"):
+        problems.append("an unconfirmed report was mirrored as applied")
+    run.check("retains_uncertain_outcome", not problems, "; ".join(problems))
+    calls = [c for c in run.world.model_calls if c.dialect != "other"]
+    run.check(
+        "stops_after_uncertain_effect",
+        _mcp_tools(run) == [run.world.mcp_reconciling_tool] and len(calls) == 1,
+        f"tools={_mcp_tools(run)}, model calls={len(calls)}",
+    )
+    proposals = artifact_events(run.stream, "helm.proposal")
+    attempt = _first_attempt(run)
+    run.check(
+        "retains_original_attempt",
+        bool(attempt) and any(artifact_data(p).get("attempt_id") == attempt[0] for p in proposals),
+        "the proposal mirror must retain the original gateway attempt",
+    )
+    if run.world.mcp_calls and run.world.mcp_calls[0].t_end:
+        check_quiet_after(run, "quiet_after_uncertain_effect", run.world.mcp_calls[0].t_end)
 
 
 def _wait_for_traffic(run: Run, what: str, timeout: float = 45.0) -> bool:
@@ -625,6 +655,27 @@ _add(
         drive_report_completes,
     )
 )
+for _pending_tool, _structured, _suffix in (
+    ("github_pull_request_create_draft", True, "effect"),
+    ("github_pull_request_create_draft", False, "text_only"),
+    ("helm_work_report", True, "report"),
+):
+    _call = (
+        report_call()
+        if _pending_tool == "helm_work_report"
+        else {"name": _pending_tool, "arguments": {"title": "Uncertain effect probe"}}
+    )
+    _add(
+        Scenario(
+            "reconciling_" + _suffix + "_stops",
+            "An uncertain effect stops before another tool or model call",
+            [{"tools": [_call, report_call()]}, {"tools": [report_call()]}],
+            drive_reconciling,
+            mcp_structured=_structured,
+            mcp_reconciling_tool=_pending_tool,
+        )
+    )
+
 for _structured in (True, False):
     _add(
         Scenario(
