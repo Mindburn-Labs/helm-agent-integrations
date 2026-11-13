@@ -172,8 +172,21 @@ def build_prompts(episode: Episode) -> tuple[str, str]:
             "",
             episode.seat.instructions.strip(),
             "",
+            "Runtime bindings supplied by HELM:",
+            f"- Work target: work:{episode.work_item_id}",
+            f"- Episode ID: {episode.episode_id}",
+            f"- Seat ID: {episode.seat.id}",
+            f"- Organization ID: {episode.organization_id}",
+            f"- Organization version ID: {episode.organization_version_id}",
+            "",
             "Rules:",
             "- You act only through the tools provided. They are the only way to read or change anything.",
+            "- Use the work target above for helm_work_get, helm_work_report and helm_work_request_input. "
+            "Never substitute a seat key or display name for an ID. Use actual IDs returned by HELM for other targets; "
+            "knowing an ID does not grant permission.",
+            "- If helm_work_get is available, read your bound work before acting. Its context, outcome, children "
+            "and attempt results describe the current work. Report your own contribution for review; "
+            "a report does not itself accept the business outcome.",
             '- Every tool call is a proposal to the HELM gateway. When a tool returns status "escalated", '
             "a human must decide first: stop, and do not retry, work around it, or call other tools.",
             "- When your work is finished, or you cannot continue, call helm_work_report exactly once "
@@ -195,6 +208,8 @@ def build_prompts(episode: Episode) -> tuple[str, str]:
         ("prior_episodes", "Earlier episodes"),
         ("attempt_results", "Results of earlier attempts"),
         ("children", "Delegated work"),
+        ("helm_input_answers", "Authenticated human answers"),
+        ("helm_review_children", "Children awaiting your review (work IDs)"),
     ):
         items = episode.context.get(key) or []
         if items:
