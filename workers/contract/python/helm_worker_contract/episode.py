@@ -191,7 +191,7 @@ def build_prompts(episode: Episode) -> tuple[str, str]:
             + (
                 "The evaluation evidence contains the original work to judge."
                 if episode.evaluation is not None
-                else "Report your own contribution for review; a report does not itself accept the business outcome."
+                else "Report your own contribution for review; a report does not itself accept the business outcome. If your bound work names an agent evaluator, submit your draft with helm_work_report first; HELM dispatches that evaluator after your report. Do not wait for the reviewer or ask to assign it before submitting your own contribution."
             ),
             '- Every tool call is a proposal to the HELM gateway. When a tool returns status "escalated", '
             "a human must decide first: stop, and do not retry, work around it, or call other tools.",
