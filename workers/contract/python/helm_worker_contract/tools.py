@@ -3,6 +3,7 @@
 The rules here are the worker half of the contract and are identical in every adapter:
 
 * a tool result `{status: "escalated", attempt_id}` parks the episode (INPUT_REQUIRED, attempts);
+* an uncertain effect stops the episode (FAILED, EFFECT_OUTCOME_PENDING) for CP reconciliation;
 * an applied `helm_work_report` ends it (COMPLETED);
 * a successful `helm_work_delegate` / `helm_work_request_input` parks it on children / input;
 * ending without an applied report is FAILED (NO_REPORT).
@@ -29,14 +30,13 @@ from .status import status_payload
 
 Kind = Literal["ok", "error", "escalated"]
 
-# Result statuses that mean the effect did not happen, even when the tool call itself succeeded.
+# Result statuses that cannot establish a successful effect.
 _NOT_APPLIED = frozenset(
     {
         "denied",
         "failed",
         "error",
         "rejected",
-        "unknown",
         "escalated",
         "expired",
         "cancelled",
@@ -77,7 +77,9 @@ class Observation:
     # True when the agent loop must stop now (after the current tool batch, where the framework
     # groups tool calls into batches).
     stop: bool = False
-    reason: Literal["escalated", "reported", "delegated", "input_requested"] | None = None
+    reason: (
+        Literal["escalated", "reported", "delegated", "input_requested", "effect_pending"] | None
+    ) = None
     # helm.proposal.v1 mirror of this call (None for helm_work_report).
     proposal: dict[str, Any] | None = None
     # helm.report.v1 mirror when this call was helm_work_report.
@@ -115,11 +117,13 @@ class OutcomeTracker:
     delegated: bool = False
     input: dict[str, Any] | None = None
     report: dict[str, Any] | None = None
+    effect_pending: bool = False
 
     @property
     def stopped(self) -> bool:
         return (
-            bool(self.attempts)
+            self.effect_pending
+            or bool(self.attempts)
             or self.delegated
             or self.input is not None
             or self.report is not None
@@ -135,6 +139,15 @@ class OutcomeTracker:
         payload = result_payload(result)
         status = _lower_status(payload)
         attempt_id = payload.get("attempt_id") if payload else None
+
+        if status in ("reconciling", "unknown"):
+            self.effect_pending = True
+            # A missing ID is not evidence that nothing happened. Stop anyway;
+            # CP retains the episode and can inspect its gateway attempts.
+            ref = attempt_id if isinstance(attempt_id, str) and attempt_id else None
+            return Observation(
+                "error", True, "effect_pending", self._proposal(tool, args, "error", ref)
+            )
 
         kind: Kind
         if status == "escalated" and isinstance(attempt_id, str) and attempt_id:
@@ -212,9 +225,17 @@ class OutcomeTracker:
     def outcome(self, last_text: str = "") -> Outcome:
         """The terminal A2A state for a loop that ended normally.
 
-        Escalated attempts always win: an approval must never be dropped. Then an applied report
-        completes the episode; then children / input park it; otherwise the report is missing.
+        Uncertain effects require reconciliation before any continuation. Otherwise approvals
+        take priority over reports; then children / input park it, or the report is missing.
         """
+        if self.effect_pending:
+            message = (
+                "A gateway effect is still being confirmed. The episode stopped; "
+                "resolve the original attempt before retrying work."
+            )
+            return Outcome(
+                "failed", message, status_payload(error=("EFFECT_OUTCOME_PENDING", message))
+            )
         if self.attempts:
             waiting: dict[str, Any] = {"attempts": list(self.attempts)}
             if self.delegated:

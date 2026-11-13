@@ -760,5 +760,174 @@
         }
       }
     }
+  },
+  {
+    "name": "native pending report does not complete",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "target": "work:example",
+          "arguments": {
+            "status": "done",
+            "summary": "Not yet applied."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "reconciling",
+            "state": "UNKNOWN",
+            "attempt_id": "att-pending"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": true,
+          "reason": "effect_pending"
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "EFFECT_OUTCOME_PENDING"
+      }
+    }
+  },
+  {
+    "name": "pending text result stops",
+    "calls": [
+      {
+        "tool": "github_branch_create_from_changes",
+        "arguments": {},
+        "result": {
+          "text": "{\"status\":\"reconciling\",\"state\":\"ADMITTED\",\"attempt_id\":\"att-pending\"}"
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": true,
+          "reason": "effect_pending"
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "EFFECT_OUTCOME_PENDING"
+      }
+    }
+  },
+  {
+    "name": "pending result without an id still stops",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "target": "work:example",
+          "arguments": {
+            "status": "done",
+            "summary": "Not yet applied."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "reconciling"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": true,
+          "reason": "effect_pending"
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "EFFECT_OUTCOME_PENDING"
+      }
+    }
+  },
+  {
+    "name": "unknown effect stops",
+    "calls": [
+      {
+        "tool": "github_branch_create_from_changes",
+        "arguments": {},
+        "result": {
+          "structured": {
+            "status": "unknown",
+            "attempt_id": "att-pending"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": true,
+          "reason": "effect_pending"
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "EFFECT_OUTCOME_PENDING"
+      }
+    }
+  },
+  {
+    "name": "pending effect wins over an earlier applied report",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "target": "work:example",
+          "arguments": {
+            "status": "done",
+            "summary": "Not yet applied."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      },
+      {
+        "tool": "github_branch_create_from_changes",
+        "arguments": {},
+        "result": {
+          "structured": {
+            "status": "reconciling",
+            "attempt_id": "att-pending"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reported"
+        },
+        {
+          "kind": "error",
+          "stop": true,
+          "reason": "effect_pending"
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "EFFECT_OUTCOME_PENDING"
+      }
+    }
   }
 ]

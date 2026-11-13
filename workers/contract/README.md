@@ -66,7 +66,13 @@ The machine-readable detail of a terminal or parked state is a `helm.episode.sta
 ```
 
 `REJECTED` codes: `INVALID_EPISODE`, `MISSING_CREDENTIAL`, `UNSUPPORTED_MODEL_API`.
-`FAILED` codes: `NO_REPORT`, `MODEL_ERROR`, `TOOL_ERROR`, `MAX_TURNS`, `DEADLINE_EXCEEDED`, `INTERNAL`.
+`FAILED` codes: `NO_REPORT`, `EFFECT_OUTCOME_PENDING`, `MODEL_ERROR`, `TOOL_ERROR`, `MAX_TURNS`, `DEADLINE_EXCEEDED`, `INTERNAL`.
+
+`EFFECT_OUTCOME_PENDING` means the worker stopped because a gateway effect is still
+being confirmed; it does not mean the effect failed. Deploy CP support for this
+code before adopting these workers: CP must retain the original execution and
+escalate without automatic or ordinary manual retry. Resolving the original
+attempt and authorizing subsequent work remain separate from this stop behavior.
 
 ## What the agent's tool calls mean
 
@@ -82,7 +88,12 @@ result and stop their agent loop when it says so.
 - A successful `helm_work_delegate` parks on `waiting_on.children` (the child ids named in the
   results; empty when they are not named). A successful `helm_work_request_input` parks on
   `waiting_on.input`.
-- Escalated attempts always win: they are reported even when a report was also applied.
+- Without an uncertain effect, escalated attempts take priority over an applied report.
+- A result with status `reconciling` or `unknown` stops the model and tool loop,
+  even if the gateway omitted its attempt ID. The worker returns `FAILED` with
+  `EFFECT_OUTCOME_PENDING`, retains any supplied attempt ID in the proposal mirror,
+  and never treats an unconfirmed report as applied. This takes priority over an
+  earlier report or other waiting obligations; none authorizes repeating the effect.
 - No applied report and nothing parked: `FAILED` with `NO_REPORT`.
 
 ## Choices where the contract text was open

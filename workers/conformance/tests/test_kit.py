@@ -22,6 +22,12 @@ COMMON = {
     "no_egress",
 }
 PARKS = COMMON | {"parks_input_required", "stops_the_loop", "quiet_after_park"}
+PENDING = COMMON | {
+    "retains_uncertain_outcome",
+    "stops_after_uncertain_effect",
+    "retains_original_attempt",
+    "quiet_after_uncertain_effect",
+}
 CANCEL = {
     "cancel_within_10s",
     "cancel_stops_work",
@@ -47,6 +53,9 @@ MANIFEST: dict[str, set[str]] = {
     "escalated_parks": PARKS,
     "escalated_parks_text_only": PARKS,
     "escalated_batch_stops": PARKS,
+    "reconciling_effect_stops": PENDING,
+    "reconciling_text_only_stops": PENDING,
+    "reconciling_report_stops": PENDING,
     "delegate_parks_children": PARKS,
     "request_input_parks_input": PARKS,
     "no_report_fails": COMMON | {"fails_with_no_report"},

@@ -75,6 +75,7 @@ def run_scenario(
     scenario = SCENARIOS[scenario_id]
     started = time.monotonic()
     world = World(token=token, script=scenario.script, mcp_structured=scenario.mcp_structured)
+    world.mcp_reconciling_tool = scenario.mcp_reconciling_tool
     mcp_server = serve(mcp_stub.make_handler(world), bind, mcp_port)
     model_server = serve(model_stub.make_handler(world), bind, model_port)
     mcp_url = f"http://{mcp_host}:{mcp_server.server_address[1]}/mcp"
