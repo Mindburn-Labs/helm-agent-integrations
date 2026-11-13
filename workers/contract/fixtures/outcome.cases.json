@@ -616,5 +616,149 @@
         }
       }
     }
+  },
+  {
+    "name": "native envelope: report completes",
+    "calls": [
+      {
+        "tool": "github_repository_get",
+        "arguments": {
+          "repo": "r"
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      },
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "target": "work:2d053883-f048-44db-a9fb-f301a32d61f4",
+          "arguments": {
+            "status": "done",
+            "summary": "All good.",
+            "outputs": [
+              {
+                "kind": "pr",
+                "ref": "1"
+              }
+            ]
+          }
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        },
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reported"
+        }
+      ],
+      "outcome": {
+        "state": "completed",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "report": {
+            "status": "done",
+            "summary": "All good."
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "native envelope: a report the gateway denied does not count",
+    "calls": [
+      {
+        "tool": "helm_work_report",
+        "arguments": {
+          "target": "work:2d053883-f048-44db-a9fb-f301a32d61f4",
+          "arguments": {
+            "status": "done",
+            "summary": "x"
+          }
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "DENIED",
+            "reason": "scope"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "error",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
+  },
+  {
+    "name": "native envelope: request input parks on input",
+    "calls": [
+      {
+        "tool": "helm_work_request_input",
+        "arguments": {
+          "target": "work:2d053883-f048-44db-a9fb-f301a32d61f4",
+          "arguments": {
+            "question": "Which repo?",
+            "options": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        "result": {
+          "is_error": false,
+          "structured": {
+            "status": "succeeded"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "input_requested"
+        }
+      ],
+      "outcome": {
+        "state": "input_required",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "waiting_on": {
+            "input": {
+              "question": "Which repo?",
+              "options": [
+                "a",
+                "b"
+              ]
+            }
+          }
+        }
+      }
+    }
   }
 ]

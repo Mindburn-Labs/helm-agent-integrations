@@ -10,6 +10,7 @@ orchestrator) starts it with `docker exec`; tests call `run_scenario` directly.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import socket
 import sys
@@ -105,6 +106,14 @@ def run_scenario(
                 return result
             api = result["api"] = unsupported[0]
         episode = build_episode(scenario, api, mcp_url, model_url)
+        world.script = copy.deepcopy(scenario.script)
+        for step in world.script:
+            for call in step.get("then", step).get("tools", []):
+                if call["name"] in ("helm_work_report", "helm_work_request_input"):
+                    call["arguments"] = {
+                        "target": "work:" + episode["work_item_id"],
+                        "arguments": call["arguments"],
+                    }
         run = Run(scenario_id, api, episode, world, client, token, ingress_token, sinkhole)
         try:
             scenario.drive(run)

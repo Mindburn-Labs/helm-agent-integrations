@@ -74,6 +74,15 @@ TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
     ),
 }
 
+# Exercise the native gateway's envelope for the work tools whose arguments
+# the worker must mirror. Flat test-only schemas missed applied real reports.
+for _name in ("helm_work_report", "helm_work_request_input"):
+    _description, _arguments = TOOLS[_name]
+    TOOLS[_name] = (
+        _description,
+        _schema({"target": _STR, "arguments": _arguments}, ["target", "arguments"]),
+    )
+
 
 def _text_result(
     structured: dict[str, Any], world: World, is_error: bool = False
