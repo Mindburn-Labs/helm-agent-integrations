@@ -112,6 +112,10 @@ export class OutcomeTracker {
 
   observe(tool: string, argumentsValue: unknown, result: ToolResult): Observation {
     const args: Json = isObject(argumentsValue) ? argumentsValue : {};
+    // Native MCP wraps effect data in {target, arguments}. Retain the full
+    // proposal, but mirror report/input fields from the inner effect data.
+    const values = "target" in args && "arguments" in args
+      ? (isObject(args.arguments) ? args.arguments : {}) : args;
     const payload = resultPayload(result);
     const status = lowerStatus(payload);
     const attemptId = payload?.attempt_id;
@@ -128,7 +132,7 @@ export class OutcomeTracker {
     }
 
     if (tool === REPORT_TOOL) {
-      const mirror = reportMirror(args);
+      const mirror = reportMirror(values);
       if (kind === "ok" && mirror) {
         this.report = { status: mirror.status as ReportSummary["status"], summary: mirror.summary as string };
         return { kind, stop: true, reason: "reported", report: mirror };
@@ -145,8 +149,8 @@ export class OutcomeTracker {
       stop = true;
       reason = "delegated";
     } else if (kind === "ok" && tool === REQUEST_INPUT_TOOL) {
-      const question = String(args.question ?? "").trim() || "input requested";
-      const options = Array.isArray(args.options) ? args.options.map(String) : [];
+      const question = String(values.question ?? "").trim() || "input requested";
+      const options = Array.isArray(values.options) ? values.options.map(String) : [];
       this.input = { question, options };
       stop = true;
       reason = "input_requested";

@@ -127,6 +127,11 @@ class OutcomeTracker:
 
     def observe(self, tool: str, arguments: object, result: ToolResult) -> Observation:
         args: dict[str, Any] = arguments if isinstance(arguments, dict) else {}
+        # Native MCP wraps effect data in {target, arguments}. Keep the full
+        # proposal for evidence, but mirror report/input fields from that data.
+        values = args
+        if "target" in args and "arguments" in args:
+            values = args["arguments"] if isinstance(args["arguments"], dict) else {}
         payload = result_payload(result)
         status = _lower_status(payload)
         attempt_id = payload.get("attempt_id") if payload else None
@@ -148,7 +153,7 @@ class OutcomeTracker:
             )
 
         if tool == REPORT_TOOL:
-            mirror = self._report_mirror(args)
+            mirror = self._report_mirror(values)
             if kind == "ok" and mirror is not None:
                 self.report = {"status": mirror["status"], "summary": mirror["summary"]}
                 return Observation(kind, True, "reported", report=mirror)
@@ -163,9 +168,9 @@ class OutcomeTracker:
             self.delegated = True
             stop, reason = True, "delegated"
         elif kind == "ok" and tool == REQUEST_INPUT_TOOL:
-            options = args.get("options")
+            options = values.get("options")
             self.input = {
-                "question": str(args.get("question") or "").strip() or "input requested",
+                "question": str(values.get("question") or "").strip() or "input requested",
                 "options": [str(item) for item in options] if isinstance(options, list) else [],
             }
             stop, reason = True, "input_requested"
