@@ -37,6 +37,11 @@ async def run(session: Session) -> None:
                         "max_output_tokens": episode.model.max_output_tokens,
                         "mcp_url": episode.tools.mcp_url,
                         "allowed": list(episode.tools.allowed),
+                        "evaluation_target": (
+                            "work:" + episode.evaluation["work_item_id"]
+                        )
+                        if episode.evaluation
+                        else None,
                         "token": session.token,
                         "system": system,
                         "user": user,

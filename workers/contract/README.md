@@ -42,7 +42,7 @@ The stream is the A2A task lifecycle: the `task` (SUBMITTED), then `statusUpdate
 
 | State | When |
 | --- | --- |
-| `COMPLETED` | The agent ended and `helm_work_report` was applied. |
+| `COMPLETED` | An ordinary episode applied `helm_work_report`; a bound evaluator applied `helm_work_review` to its original target. |
 | `INPUT_REQUIRED` | The episode is parked; the control plane starts a follow-on episode later. |
 | `FAILED` | Reason code in the status detail (see below). `NO_REPORT` when the agent ended without an applied report. |
 | `REJECTED` | The worker refused the episode before doing anything. |
@@ -66,7 +66,7 @@ The machine-readable detail of a terminal or parked state is a `helm.episode.sta
 ```
 
 `REJECTED` codes: `INVALID_EPISODE`, `MISSING_CREDENTIAL`, `UNSUPPORTED_MODEL_API`.
-`FAILED` codes: `NO_REPORT`, `EFFECT_OUTCOME_PENDING`, `MODEL_ERROR`, `TOOL_ERROR`, `MAX_TURNS`, `DEADLINE_EXCEEDED`, `INTERNAL`.
+`FAILED` codes: `NO_REPORT`, `NO_REVIEW`, `EFFECT_OUTCOME_PENDING`, `MODEL_ERROR`, `TOOL_ERROR`, `MAX_TURNS`, `DEADLINE_EXCEEDED`, `INTERNAL`.
 
 `EFFECT_OUTCOME_PENDING` means the worker stopped because a gateway effect is still
 being confirmed; it does not mean the effect failed. Deploy CP support for this
@@ -94,7 +94,18 @@ result and stop their agent loop when it says so.
   `EFFECT_OUTCOME_PENDING`, retains any supplied attempt ID in the proposal mirror,
   and never treats an unconfirmed report as applied. This takes priority over an
   earlier report or other waiting obligations; none authorizes repeating the effect.
-- No applied report and nothing parked: `FAILED` with `NO_REPORT`.
+- An episode with `evaluation` reads its original work/report binding through its own
+  `helm_work_get`. Only a succeeded `helm_work_review` of that exact target, with an
+  attempt ID, matching result target, decision and reason, completes it. Terminal
+  detail carries `review` instead of `report`; it is a mirror, not proof of acceptance.
+  CP verifies the applied review against the original producer episode and report.
+- No required completion effect and nothing parked: `FAILED` with `NO_REPORT` for
+  ordinary episodes or `NO_REVIEW` for bound evaluators. A manager reviewing a
+  delegated child still owes its own report; that review does not end its episode.
+
+Deploy matching CP support before adopting the evaluation status extension; enable
+agent evaluators only after the selected worker supports `evaluation`. An evaluator
+needs existing get/review grants. The extension never adds report or execution grants.
 
 ## Choices where the contract text was open
 

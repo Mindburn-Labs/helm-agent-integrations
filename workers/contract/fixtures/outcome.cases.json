@@ -929,5 +929,278 @@
         "code": "EFFECT_OUTCOME_PENDING"
       }
     }
+  },
+  {
+    "name": "independent review accept completes without report",
+    "review_target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+          "arguments": {
+            "decision": "accept",
+            "reason": "Figures agree with supplied source."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "attempt_id": "review-attempt",
+            "result": {
+              "child_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reviewed"
+        }
+      ],
+      "outcome": {
+        "state": "completed",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "review": {
+            "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+            "decision": "accept",
+            "reason": "Figures agree with supplied source."
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "independent review reject completes without report",
+    "review_target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+          "arguments": {
+            "decision": "reject",
+            "reason": "Figures agree with supplied source."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "attempt_id": "review-attempt",
+            "result": {
+              "child_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": true,
+          "reason": "reviewed"
+        }
+      ],
+      "outcome": {
+        "state": "completed",
+        "status": {
+          "schema": "helm.episode.status.v1",
+          "review": {
+            "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+            "decision": "reject",
+            "reason": "Figures agree with supplied source."
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "independent review refuses wrong target",
+    "review_target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:other",
+          "arguments": {
+            "decision": "accept",
+            "reason": "Figures agree with supplied source."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "attempt_id": "review-attempt",
+            "result": {
+              "child_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REVIEW"
+      }
+    }
+  },
+  {
+    "name": "independent review refuses wrong result",
+    "review_target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+          "arguments": {
+            "decision": "accept",
+            "reason": "Figures agree with supplied source."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "attempt_id": "review-attempt",
+            "result": {
+              "child_id": "other"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REVIEW"
+      }
+    }
+  },
+  {
+    "name": "independent review refuses missing attempt",
+    "review_target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+          "arguments": {
+            "decision": "accept",
+            "reason": "Figures agree with supplied source."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "result": {
+              "child_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REVIEW"
+      }
+    }
+  },
+  {
+    "name": "independent review refuses empty reason",
+    "review_target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+          "arguments": {
+            "decision": "accept",
+            "reason": ""
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "attempt_id": "review-attempt",
+            "result": {
+              "child_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REVIEW"
+      }
+    }
+  },
+  {
+    "name": "manager review still requires own report",
+    "calls": [
+      {
+        "tool": "helm_work_review",
+        "arguments": {
+          "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+          "arguments": {
+            "decision": "accept",
+            "reason": "Figures agree with supplied source."
+          }
+        },
+        "result": {
+          "structured": {
+            "status": "succeeded",
+            "attempt_id": "review-attempt",
+            "result": {
+              "child_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+            }
+          }
+        }
+      }
+    ],
+    "expect": {
+      "observations": [
+        {
+          "kind": "ok",
+          "stop": false
+        }
+      ],
+      "outcome": {
+        "state": "failed",
+        "code": "NO_REPORT"
+      }
+    }
   }
 ]

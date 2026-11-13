@@ -53,6 +53,12 @@ MANIFEST: dict[str, set[str]] = {
     "escalated_parks": PARKS,
     "escalated_parks_text_only": PARKS,
     "escalated_batch_stops": PARKS,
+    "evaluation_accept": COMMON
+    | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
+    "evaluation_reject": COMMON
+    | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
+    "evaluation_accept_text_only": COMMON
+    | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
     "reconciling_effect_stops": PENDING,
     "reconciling_text_only_stops": PENDING,
     "reconciling_report_stops": PENDING,

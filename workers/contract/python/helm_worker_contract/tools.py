@@ -78,7 +78,10 @@ class Observation:
     # groups tool calls into batches).
     stop: bool = False
     reason: (
-        Literal["escalated", "reported", "delegated", "input_requested", "effect_pending"] | None
+        Literal[
+            "escalated", "reported", "delegated", "input_requested", "effect_pending", "reviewed"
+        ]
+        | None
     ) = None
     # helm.proposal.v1 mirror of this call (None for helm_work_report).
     proposal: dict[str, Any] | None = None
@@ -118,6 +121,8 @@ class OutcomeTracker:
     input: dict[str, Any] | None = None
     report: dict[str, Any] | None = None
     effect_pending: bool = False
+    review_target: str | None = None
+    review: dict[str, str] | None = None
 
     @property
     def stopped(self) -> bool:
@@ -127,6 +132,7 @@ class OutcomeTracker:
             or self.delegated
             or self.input is not None
             or self.report is not None
+            or self.review is not None
         )
 
     def observe(self, tool: str, arguments: object, result: ToolResult) -> Observation:
@@ -164,6 +170,29 @@ class OutcomeTracker:
             return Observation(
                 kind, True, "escalated", self._proposal(tool, args, kind, attempt_id)
             )
+
+        if tool == "helm_work_review" and self.review_target is not None:
+            review_reason = values.get("reason")
+            if (
+                kind == "ok"
+                and status == "succeeded"
+                and isinstance(attempt_id, str)
+                and attempt_id
+                and args.get("target") == self.review_target
+                and _child_id(payload) == self.review_target.removeprefix("work:")
+                and values.get("decision") in ("accept", "reject")
+                and isinstance(review_reason, str)
+                and review_reason.strip()
+                and len(review_reason) <= 65536
+            ):
+                self.review = {
+                    "target": self.review_target,
+                    "decision": values["decision"],
+                    "reason": review_reason,
+                }
+                return Observation(
+                    kind, True, "reviewed", self._proposal(tool, args, kind, attempt_id)
+                )
 
         if tool == REPORT_TOOL:
             mirror = self._report_mirror(values)
@@ -247,7 +276,7 @@ class OutcomeTracker:
                 f"Waiting for a human decision on {len(self.attempts)} escalated attempt(s).",
                 status_payload(waiting_on=waiting),
             )
-        if self.report is not None:
+        if self.report is not None and self.review_target is None:
             return Outcome(
                 "completed",
                 self.report["summary"] or f"Reported {self.report['status']}.",
@@ -264,6 +293,13 @@ class OutcomeTracker:
                 "Waiting for delegated work." if self.delegated else "Waiting for an answer.",
                 status_payload(waiting_on=waiting),
             )
+        if self.review_target is not None:
+            if self.review is not None:
+                return Outcome(
+                    "completed", self.review["reason"], status_payload(review=self.review)
+                )
+            message = "The evaluator finished without an applied review of its bound target."
+            return Outcome("failed", message, status_payload(error=("NO_REVIEW", message)))
         detail = f" Last message: {last_text.strip()[:500]}" if last_text.strip() else ""
         message = f"The agent finished without an applied {REPORT_TOOL}.{detail}"
         return Outcome("failed", message, status_payload(error=("NO_REPORT", message)))

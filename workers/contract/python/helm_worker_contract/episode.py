@@ -63,6 +63,7 @@ class Episode:
     context: Mapping[str, Any] = field(default_factory=dict)
     acceptance: Mapping[str, Any] = field(default_factory=dict)
     budget: Mapping[str, Any] = field(default_factory=dict)
+    evaluation: Mapping[str, str] | None = None
 
     def seconds_left(self, now: datetime | None = None) -> float:
         return (self.deadline - (now or datetime.now(timezone.utc))).total_seconds()
@@ -106,6 +107,7 @@ def parse_episode(value: object) -> Episode:
         episode_id=value["episode_id"],
         work_item_id=value["work_item_id"],
         continuation=value.get("continuation", 0),
+        evaluation=value.get("evaluation"),
         organization_id=organization.get("id", ""),
         organization_version_id=organization.get("version_id", ""),
         seat=Seat(
@@ -185,12 +187,23 @@ def build_prompts(episode: Episode) -> tuple[str, str]:
             "Never substitute a seat key or display name for an ID. Use actual IDs returned by HELM for other targets; "
             "knowing an ID does not grant permission.",
             "- If helm_work_get is available, read your bound work before acting. Its context, outcome, children "
-            "and attempt results describe the current work. Report your own contribution for review; "
-            "a report does not itself accept the business outcome.",
+            "and attempt results describe the current work. "
+            + (
+                "The evaluation evidence contains the original work to judge."
+                if episode.evaluation is not None
+                else "Report your own contribution for review; a report does not itself accept the business outcome. If your bound work names an agent evaluator, submit your draft with helm_work_report first; HELM dispatches that evaluator after your report. Do not wait for the reviewer or ask to assign it before submitting your own contribution."
+            ),
             '- Every tool call is a proposal to the HELM gateway. When a tool returns status "escalated", '
             "a human must decide first: stop, and do not retry, work around it, or call other tools.",
-            "- When your work is finished, or you cannot continue, call helm_work_report exactly once "
-            "with status done, blocked or failed and a short summary. The episode is not complete until you do.",
+            (
+                "- This is an independent evaluation. Read your bound work with helm_work_get; its evaluation "
+                "contains the original work, child states, authenticated attempts and applied report. Judge that evidence against its criteria. "
+                f"Call helm_work_review on work:{episode.evaluation['work_item_id']} with accept or reject and "
+                "a specific reason. Stop after the applied review. Do not report your own work or execute the producer's task."
+                if episode.evaluation is not None
+                else "- When your work is finished, or you cannot continue, call helm_work_report exactly once "
+                "with status done, blocked or failed and a short summary. The episode is not complete until you do."
+            ),
             f"- Finish before {episode.deadline.strftime('%Y-%m-%dT%H:%M:%SZ')}.",
         ]
     ).strip()

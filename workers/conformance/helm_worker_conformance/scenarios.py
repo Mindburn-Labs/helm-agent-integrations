@@ -69,6 +69,7 @@ class Scenario:
     deadline_seconds: int = 600
     mcp_structured: bool = True
     mcp_reconciling_tool: str = ""
+    evaluation: dict[str, str] | None = None
     # Needs the worker to accept the run (skipped when the API is not one the worker supports).
     needs_api_support: bool = True
     # Scenarios that exercise unsupported APIs run with a different api than the sweep's.
@@ -81,6 +82,7 @@ def build_episode(scenario: Scenario, api: str, mcp_url: str, model_url: str) ->
     now = datetime.now(timezone.utc)
     return {
         "schema": "helm.episode.v1",
+        **({"evaluation": scenario.evaluation} if scenario.evaluation else {}),
         "episode_id": str(uuid.uuid4()),
         "work_item_id": str(uuid.uuid4()),
         "continuation": 0,
@@ -247,6 +249,30 @@ def drive_no_report(run: Run) -> None:
     if artifact_events(run.stream, "helm.report"):
         problems.append("a helm.report artifact was mirrored although no report was made")
     run.check("fails_with_no_report", not problems, "; ".join(problems))
+
+
+def drive_evaluation(run: Run) -> None:
+    _open(run)
+    _finish(run)
+    assert run.stream is not None
+    _standard(run, {"TASK_STATE_COMPLETED"})
+    payload, _ = final_status(run.stream)
+    review = (payload or {}).get("review", {})
+    expected = run.world.script[1]["tools"][0]["arguments"]
+    problems = status_problems(run.stream)
+    if review != {"target": expected["target"], **expected["arguments"]}:
+        problems.append("completed review mirror is not the exact bound judgment")
+    if (payload or {}).get("report") or artifact_events(run.stream, "helm.report"):
+        problems.append("review completion fabricated a report")
+    run.check("completes_bound_review", not problems, "; ".join(problems))
+    calls = [c for c in run.world.model_calls if c.dialect != "other"]
+    run.check(
+        "stops_after_review",
+        _mcp_tools(run) == ["helm_work_get", "helm_work_review"] and len(calls) == 2,
+        f"tools={_mcp_tools(run)}, model calls={len(calls)}",
+    )
+    if run.world.mcp_calls and run.world.mcp_calls[-1].t_end:
+        check_quiet_after(run, "quiet_after_review", run.world.mcp_calls[-1].t_end)
 
 
 def drive_reconciling(run: Run) -> None:
@@ -907,3 +933,42 @@ def catalog() -> list[dict[str, Any]]:
         {"id": s.id, "title": s.title, "api_independent": s.api_independent}
         for s in SCENARIOS.values()
     ]
+
+
+# A top-level evaluator finishes on its bound applied review, without an extra
+# report grant. Later tools in the same batch and later model turns are traps.
+for _decision, _structured in (("accept", True), ("reject", True), ("accept", False)):
+    _review_work = "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10"
+    _add(
+        Scenario(
+            "evaluation_" + _decision + ("" if _structured else "_text_only"),
+            "Independent evaluation completes only after the bound review is applied",
+            [
+                {"tools": [{"name": "helm_work_get", "arguments": {}}]},
+                {
+                    "tools": [
+                        {
+                            "name": "helm_work_review",
+                            "arguments": {
+                                "target": "work:" + _review_work,
+                                "arguments": {
+                                    "decision": _decision,
+                                    "reason": "Checked original figures and acceptance criteria.",
+                                },
+                            },
+                        },
+                        {"name": "helm_work_get", "arguments": {}},
+                    ]
+                },
+                {"tools": [{"name": "helm_work_get", "arguments": {}}]},
+            ],
+            drive_evaluation,
+            allowed=["helm_work_get", "helm_work_review"],
+            mcp_structured=_structured,
+            evaluation={
+                "work_item_id": _review_work,
+                "episode_id": "5fc6970a-fb68-4817-bced-b2b8d7325b7f",
+                "report_attempt_id": "original-report",
+            },
+        )
+    )

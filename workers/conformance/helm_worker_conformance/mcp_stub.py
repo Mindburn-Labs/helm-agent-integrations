@@ -118,6 +118,15 @@ def _call_tool(world: World, req: Request, call: McpCall) -> dict[str, Any]:
     if name == "github_pull_request_create_draft":
         attempt = f"att-{world.next_id('attempt')}"
         return _text_result({"status": "escalated", "attempt_id": attempt}, world)
+    if name == "helm_work_review":
+        return _text_result(
+            {
+                "status": "succeeded",
+                "attempt_id": f"att-{world.next_id('attempt')}",
+                "result": {"child_id": str(args.get("target", "")).removeprefix("work:")},
+            },
+            world,
+        )
     if name == "helm_work_delegate":
         return _text_result(
             {"status": "succeeded", "work_id": f"child-{world.next_id('child')}"}, world

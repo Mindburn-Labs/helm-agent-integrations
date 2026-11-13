@@ -24,7 +24,7 @@ export async function runEpisode(raw, {client, emit, signal, stream, fetch}) {
   const config = validateConfiguration(raw);
   stream ??= createGatewayStream(config, fetch ?? gatewayFetch(config, globalThis.fetch.bind(globalThis), signal));
   const allowed = new Set(config.allowed);
-  const tracker = new OutcomeTracker();
+  const tracker = new OutcomeTracker(config.evaluation_target ?? null);
   const catalog = await discoverTools(client, config.allowed, signal);
   const model = Object.freeze({
     id: config.model, name: config.model, api: "openai-responses", provider: "helm",

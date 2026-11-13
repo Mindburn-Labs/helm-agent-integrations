@@ -34,6 +34,16 @@
         "instructions": { "type": "string" }
       }
     },
+    "evaluation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["work_item_id", "episode_id", "report_attempt_id"],
+      "properties": {
+        "work_item_id": { "type": "string", "minLength": 1 },
+        "episode_id": { "type": "string", "minLength": 1 },
+        "report_attempt_id": { "type": "string", "minLength": 1 }
+      },
+      "description": "CP-bound independent evaluation of one original report. Completion requires the applied review of this target, not a report of the evaluator's own work."
+    },
     "goal": { "type": "string", "minLength": 1 },
     "context": {
       "type": "object",

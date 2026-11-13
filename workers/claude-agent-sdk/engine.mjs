@@ -9,7 +9,7 @@ let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const config = JSON.parse(input);
 const allowed = new Set(config.allowed);
-const tracker = new OutcomeTracker();
+const tracker = new OutcomeTracker(config.evaluation_target ?? null);
 const controller = new AbortController();
 const emit = (event) => process.stdout.write(JSON.stringify(event) + "\n");
 process.on("SIGTERM", () => controller.abort());

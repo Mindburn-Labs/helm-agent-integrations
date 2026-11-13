@@ -88,7 +88,11 @@ class Task:
 class Session:
     def __init__(self, worker: Worker, task: Task, episode: Episode, token: str) -> None:
         self.worker, self.task, self.episode, self.token = worker, task, episode, token
-        self.tracker = OutcomeTracker()
+        self.tracker = OutcomeTracker(
+            review_target=("work:" + episode.evaluation["work_item_id"])
+            if episode.evaluation
+            else None
+        )
         self.last_text = ""
 
     def guard(self) -> None:
