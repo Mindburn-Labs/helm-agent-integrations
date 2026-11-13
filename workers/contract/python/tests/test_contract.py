@@ -101,6 +101,27 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(system, PROMPT["system"])
         self.assertEqual(user, PROMPT["user"])
 
+    def test_model_receives_the_bound_work_target_instead_of_guessing_a_seat_key(self) -> None:
+        for name in ("full", "minimal"):
+            episode = parse_episode(CASES["valid"][name])
+            system, _ = build_prompts(episode)
+            self.assertIn("work:" + episode.work_item_id, system)
+            self.assertIn(episode.episode_id, system)
+            self.assertIn(episode.organization_id, system)
+            self.assertIn(episode.organization_version_id, system)
+            self.assertIn(episode.seat.id, system)
+            self.assertNotIn("work:" + episode.seat.key, system)
+
+    def test_continuation_keeps_human_answers_and_review_work_ids(self) -> None:
+        raw = json.loads(json.dumps(CASES["valid"]["full"]))
+        raw["context"]["helm_input_answers"] = [
+            {"question": "Which notes?", "answer": "Use the approved revision."}
+        ]
+        raw["context"]["helm_review_children"] = ["c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a"]
+        _, user = build_prompts(parse_episode(raw))
+        self.assertIn("Use the approved revision.", user)
+        self.assertIn("c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a", user)
+
 
 class OutcomeTests(unittest.TestCase):
     def test_vectors(self) -> None:

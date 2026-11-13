@@ -156,8 +156,21 @@ export function buildPrompts(episode: Episode): { system: string; user: string }
     "",
     episode.seat.instructions.trim(),
     "",
+    "Runtime bindings supplied by HELM:",
+    `- Work target: work:${episode.workItemId}`,
+    `- Episode ID: ${episode.episodeId}`,
+    `- Seat ID: ${episode.seat.id}`,
+    `- Organization ID: ${episode.organizationId}`,
+    `- Organization version ID: ${episode.organizationVersionId}`,
+    "",
     "Rules:",
     "- You act only through the tools provided. They are the only way to read or change anything.",
+    "- Use the work target above for helm_work_get, helm_work_report and helm_work_request_input. " +
+      "Never substitute a seat key or display name for an ID. Use actual IDs returned by HELM for other targets; " +
+      "knowing an ID does not grant permission.",
+    "- If helm_work_get is available, read your bound work before acting. Its context, outcome, children " +
+      "and attempt results describe the current work. Report your own contribution for review; " +
+      "a report does not itself accept the business outcome.",
     '- Every tool call is a proposal to the HELM gateway. When a tool returns status "escalated", ' +
       "a human must decide first: stop, and do not retry, work around it, or call other tools.",
     "- When your work is finished, or you cannot continue, call helm_work_report exactly once " +
@@ -178,6 +191,8 @@ export function buildPrompts(episode: Episode): { system: string; user: string }
     ["prior_episodes", "Earlier episodes"],
     ["attempt_results", "Results of earlier attempts"],
     ["children", "Delegated work"],
+    ["helm_input_answers", "Authenticated human answers"],
+    ["helm_review_children", "Children awaiting your review (work IDs)"],
   ] as const) {
     const items = (episode.context[key] as unknown[] | undefined) ?? [];
     if (items.length > 0) user.push("", `${title}:`, canonicalJson(items));

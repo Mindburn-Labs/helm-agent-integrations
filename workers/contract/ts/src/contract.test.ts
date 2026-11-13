@@ -99,6 +99,27 @@ test("prompts match the golden file shared with Python", () => {
   assert.equal(user, promptGolden.user);
 });
 
+test("the model receives its bound work target instead of guessing a seat key", () => {
+  for (const name of ["full", "minimal"]) {
+    const episode = parseEpisode((cases.valid as Record<string, unknown>)[name]);
+    const { system } = buildPrompts(episode);
+    for (const id of ["work:" + episode.workItemId, episode.episodeId,
+      episode.organizationId, episode.organizationVersionId, episode.seat.id]) {
+      assert.ok(system.includes(id), `missing runtime binding ${id}`);
+    }
+    assert.ok(!system.includes("work:" + episode.seat.key));
+  }
+});
+
+test("continuation keeps human answers and review work IDs", () => {
+  const raw = structuredClone((cases.valid as Record<string, any>).full);
+  raw.context.helm_input_answers = [{ question: "Which notes?", answer: "Use the approved revision." }];
+  raw.context.helm_review_children = ["c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a"];
+  const { user } = buildPrompts(parseEpisode(raw));
+  assert.ok(user.includes("Use the approved revision."));
+  assert.ok(user.includes("c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a"));
+});
+
 test("outcome vectors shared with Python", () => {
   for (const testCase of outcomes) {
     const tracker = new OutcomeTracker();
