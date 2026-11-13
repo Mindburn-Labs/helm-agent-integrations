@@ -13,6 +13,7 @@ def status_payload(
     waiting_on: Mapping[str, Any] | None = None,
     error: tuple[str, str] | None = None,
     report: Mapping[str, Any] | None = None,
+    review: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a helm.episode.status.v1 document; `error` is (code, message)."""
     payload: dict[str, Any] = {"schema": STATUS_SCHEMA}
@@ -22,6 +23,8 @@ def status_payload(
         payload["error"] = {"code": error[0], "message": error[1]}
     if report:
         payload["report"] = dict(report)
+    if review:
+        payload["review"] = dict(review)
     return payload
 
 

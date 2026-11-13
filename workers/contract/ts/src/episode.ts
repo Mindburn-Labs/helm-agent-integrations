@@ -28,6 +28,7 @@ export interface Seat {
 export interface Episode {
   episodeId: string;
   workItemId: string;
+  evaluation?: { work_item_id: string; episode_id: string; report_attempt_id: string } | null;
   continuation: number;
   organizationId: string;
   organizationVersionId: string;
@@ -75,6 +76,7 @@ export function parseEpisode(value: unknown): Episode {
     episodeId: raw.episode_id,
     workItemId: raw.work_item_id,
     continuation: raw.continuation ?? 0,
+    evaluation: raw.evaluation ?? null,
     organizationId: raw.organization?.id ?? "",
     organizationVersionId: raw.organization?.version_id ?? "",
     seat: {
@@ -169,12 +171,19 @@ export function buildPrompts(episode: Episode): { system: string; user: string }
       "Never substitute a seat key or display name for an ID. Use actual IDs returned by HELM for other targets; " +
       "knowing an ID does not grant permission.",
     "- If helm_work_get is available, read your bound work before acting. Its context, outcome, children " +
-      "and attempt results describe the current work. Report your own contribution for review; " +
-      "a report does not itself accept the business outcome.",
+      "and attempt results describe the current work. " +
+      (episode.evaluation != null
+        ? "The evaluation evidence contains the original work to judge."
+        : "Report your own contribution for review; a report does not itself accept the business outcome."),
     '- Every tool call is a proposal to the HELM gateway. When a tool returns status "escalated", ' +
       "a human must decide first: stop, and do not retry, work around it, or call other tools.",
-    "- When your work is finished, or you cannot continue, call helm_work_report exactly once " +
-      "with status done, blocked or failed and a short summary. The episode is not complete until you do.",
+    episode.evaluation != null
+      ? "- This is an independent evaluation. Read your bound work with helm_work_get; its evaluation " +
+        "contains the original work, child states, authenticated attempts and applied report. Judge that evidence against its criteria. " +
+        `Call helm_work_review on work:${episode.evaluation.work_item_id} with accept or reject and ` +
+        "a specific reason. Stop after the applied review. Do not report your own work or execute the producer's task."
+      : "- When your work is finished, or you cannot continue, call helm_work_report exactly once " +
+        "with status done, blocked or failed and a short summary. The episode is not complete until you do.",
     `- Finish before ${utcSeconds(episode.deadline)}.`,
   ]
     .join("\n")

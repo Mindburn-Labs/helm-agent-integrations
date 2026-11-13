@@ -27,6 +27,7 @@ const fixture = (name: string) =>
 const cases = fixture("episode.cases.json") as { valid: Record<string, unknown>; invalid: Record<string, unknown> };
 const outcomes = fixture("outcome.cases.json") as Array<{
   name: string;
+  review_target?: string;
   calls: Array<{ tool: string; arguments: unknown; result: { is_error?: boolean; structured?: unknown; text?: string } }>;
   expect: { observations: unknown[]; outcome: { state: string; status?: unknown; code?: string } };
 }>;
@@ -122,7 +123,7 @@ test("continuation keeps human answers and review work IDs", () => {
 
 test("outcome vectors shared with Python", () => {
   for (const testCase of outcomes) {
-    const tracker = new OutcomeTracker();
+    const tracker = new OutcomeTracker(testCase.review_target ?? null);
     const seen = testCase.calls.map((call) => {
       const result: ToolResult = {
         isError: call.result.is_error ?? false,

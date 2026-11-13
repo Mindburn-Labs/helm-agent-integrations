@@ -47,6 +47,7 @@
             "MISSING_CREDENTIAL",
             "UNSUPPORTED_MODEL_API",
             "NO_REPORT",
+            "NO_REVIEW",
             "EFFECT_OUTCOME_PENDING",
             "MODEL_ERROR",
             "TOOL_ERROR",
@@ -57,6 +58,16 @@
         },
         "message": { "type": "string" }
       }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "decision", "reason"],
+      "properties": {
+        "target": { "type": "string", "pattern": "^work:" },
+        "decision": { "enum": ["accept", "reject"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 65536 }
+      },
+      "description": "Applied review mirror for an evaluation episode; CP independently verifies the exact application and original report binding."
     },
     "report": {
       "type": "object",

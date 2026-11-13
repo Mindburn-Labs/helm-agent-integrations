@@ -30,6 +30,7 @@ export const REQUEST_INPUT_TOOL = "helm_work_request_input";
 export const REJECTED_CODES = ["INVALID_EPISODE", "MISSING_CREDENTIAL", "UNSUPPORTED_MODEL_API"] as const;
 export const FAILED_CODES = [
   "NO_REPORT",
+    "NO_REVIEW",
   "EFFECT_OUTCOME_PENDING",
   "MODEL_ERROR",
   "TOOL_ERROR",

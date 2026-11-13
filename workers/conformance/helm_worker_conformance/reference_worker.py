@@ -352,7 +352,11 @@ class ReferenceWorker:
             )
 
     def work(self, record: TaskRecord, episode: Episode, token: str) -> None:
-        tracker = OutcomeTracker()
+        tracker = OutcomeTracker(
+            review_target=("work:" + episode.evaluation["work_item_id"])
+            if episode.evaluation
+            else None
+        )
         deadline = episode.deadline.timestamp()
 
         def guard() -> None:

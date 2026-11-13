@@ -13,11 +13,14 @@ export interface ReportSummary {
   summary: string;
 }
 
+export interface ReviewSummary { target: string; decision: "accept" | "reject"; reason: string }
+
 export interface StatusPayload {
   schema: typeof STATUS_SCHEMA;
   waiting_on?: WaitingOn;
   error?: { code: ErrorCode; message: string };
   report?: ReportSummary;
+  review?: ReviewSummary;
 }
 
 /** A wire-format A2A part (text, data, ...); only what workers read or write is typed. */
@@ -32,11 +35,13 @@ export function statusPayload(fields: {
   waitingOn?: WaitingOn;
   error?: { code: ErrorCode; message: string };
   report?: ReportSummary;
+  review?: ReviewSummary;
 }): StatusPayload {
   const payload: StatusPayload = { schema: STATUS_SCHEMA };
   if (fields.waitingOn) payload.waiting_on = fields.waitingOn;
   if (fields.error) payload.error = fields.error;
   if (fields.report) payload.report = fields.report;
+  if (fields.review) payload.review = fields.review;
   return payload;
 }
 

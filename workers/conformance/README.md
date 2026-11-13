@@ -54,6 +54,7 @@ scenarios sweep.
 | `extension_required` | A request without `A2A-Extensions` fails with `-32008` and starts nothing. |
 | `ingress_auth` | The JSON-RPC endpoint refuses a missing or wrong bearer; the card needs none. |
 | `report_completes` | Streaming events are well formed and ordered (task, WORKING, `helm.proposal` and `helm.report` mirrors, COMPLETED, stream closes); COMPLETED comes only after `helm_work_report` was applied; the loop stops once it is. |
+| `evaluation_accept`, `evaluation_reject`, `evaluation_accept_text_only` | The bound applied review completes without a report; later tools in the batch and later model turns never run. |
 | `escalated_parks` (+ `_text_only`) | An escalated tool result stops the loop and ends INPUT_REQUIRED with `waiting_on.attempts`; the trap turn after it is never requested; works with and without `structuredContent`. |
 | `reconciling_effect_stops`, `reconciling_text_only_stops`, `reconciling_report_stops` | An uncertain effect stops with `EFFECT_OUTCOME_PENDING`, retains the original attempt, emits no applied-report mirror and suppresses later calls in the batch and later model turns. |
 | `delegate_parks_children`, `request_input_parks_input` | The other two parking rules. |

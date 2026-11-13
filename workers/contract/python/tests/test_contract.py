@@ -127,7 +127,7 @@ class OutcomeTests(unittest.TestCase):
     def test_vectors(self) -> None:
         for case in OUTCOMES:
             with self.subTest(case["name"]):
-                tracker = OutcomeTracker()
+                tracker = OutcomeTracker(review_target=case.get("review_target"))
                 seen = []
                 for call in case["calls"]:
                     result = ToolResult(

@@ -18,10 +18,10 @@ import {
   REPORT_TOOL,
   REQUEST_INPUT_TOOL,
 } from "./constants.js";
-import { statusPayload, type ReportSummary, type StatusPayload, type WaitingOn } from "./status.js";
+import { statusPayload, type ReportSummary, type ReviewSummary, type StatusPayload, type WaitingOn } from "./status.js";
 
 export type Kind = "ok" | "error" | "escalated";
-export type StopReason = "escalated" | "reported" | "delegated" | "input_requested" | "effect_pending";
+export type StopReason = "escalated" | "reported" | "delegated" | "input_requested" | "effect_pending" | "reviewed";
 
 /** An MCP tool result reduced to what the rules need. */
 export interface ToolResult {
@@ -106,9 +106,12 @@ export class OutcomeTracker {
   input: { question: string; options: string[] } | null = null;
   report: ReportSummary | null = null;
   effectPending = false;
+  review: ReviewSummary | null = null;
+
+  constructor(readonly reviewTarget: string | null = null) {}
 
   get stopped(): boolean {
-    return this.effectPending || this.attempts.length > 0 || this.delegated || this.input !== null || this.report !== null;
+    return this.effectPending || this.attempts.length > 0 || this.delegated || this.input !== null || this.report !== null || this.review !== null;
   }
 
   observe(tool: string, argumentsValue: unknown, result: ToolResult): Observation {
@@ -138,6 +141,15 @@ export class OutcomeTracker {
       const id = attemptId as string;
       if (!this.attempts.includes(id)) this.attempts.push(id);
       return { kind, stop: true, reason: "escalated", proposal: proposal(tool, args, kind, id) };
+    }
+
+    if (tool === "helm_work_review" && this.reviewTarget !== null && kind === "ok" && status === "succeeded" &&
+        typeof attemptId === "string" && attemptId && args.target === this.reviewTarget &&
+        childId(payload) === this.reviewTarget.replace(/^work:/, "") &&
+        (values.decision === "accept" || values.decision === "reject") &&
+        typeof values.reason === "string" && values.reason.trim() && values.reason.length <= 65536) {
+      this.review = { target: this.reviewTarget, decision: values.decision, reason: values.reason };
+      return { kind, stop: true, reason: "reviewed", proposal: proposal(tool, args, kind, attemptId) };
     }
 
     if (tool === REPORT_TOOL) {
@@ -188,7 +200,7 @@ export class OutcomeTracker {
         status: statusPayload({ waitingOn }),
       };
     }
-    if (this.report) {
+    if (this.report && this.reviewTarget === null) {
       return {
         state: "completed",
         text: this.report.summary || `Reported ${this.report.status}.`,
@@ -204,6 +216,11 @@ export class OutcomeTracker {
         text: this.delegated ? "Waiting for delegated work." : "Waiting for an answer.",
         status: statusPayload({ waitingOn }),
       };
+    }
+    if (this.reviewTarget !== null) {
+      if (this.review) return { state: "completed", text: this.review.reason, status: statusPayload({ review: this.review }) };
+      const text = "The evaluator finished without an applied review of its bound target.";
+      return { state: "failed", text, status: statusPayload({ error: { code: "NO_REVIEW", message: text } }) };
     }
     const detail = lastText.trim() ? ` Last message: ${lastText.trim().slice(0, 500)}` : "";
     const message = `The agent finished without an applied ${REPORT_TOOL}.${detail}`;
