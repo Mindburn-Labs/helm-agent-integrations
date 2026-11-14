@@ -42,6 +42,7 @@ async def run(session: Session) -> None:
                         )
                         if episode.evaluation
                         else None,
+                        "targets": session.targets,
                         "token": session.token,
                         "system": system,
                         "user": user,

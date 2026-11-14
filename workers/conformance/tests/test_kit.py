@@ -28,6 +28,13 @@ PENDING = COMMON | {
     "retains_original_attempt",
     "quiet_after_uncertain_effect",
 }
+BOUND = COMMON | {
+    "bound_targets_sent",
+    "refusals_reach_the_model",
+    "refusals_in_transcript",
+    "completes_on_bound_effect",
+    "quiet_after_bound_effect",
+}
 CANCEL = {
     "cancel_within_10s",
     "cancel_stops_work",
@@ -59,6 +66,8 @@ MANIFEST: dict[str, set[str]] = {
     | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
     "evaluation_accept_text_only": COMMON
     | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
+    "self_target_bound": BOUND,
+    "evaluation_target_bound": BOUND,
     "reconciling_effect_stops": PENDING,
     "reconciling_text_only_stops": PENDING,
     "reconciling_report_stops": PENDING,
@@ -199,6 +208,18 @@ MUTANTS: list[tuple[str, str, str, set[str]]] = [
         {"rejects_with_invalid_episode"},
     ),
     ("kind_members", "report_completes", "openai-chat-completions", {"streaming_events"}),
+    (
+        "no_target_binding",
+        "self_target_bound",
+        "anthropic-messages",
+        {"bound_targets_sent", "refusals_reach_the_model", "refusals_in_transcript"},
+    ),
+    (
+        "no_target_binding",
+        "evaluation_target_bound",
+        "openai-responses",
+        {"bound_targets_sent", "refusals_reach_the_model", "completes_on_bound_effect"},
+    ),
 ]
 
 

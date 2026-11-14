@@ -26,6 +26,9 @@ MODEL_APIS = (MODEL_API_ANTHROPIC, MODEL_API_RESPONSES, MODEL_API_CHAT)
 REPORT_TOOL = "helm_work_report"
 DELEGATE_TOOL = "helm_work_delegate"
 REQUEST_INPUT_TOOL = "helm_work_request_input"
+GET_TOOL = "helm_work_get"
+REVIEW_TOOL = "helm_work_review"
+REQUEST_CAPABILITY_TOOL = "helm_org_request_capability"
 
 # Terminal-state reason codes carried in helm.episode.status.v1 `error.code`.
 REJECTED_CODES = ("INVALID_EPISODE", "MISSING_CREDENTIAL", "UNSUPPORTED_MODEL_API")

@@ -8,7 +8,8 @@ function config(allowed = ["helm_work_report"]) {
   return {api: "openai-responses", token: randomUUID(), model: "retained-model",
     base_url: "http://model.gateway.test", mcp_url: "http://mcp.gateway.test/mcp",
     max_output_tokens: 128, deadline_ms: Date.now() + 30000,
-    allowed, system: "Bounded native Agent test", user: "Do the work"};
+    allowed, targets: {helm_work_get: "work:w-1", helm_work_report: "work:w-1"},
+    system: "Bounded native Agent test", user: "Do the work"};
 }
 const reportArgs = {status: "done", summary: "Report accepted by test gateway"};
 const call = (name, argumentsValue = {}) => ({type: "toolCall", id: randomUUID(), name, arguments: argumentsValue});
@@ -53,6 +54,29 @@ test("actual native Agent preserves denied report and only stops after gateway a
   assert.equal(events.filter((event) => event.type === "tool")[0].is_error, true);
   assert.ok(modelCalls.every(({model, options}) => model.api === "openai-responses"
     && model.baseUrl === input.base_url + "/v1" && options.apiKey === input.token && options.transport === "sse"));
+});
+
+test("a model-typed target that differs from the binding never reaches the MCP client", async () => {
+  const input = config(["helm_work_get", "helm_work_report"]);
+  const modelCalls = [], events = [], dispatched = [];
+  const wrong = {target: "work:w-2", arguments: reportArgs};
+  const tracker = await runEpisode(input, {
+    client: catalog(input.allowed, async (request) => { dispatched.push(request); return result("applied"); }),
+    emit: (event) => events.push(event),
+    stream: scriptedStream([[call("helm_work_report", wrong)], [call("helm_work_report", {arguments: reportArgs})]], modelCalls),
+  });
+  // Only the call with the bound target was sent; the refused one cost a model turn, not the episode.
+  assert.deepEqual(dispatched.map((request) => request.arguments), [{target: "work:w-1", arguments: reportArgs}]);
+  assert.equal(modelCalls.length, 2);
+  assert.equal(tracker.report.status, "done");
+  const tools = events.filter((event) => event.type === "tool");
+  assert.deepEqual(tools.map((event) => [event.is_error, event.arguments.target]), [[true, "work:w-2"], [false, "work:w-1"]]);
+  assert.equal(tools[0].structured.reason_code, "SCHEMA_VIOLATION");
+  assert.ok(tools[0].text.includes("work:w-1") && !tools[0].text.includes("work:w-2"));
+  // The model's next turn carries the refusal as an ordinary tool error.
+  const refused = modelCalls[1].context.messages.find((message) => message.role === "toolResult");
+  assert.equal(refused.isError, true);
+  assert.ok(JSON.stringify(refused.content).includes("SCHEMA_VIOLATION"));
 });
 
 test("native sequential batch cannot dispatch after an escalated result", async () => {

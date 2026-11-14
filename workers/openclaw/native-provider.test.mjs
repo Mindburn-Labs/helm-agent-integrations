@@ -24,7 +24,7 @@ async function server(t, handler) {
 function configuration(origin) {
   return {api: "openai-responses", token: randomUUID(), model: "retained-model",
     base_url: origin, mcp_url: origin + "/mcp", max_output_tokens: 128,
-    deadline_ms: Date.now() + 30000, allowed: ["helm_work_report"],
+    deadline_ms: Date.now() + 30000, allowed: ["helm_work_report"], targets: {},
     system: "Bounded native provider test", user: "Report the retained work"};
 }
 function mcp(calls) {

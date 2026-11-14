@@ -18,10 +18,13 @@ from typing import Any
 
 from helm_worker_contract import (
     EXTENSION_URI,
+    TARGET_REFUSAL_CODE,
     Episode,
     EpisodeError,
     OutcomeTracker,
     ToolResult,
+    bind_target,
+    bound_targets,
     episode_from_message,
     render_agent_card,
     require_supported_api,
@@ -88,6 +91,9 @@ class Task:
 class Session:
     def __init__(self, worker: Worker, task: Task, episode: Episode, token: str) -> None:
         self.worker, self.task, self.episode, self.token = worker, task, episode, token
+        # Engines pass every call through bind_target(name, args, self.targets) before the
+        # gateway and observe a refused call with the model's arguments and the refusal.
+        self.targets = bound_targets(episode)
         self.tracker = OutcomeTracker(
             review_target=("work:" + episode.evaluation["work_item_id"])
             if episode.evaluation
@@ -105,6 +111,12 @@ class Session:
         self.guard()
         if name not in self.episode.tools.allowed or self.tracker.stopped:
             raise ValueError("Tool is not allowed in this episode")
+        if bind_target(name, args, self.targets)[1] is not None:
+            # A sent call always carries its bound target, so this one was refused unsent.
+            self.progress(
+                f"{name} was not sent ({TARGET_REFUSAL_CODE}): it named a target other than "
+                "the one this episode binds."
+            )
         observation = self.tracker.observe(name, args, result)
         if observation.proposal:
             self.worker.artifact(self.task, "helm.proposal", observation.proposal)

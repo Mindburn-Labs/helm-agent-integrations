@@ -33,6 +33,7 @@ class ModelCall:
     t_end: float | None = None
     has_mcp_servers: bool = False
     text: str = ""  # the request body, for the first request only
+    body: str = ""  # the request body of every model API request, for tool-result checks
 
 
 @dataclass

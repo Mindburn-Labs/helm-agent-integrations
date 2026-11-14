@@ -2,14 +2,16 @@
 
 The rules here are the worker half of the contract and are identical in every adapter:
 
+* a tool whose target the episode fixes is sent with that target, never a model-typed one;
 * a tool result `{status: "escalated", attempt_id}` parks the episode (INPUT_REQUIRED, attempts);
 * an uncertain effect stops the episode (FAILED, EFFECT_OUTCOME_PENDING) for CP reconciliation;
 * an applied `helm_work_report` ends it (COMPLETED);
 * a successful `helm_work_delegate` / `helm_work_request_input` parks it on children / input;
 * ending without an applied report is FAILED (NO_REPORT).
 
-Adapters feed every MCP tool result to `OutcomeTracker.observe` and stop their agent loop when
-the returned observation says so.
+Adapters pass every tool call through `bind_target` before the MCP call, feed every result
+(or the local refusal) to `OutcomeTracker.observe` and stop their agent loop when the returned
+observation says so.
 """
 
 from __future__ import annotations
@@ -43,6 +45,8 @@ _NOT_APPLIED = frozenset(
         "canceled",
     }
 )
+# The reason code of a bound-target refusal: the one the gateway gives a malformed call.
+TARGET_REFUSAL_CODE = "SCHEMA_VIOLATION"
 _CHILD_ID_KEYS = ("work_id", "child_id", "work_item_id", "id")
 _REPORT_STATUSES = ("done", "blocked", "failed")
 
@@ -54,6 +58,60 @@ class ToolResult:
     is_error: bool = False
     structured: Any = None
     text: str | None = None
+
+
+def bind_target(
+    tool: str, arguments: object, targets: Mapping[str, str]
+) -> tuple[dict[str, Any], ToolResult | None]:
+    """The arguments to send for `tool` with its bound target, or a local refusal.
+
+    `targets` is `bound_targets(episode)`. A tool it does not name keeps the model's
+    arguments. A bound tool gets its target when the model left it out; a model-supplied
+    target that differs is refused before any gateway call, with an ordinary tool error that
+    names only the bound target so the model can call again. Returns (arguments, None) to
+    send, or (the model's arguments, refusal) to answer the model with instead. The model's
+    arguments are never mutated.
+    """
+    args: dict[str, Any] = arguments if isinstance(arguments, dict) else {}
+    bound = targets.get(tool)
+    if bound is None:
+        return args, None
+    supplied = args.get("target")
+    if supplied is None or supplied == "":
+        return {**args, "target": bound}, None
+    if supplied == bound:
+        return args, None
+    # The shape of the gateway's own tool error ({status, reason_code, message}).
+    refusal = {
+        "status": "invalid",
+        "reason_code": TARGET_REFUSAL_CODE,
+        "message": f"In this episode {tool} acts only on {bound}. This call named another "
+        f"target and was not sent. Call {tool} again with target {bound}, or leave target out.",
+    }
+    text = json.dumps(refusal, separators=(",", ":"), ensure_ascii=False)
+    return args, ToolResult(True, refusal, text)
+
+
+def bound_input_schema(tool: str, schema: Any, targets: Mapping[str, str]) -> Any:
+    """The input schema to list to the model for `tool`, where the adapter lists it.
+
+    For a tool whose target the episode binds, `target` is no longer required and says what it
+    is bound to, so the model need not type it; `bind_target` fills it in. Every other schema,
+    and a schema without a `target` property, is returned as is. The input is never mutated.
+    """
+    bound = targets.get(tool)
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    if bound is None or not isinstance(properties, dict):
+        return schema
+    target = properties.get("target")
+    if not isinstance(target, dict):
+        return schema
+    described = {**target, "description": f"Bound by HELM to {bound}; may be left out."}
+    relaxed = {**schema, "properties": {**properties, "target": described}}
+    required = schema.get("required")
+    if isinstance(required, list):
+        relaxed["required"] = [name for name in required if name != "target"]
+    return relaxed
 
 
 def result_payload(result: ToolResult) -> dict[str, Any] | None:

@@ -2,14 +2,16 @@
 //
 // The rules here are the worker half of the contract and are identical in every adapter:
 //
+//  * a tool whose target the episode fixes is sent with that target, never a model-typed one;
 //  * a tool result {status: "escalated", attempt_id} parks the episode (INPUT_REQUIRED, attempts);
 //  * an uncertain effect stops the episode (FAILED, EFFECT_OUTCOME_PENDING) for CP reconciliation;
 //  * an applied helm_work_report ends it (COMPLETED);
 //  * a successful helm_work_delegate / helm_work_request_input parks it on children / input;
 //  * ending without an applied report is FAILED (NO_REPORT).
 //
-// Adapters feed every MCP tool result to OutcomeTracker.observe and stop their agent loop when
-// the returned observation says so.
+// Adapters pass every tool call through bindTarget before the MCP call, feed every result (or
+// the local refusal) to OutcomeTracker.observe and stop their agent loop when the returned
+// observation says so.
 
 import {
   DELEGATE_TOOL,
@@ -65,6 +67,58 @@ type Json = Record<string, unknown>;
 
 function isObject(value: unknown): value is Json {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** The reason code of a bound-target refusal: the one the gateway gives a malformed call. */
+export const TARGET_REFUSAL_CODE = "SCHEMA_VIOLATION";
+
+export interface Binding {
+  /** What to send: the model's arguments with the bound target, or them unchanged. */
+  arguments: Json;
+  /** Set when the call must not be sent: the tool result to answer the model with. */
+  refusal?: ToolResult;
+}
+
+/**
+ * The arguments to send for `tool` with its bound target, or a local refusal.
+ *
+ * `targets` is `boundTargets(episode)`. A tool it does not name keeps the model's arguments.
+ * A bound tool gets its target when the model left it out; a model-supplied target that
+ * differs is refused before any gateway call, with an ordinary tool error that names only the
+ * bound target so the model can call again. The model's arguments are never mutated.
+ */
+export function bindTarget(tool: string, argumentsValue: unknown, targets: Readonly<Record<string, string>>): Binding {
+  const args: Json = isObject(argumentsValue) ? argumentsValue : {};
+  const bound = Object.hasOwn(targets, tool) ? targets[tool] : undefined;
+  if (bound === undefined) return { arguments: args };
+  const supplied = args.target;
+  if (supplied === undefined || supplied === null || supplied === "") return { arguments: { ...args, target: bound } };
+  if (supplied === bound) return { arguments: args };
+  // The shape of the gateway's own tool error ({status, reason_code, message}).
+  const refusal = {
+    status: "invalid",
+    reason_code: TARGET_REFUSAL_CODE,
+    message: `In this episode ${tool} acts only on ${bound}. This call named another ` +
+      `target and was not sent. Call ${tool} again with target ${bound}, or leave target out.`,
+  };
+  return { arguments: args, refusal: { isError: true, structured: refusal, text: JSON.stringify(refusal) } };
+}
+
+/**
+ * The input schema to list to the model for `tool`, where the adapter lists it.
+ *
+ * For a tool whose target the episode binds, `target` is no longer required and says what it
+ * is bound to, so the model need not type it; `bindTarget` fills it in. Every other schema, and
+ * a schema without a `target` property, is returned as is. The input is never mutated.
+ */
+export function boundInputSchema(tool: string, schema: unknown, targets: Readonly<Record<string, string>>): unknown {
+  const bound = Object.hasOwn(targets, tool) ? targets[tool] : undefined;
+  const properties = isObject(schema) ? schema.properties : undefined;
+  if (bound === undefined || !isObject(schema) || !isObject(properties) || !isObject(properties.target)) return schema;
+  const described = { ...properties.target, description: `Bound by HELM to ${bound}; may be left out.` };
+  const relaxed: Json = { ...schema, properties: { ...properties, target: described } };
+  if (Array.isArray(schema.required)) relaxed.required = schema.required.filter((name) => name !== "target");
+  return relaxed;
 }
 
 /** The result as a JSON object: structuredContent, else the text content parsed as JSON. */

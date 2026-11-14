@@ -275,6 +275,109 @@ def drive_evaluation(run: Run) -> None:
         check_quiet_after(run, "quiet_after_review", run.world.mcp_calls[-1].t_end)
 
 
+# Model-typed targets that differ from the episode's binding. The first is the retained reviewer
+# failure: the episode's own work id with one group mistyped (7ef7 for ff7e). Episodes get a
+# random work id, so neither can be the bound one.
+WRONG_WORK = "work:450c7298-7ef7-4a1b-9c3d-5e6f7a8b9c0d"
+WRONG_ORG = "org:org-elsewhere"
+TARGET_REFUSAL_CODE = "SCHEMA_VIOLATION"
+
+
+def bound_targets(episode: dict[str, Any]) -> dict[str, str]:
+    """The target CP admits for each self-targeted tool of this episode, written from the CP
+    rules rather than taken from the contract package under test: the episode's own work for
+    get, report and request_input, its organization for request_capability, and an evaluator's
+    original work for review."""
+    own = "work:" + episode["work_item_id"]
+    targets = {
+        "helm_work_get": own,
+        "helm_work_report": own,
+        "helm_work_request_input": own,
+        "helm_org_request_capability": "org:" + episode["organization"]["id"],
+    }
+    if episode.get("evaluation"):
+        targets["helm_work_review"] = "work:" + episode["evaluation"]["work_item_id"]
+    return targets
+
+
+def drive_bound_targets(run: Run, *, sent: list[str]) -> None:
+    """A wrong self target is refused inside the worker, the model is told and recovers, and
+    only calls carrying the bound target reach the gateway. The last script step is a trap."""
+    _open(run)
+    _finish(run)
+    assert run.stream is not None
+    _standard(run, {"TASK_STATE_COMPLETED"})
+    bound = bound_targets(run.episode)
+    refused = [
+        (turn, call)
+        for turn, step in enumerate(run.world.script)
+        for call in step.get("tools", [])
+        if call["name"] in bound
+        and (call.get("arguments") or {}).get("target") not in (None, "", bound[call["name"]])
+    ]
+    problems = []
+    if _mcp_tools(run) != sent:
+        problems.append(f"tool calls reaching the gateway were {_mcp_tools(run)}, want {sent}")
+    for call in run.world.mcp_calls:
+        target = call.arguments.get("target")
+        if call.tool in bound and target != bound[call.tool]:
+            problems.append(f"{call.tool} reached the gateway with target {target!r}")
+    run.check("bound_targets_sent", not problems, "; ".join(problems))
+
+    model_calls = [c for c in run.world.model_calls if c.dialect != "other"]
+    problems = []
+    for turn, call in refused:
+        after = [c for c in model_calls if c.turn == turn + 1]
+        if not any(TARGET_REFUSAL_CODE in c.body for c in after):
+            problems.append(
+                f"the model turn after the refused {call['name']} (turn {turn}) did not carry "
+                f"the {TARGET_REFUSAL_CODE} tool error"
+            )
+    if len(model_calls) != len(run.world.script) - 1:
+        problems.append(
+            f"the model was called {len(model_calls)} times, want {len(run.world.script) - 1}: "
+            "a refusal must not end the episode, and the applied effect must"
+        )
+    run.check("refusals_reach_the_model", not problems, "; ".join(problems))
+
+    mirrored = [
+        (p.get("tool"), (p.get("arguments") or {}).get("target"))
+        for p in map(artifact_data, artifact_events(run.stream, "helm.proposal"))
+        if p.get("status") == "error"
+    ]
+    problems = [
+        f"no error proposal mirror for the refused {call['name']}"
+        for _turn, call in refused
+        if call["name"] != "helm_work_report"
+        and (call["name"], call["arguments"]["target"]) not in mirrored
+    ]
+    notes = [
+        str(part.get("text") or "")
+        for event in run.stream.snapshot()
+        if event.state == "TASK_STATE_WORKING"
+        for part in ((event.body.get("status") or {}).get("message") or {}).get("parts") or []
+        if TARGET_REFUSAL_CODE in str(part.get("text") or "")
+    ]
+    for _turn, call in refused:
+        if not any(call["name"] in note for note in notes):
+            problems.append(f"no WORKING note names the refused {call['name']}")
+    if len(notes) != len(refused):
+        problems.append(f"{len(notes)} refusal notes for {len(refused)} refused calls")
+    run.check("refusals_in_transcript", not problems, "; ".join(problems))
+
+    payload, _ = final_status(run.stream)
+    problems = status_problems(run.stream)
+    if run.episode.get("evaluation"):
+        review = (payload or {}).get("review") or {}
+        if review.get("target") != bound["helm_work_review"]:
+            problems.append(f"completed review mirror is {review!r}, want the bound target")
+    elif ((payload or {}).get("report") or {}).get("status") != "done":
+        problems.append(f"COMPLETED status carries report {(payload or {}).get('report')!r}")
+    run.check("completes_on_bound_effect", not problems, "; ".join(problems))
+    if run.world.mcp_calls and run.world.mcp_calls[-1].t_end:
+        check_quiet_after(run, "quiet_after_bound_effect", run.world.mcp_calls[-1].t_end)
+
+
 def drive_reconciling(run: Run) -> None:
     _open(run)
     _finish(run)
@@ -972,3 +1075,97 @@ for _decision, _structured in (("accept", True), ("reject", True), ("accept", Fa
             },
         )
     )
+
+
+# A model that types a wrong self target cannot make a mistargeted call leave the worker. Each
+# wrong call is followed by the same call with the target left out, which the worker fills in.
+_REPORT = {
+    "status": "done",
+    "summary": "All finished.",
+    "outputs": [{"kind": "note", "ref": "n-1"}],
+}
+_CAPABILITY = {"capability": "github.issue.comment", "justification": "Needed to answer the issue."}
+_add(
+    Scenario(
+        "self_target_bound",
+        "A self target other than the episode's own is refused in the worker, not sent",
+        [
+            {
+                "tools": [
+                    {"name": "helm_work_get", "arguments": {"target": WRONG_WORK, "arguments": {}}}
+                ]
+            },
+            {"tools": [{"name": "helm_work_get", "arguments": {"arguments": {}}}]},
+            {
+                "tools": [
+                    {
+                        "name": "helm_org_request_capability",
+                        "arguments": {"target": WRONG_ORG, "arguments": _CAPABILITY},
+                    }
+                ]
+            },
+            {
+                "tools": [
+                    {"name": "helm_org_request_capability", "arguments": {"arguments": _CAPABILITY}}
+                ]
+            },
+            {
+                "tools": [
+                    {
+                        "name": "helm_work_report",
+                        "arguments": {"target": WRONG_WORK, "arguments": _REPORT},
+                    }
+                ]
+            },
+            {"tools": [{"name": "helm_work_report", "arguments": {"arguments": _REPORT}}]},
+            {"tools": [report_call()]},  # a trap: the applied report ended the loop
+        ],
+        lambda run: drive_bound_targets(
+            run, sent=["helm_work_get", "helm_org_request_capability", "helm_work_report"]
+        ),
+        allowed=["helm_work_get", "helm_org_request_capability", "helm_work_report"],
+    )
+)
+_add(
+    Scenario(
+        "evaluation_target_bound",
+        "An evaluator's mistyped own or original work target is refused in the worker, not sent",
+        [
+            {
+                "tools": [
+                    {"name": "helm_work_get", "arguments": {"target": WRONG_WORK, "arguments": {}}}
+                ]
+            },
+            {"tools": [{"name": "helm_work_get", "arguments": {"arguments": {}}}]},
+            {
+                "tools": [
+                    {
+                        "name": "helm_work_review",
+                        "arguments": {
+                            "target": "work:83ddc0d6-0861-4df4-a79a-0a13d9d2dd11",
+                            "arguments": {"decision": "accept", "reason": "Checked the figures."},
+                        },
+                    }
+                ]
+            },
+            {
+                "tools": [
+                    {
+                        "name": "helm_work_review",
+                        "arguments": {
+                            "arguments": {"decision": "accept", "reason": "Checked the figures."}
+                        },
+                    }
+                ]
+            },
+            {"tools": [{"name": "helm_work_get", "arguments": {}}]},  # a trap
+        ],
+        lambda run: drive_bound_targets(run, sent=["helm_work_get", "helm_work_review"]),
+        allowed=["helm_work_get", "helm_work_review"],
+        evaluation={
+            "work_item_id": "83ddc0d6-0861-4df4-a79a-0a13d9d2dd10",
+            "episode_id": "5fc6970a-fb68-4817-bced-b2b8d7325b7f",
+            "report_attempt_id": "original-report",
+        },
+    )
+)

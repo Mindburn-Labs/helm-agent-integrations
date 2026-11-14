@@ -75,8 +75,9 @@ TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
 }
 
 # Exercise the native gateway's envelope for the work tools whose arguments
-# the worker must mirror. Flat test-only schemas missed applied real reports.
-for _name in ("helm_work_report", "helm_work_request_input"):
+# the worker must mirror, and for a self-targeted tool the worker binds.
+# Flat test-only schemas missed applied real reports.
+for _name in ("helm_work_report", "helm_work_request_input", "helm_org_request_capability"):
     _description, _arguments = TOOLS[_name]
     TOOLS[_name] = (
         _description,

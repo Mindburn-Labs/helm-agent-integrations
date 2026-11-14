@@ -7,7 +7,12 @@ from agents import Agent, ModelSettings, RunConfig, Runner, set_tracing_disabled
 from agents.agent import ToolsToFinalOutputResult
 from agents.mcp import MCPServerStreamableHttp, create_static_tool_filter
 from agents.models.openai_responses import OpenAIResponsesModel
-from helm_worker_contract import ToolResult, build_prompts
+from helm_worker_contract import (
+    ToolResult,
+    bind_target,
+    bound_input_schema,
+    build_prompts,
+)
 from helm_worker_runtime import Session
 from mcp.types import CallToolResult, TextContent
 from openai import AsyncOpenAI
@@ -19,6 +24,19 @@ async def run(session: Session) -> None:
     tool_lock = asyncio.Lock()
 
     class GatewayMCP(MCPServerStreamableHttp):
+        async def list_tools(self, run_context: Any = None, agent: Any = None) -> Any:
+            # The model sees a bound target as optional; call_tool fills it in.
+            return [
+                tool.model_copy(
+                    update={
+                        "inputSchema": bound_input_schema(
+                            tool.name, tool.inputSchema, session.targets
+                        )
+                    }
+                )
+                for tool in await super().list_tools(run_context, agent)
+            ]
+
         async def call_tool(
             self,
             tool_name: str,
@@ -38,12 +56,22 @@ async def run(session: Session) -> None:
                             TextContent(type="text", text="HELM episode has stopped.")
                         ],
                     )
+                # A target the episode fixes is never taken from the model: a differing
+                # one is answered here as a tool error and nothing reaches the gateway.
+                sent, refusal = bind_target(tool_name, arguments or {}, session.targets)
+                if refusal is not None:
+                    session.observe(tool_name, sent, refusal)
+                    return CallToolResult(
+                        isError=True,
+                        content=[TextContent(type="text", text=refusal.text or "")],
+                        structuredContent=refusal.structured,
+                    )
                 session.progress(f"Calling {tool_name}.")
-                result = await super().call_tool(tool_name, arguments, meta)
+                result = await super().call_tool(tool_name, sent, meta)
                 text = "\n".join(c.text for c in result.content if c.type == "text")
                 session.observe(
                     tool_name,
-                    arguments or {},
+                    sent,
                     ToolResult(result.isError or False, result.structuredContent, text),
                 )
                 return result

@@ -13,10 +13,14 @@ from helm_worker_contract import (  # noqa: E402
     EPISODE_MEDIA_TYPE,
     EXTENSION_URI,
     STATUS_MEDIA_TYPE,
+    TARGET_REFUSAL_CODE,
     Episode,
     EpisodeError,
     OutcomeTracker,
     ToolResult,
+    bind_target,
+    bound_input_schema,
+    bound_targets,
     build_prompts,
     episode_from_message,
     find_status_payload,
@@ -34,6 +38,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 CASES: dict[str, Any] = json.loads((FIXTURES / "episode.cases.json").read_text())
 OUTCOMES: list[dict[str, Any]] = json.loads((FIXTURES / "outcome.cases.json").read_text())
 PROMPT: dict[str, Any] = json.loads((FIXTURES / "prompt.golden.json").read_text())
+BINDINGS: dict[str, Any] = json.loads((FIXTURES / "binding.cases.json").read_text())
 
 
 class EpisodeTests(unittest.TestCase):
@@ -189,6 +194,85 @@ class OutcomeTests(unittest.TestCase):
         assert reported.report is not None
         self.assertEqual(reported.report["outputs"], [{"kind": "pr", "ref": "7"}])
         self.assertEqual(schema_issues("report.v1", reported.report), [])
+
+
+class BindingTests(unittest.TestCase):
+    def test_bound_targets_come_from_the_episode(self) -> None:
+        for case in BINDINGS["episodes"]:
+            with self.subTest(case["name"]):
+                episode = parse_episode(CASES["valid"][case["episode"]])
+                self.assertEqual(bound_targets(episode), case["targets"])
+
+    def test_vectors(self) -> None:
+        for case in BINDINGS["calls"]:
+            with self.subTest(case["name"]):
+                targets = bound_targets(parse_episode(CASES["valid"][case["episode"]]))
+                original = json.loads(json.dumps(case["arguments"]))
+                sent, refusal = bind_target(case["tool"], case["arguments"], targets)
+                self.assertEqual(
+                    case["arguments"], original, "the model's arguments are not mutated"
+                )
+                if "refused" in case["expect"]:
+                    bound = case["expect"]["refused"]
+                    assert refusal is not None
+                    self.assertTrue(refusal.is_error)
+                    self.assertEqual(refusal.structured["status"], "invalid")
+                    self.assertEqual(refusal.structured["reason_code"], TARGET_REFUSAL_CODE)
+                    self.assertIn(bound, refusal.structured["message"])
+                    # Only the bound target is named; the mistyped one is not echoed back.
+                    self.assertNotIn(case["arguments"]["target"], refusal.structured["message"])
+                    self.assertEqual(json.loads(refusal.text or ""), refusal.structured)
+                    if "text" in case["expect"]:
+                        self.assertEqual(refusal.text, case["expect"]["text"])
+                    self.assertEqual(sent, case["arguments"])
+                else:
+                    self.assertIsNone(refusal)
+                    self.assertEqual(sent, case["expect"]["arguments"])
+
+    def test_schema_vectors(self) -> None:
+        for case in BINDINGS["schemas"]:
+            with self.subTest(case["name"]):
+                targets = bound_targets(parse_episode(CASES["valid"][case["episode"]]))
+                original = json.loads(json.dumps(case["schema"]))
+                listed = bound_input_schema(case["tool"], case["schema"], targets)
+                self.assertEqual(case["schema"], original, "the listed schema is not mutated")
+                self.assertEqual(listed, case["expect"])
+
+    def test_a_refusal_is_an_ordinary_tool_error_that_stops_nothing(self) -> None:
+        targets = bound_targets(parse_episode(CASES["valid"]["full"]))
+        tracker = OutcomeTracker()
+        wrong = {"target": "work:0b7e3c1a-7ef7-4c6f-8a90-3e4f5a6b7c02", "arguments": {}}
+        _, refusal = bind_target("helm_work_report", wrong, targets)
+        assert refusal is not None
+        seen = tracker.observe("helm_work_report", wrong, refusal)
+        self.assertEqual((seen.kind, seen.stop), ("error", False))
+        self.assertFalse(tracker.stopped)
+        self.assertEqual(tracker.outcome().status["error"]["code"], "NO_REPORT")
+
+    def test_an_evaluators_omitted_review_target_completes_once_bound(self) -> None:
+        episode = parse_episode(CASES["valid"]["evaluation"])
+        assert episode.evaluation is not None
+        target = "work:" + episode.evaluation["work_item_id"]
+        tracker = OutcomeTracker(review_target=target)
+        sent, refusal = bind_target(
+            "helm_work_review",
+            {"arguments": {"decision": "accept", "reason": "Checked."}},
+            bound_targets(episode),
+        )
+        self.assertIsNone(refusal)
+        seen = tracker.observe(
+            "helm_work_review",
+            sent,
+            ToolResult(
+                structured={
+                    "status": "succeeded",
+                    "attempt_id": "att-1",
+                    "result": {"child_id": episode.evaluation["work_item_id"]},
+                }
+            ),
+        )
+        self.assertEqual(seen.reason, "reviewed")
+        self.assertEqual(tracker.outcome().state, "completed")
 
 
 class StatusTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 import {Agent} from "openclaw/plugin-sdk/agent-core";
 import {createAssistantMessageEventStream} from "openclaw/plugin-sdk/llm";
-import {OutcomeTracker} from "@mindburn/helm-worker-contract";
+import {OutcomeTracker, bindTarget, boundInputSchema} from "@mindburn/helm-worker-contract";
 import {discoverTools, enforcePayload, gatewayFetch, normalizeResult, validateConfiguration} from "./boundary.mjs";
 import {createGatewayStream} from "./transport.mjs";
 
@@ -40,7 +40,9 @@ export async function runEpisode(raw, {client, emit, signal, stream, fetch}) {
   let agent;
   const tools = catalog.map((tool) => ({
     name: tool.name, label: tool.name, description: tool.description ?? "HELM gateway tool",
-    parameters: tool.inputSchema, resultContentSource: "network", executionMode: "sequential",
+    // A bound target is optional for the model: the Agent validates arguments against this.
+    parameters: boundInputSchema(tool.name, tool.inputSchema, config.targets),
+    resultContentSource: "network", executionMode: "sequential",
     execute: async (_id, args, toolSignal) => {
       signal?.throwIfAborted();
       toolSignal?.throwIfAborted();
@@ -50,11 +52,14 @@ export async function runEpisode(raw, {client, emit, signal, stream, fetch}) {
         agent.abort();
         throw new Error("HELM episode tool-call limit");
       }
+      // A target the episode fixes is never taken from the model: a differing one is
+      // answered here as an ordinary tool error and nothing reaches the gateway.
+      const {arguments: sent, refusal} = bindTarget(tool.name, args, config.targets);
       const signals = [signal, toolSignal].filter(Boolean);
-      const result = normalizeResult(await client.callTool({name: tool.name, arguments: args},
+      const result = refusal ?? normalizeResult(await client.callTool({name: tool.name, arguments: sent},
         undefined, {signal: signals.length ? AbortSignal.any(signals) : undefined, timeout: 60000}));
-      const observation = tracker.observe(tool.name, args, result);
-      emit({type: "tool", name: tool.name, arguments: args, is_error: result.isError,
+      const observation = tracker.observe(tool.name, sent, result);
+      emit({type: "tool", name: tool.name, arguments: sent, is_error: result.isError,
         structured: result.structured, text: result.text});
       return {content: [{type: "text", text: result.text || JSON.stringify(result.structured ?? {})}],
         details: {helm: result}, terminate: observation.stop};

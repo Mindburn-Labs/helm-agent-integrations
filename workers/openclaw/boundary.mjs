@@ -54,6 +54,15 @@ export function boundedEmitter(write) {
   };
 }
 
+// The targets the episode fixes, by tool name: the adapter sends a bound tool only with its
+// target and refuses a model-typed one that differs.
+function validTargets(targets) {
+  if (targets === null || typeof targets !== "object" || Array.isArray(targets)) return false;
+  const entries = Object.entries(targets);
+  return entries.length <= 256 && entries.every(([name, target]) => /^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(name)
+    && typeof target === "string" && target.length > 0 && target.length <= 512);
+}
+
 export function validateConfiguration(config, now = Date.now()) {
   if (!config || config.api !== "openai-responses" || typeof config.token !== "string"
       || !config.token || typeof config.model !== "string" || !config.model
@@ -62,7 +71,8 @@ export function validateConfiguration(config, now = Date.now()) {
       || typeof config.system !== "string" || typeof config.user !== "string"
       || !Array.isArray(config.allowed) || config.allowed.length > 256
       || new Set(config.allowed).size !== config.allowed.length
-      || config.allowed.some((name) => typeof name !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(name))) {
+      || config.allowed.some((name) => typeof name !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(name))
+      || !validTargets(config.targets)) {
     throw new Error("Invalid retained OpenClaw episode configuration");
   }
   const origin = new URL(config.base_url);

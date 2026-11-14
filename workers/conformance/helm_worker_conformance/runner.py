@@ -108,9 +108,14 @@ def run_scenario(
             api = result["api"] = unsupported[0]
         episode = build_episode(scenario, api, mcp_url, model_url)
         world.script = copy.deepcopy(scenario.script)
+        # Scripts write flat report and question arguments; send them in the gateway's native
+        # envelope with the bound target. A call already written as an envelope is sent as is.
         for step in world.script:
             for call in step.get("then", step).get("tools", []):
-                if call["name"] in ("helm_work_report", "helm_work_request_input"):
+                if call["name"] in (
+                    "helm_work_report",
+                    "helm_work_request_input",
+                ) and "arguments" not in (call.get("arguments") or {}):
                     call["arguments"] = {
                         "target": "work:" + episode["work_item_id"],
                         "arguments": call["arguments"],
@@ -131,7 +136,10 @@ def run_scenario(
             }
             for c in world.model_calls
         ]
-        result["mcp_calls"] = [{"tool": c.tool, "aborted": c.aborted} for c in world.mcp_calls]
+        result["mcp_calls"] = [
+            {"tool": c.tool, "target": c.arguments.get("target"), "aborted": c.aborted}
+            for c in world.mcp_calls
+        ]
         return result
     except Exception:
         result["error"] = traceback.format_exc(limit=8)
