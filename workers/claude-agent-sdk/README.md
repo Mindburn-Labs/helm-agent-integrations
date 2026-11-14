@@ -2,8 +2,12 @@
 
 Runs the pinned TypeScript Claude Agent SDK with the episode's Anthropic Messages gateway.
 All built-in tools are disabled; ungranted MCP tools are removed from the model context and
-denied before invocation. `PostToolUse` feeds plain, content-only and structured MCP results
-through the shared HELM outcome tracker and stops after parking or an applied report.
+denied before invocation. `PreToolUse` binds the self-targeted work tools to the episode's
+targets: it fills in a target the model left out and denies, as an ordinary tool error, one
+that differs, before the SDK sends anything. The SDK lists the gateway's tool schemas to the
+model itself, so a bound target still appears there as required. `PostToolUse` feeds plain,
+content-only and structured MCP results through the shared HELM outcome tracker and stops after
+parking or an applied report.
 
 The SDK receives a fresh temporary home, empty setting sources, no provider API key, no
 session persistence and disabled telemetry. The Python A2A transport supervises its process

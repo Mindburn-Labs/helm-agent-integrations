@@ -9,6 +9,7 @@ from .constants import (
     EPISODE_SCHEMA,
     EXTENSION_URI,
     FAILED_CODES,
+    GET_TOOL,
     INGRESS_TOKEN_ENV,
     MODEL_API_ANTHROPIC,
     MODEL_API_CHAT,
@@ -18,7 +19,9 @@ from .constants import (
     REJECTED_CODES,
     REPORT_SCHEMA,
     REPORT_TOOL,
+    REQUEST_CAPABILITY_TOOL,
     REQUEST_INPUT_TOOL,
+    REVIEW_TOOL,
     STATUS_MEDIA_TYPE,
     STATUS_SCHEMA,
 )
@@ -28,6 +31,7 @@ from .episode import (
     Model,
     Seat,
     Tools,
+    bound_targets,
     build_prompts,
     episode_from_message,
     find_episode_part,
@@ -37,7 +41,16 @@ from .episode import (
 )
 from .schemas import load_schema, schema_issues
 from .status import find_status_payload, status_metadata, status_parts, status_payload
-from .tools import Observation, Outcome, OutcomeTracker, ToolResult, result_payload
+from .tools import (
+    TARGET_REFUSAL_CODE,
+    Observation,
+    Outcome,
+    OutcomeTracker,
+    ToolResult,
+    bind_target,
+    bound_input_schema,
+    result_payload,
+)
 
 __all__ = [
     "A2A_VERSION",
@@ -47,6 +60,7 @@ __all__ = [
     "EPISODE_SCHEMA",
     "EXTENSION_URI",
     "FAILED_CODES",
+    "GET_TOOL",
     "INGRESS_TOKEN_ENV",
     "MODEL_APIS",
     "MODEL_API_ANTHROPIC",
@@ -56,9 +70,12 @@ __all__ = [
     "REJECTED_CODES",
     "REPORT_SCHEMA",
     "REPORT_TOOL",
+    "REQUEST_CAPABILITY_TOOL",
     "REQUEST_INPUT_TOOL",
+    "REVIEW_TOOL",
     "STATUS_MEDIA_TYPE",
     "STATUS_SCHEMA",
+    "TARGET_REFUSAL_CODE",
     "Episode",
     "EpisodeError",
     "Model",
@@ -68,6 +85,9 @@ __all__ = [
     "Seat",
     "ToolResult",
     "Tools",
+    "bind_target",
+    "bound_input_schema",
+    "bound_targets",
     "build_prompts",
     "episode_from_message",
     "find_episode_part",

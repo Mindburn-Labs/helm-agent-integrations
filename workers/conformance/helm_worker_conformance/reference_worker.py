@@ -24,10 +24,13 @@ from urllib.parse import urlsplit
 from helm_worker_contract import (
     EXTENSION_URI,
     MODEL_APIS,
+    TARGET_REFUSAL_CODE,
     Episode,
     EpisodeError,
     OutcomeTracker,
     ToolResult,
+    bind_target,
+    bound_targets,
     build_prompts,
     episode_from_message,
     render_agent_card,
@@ -57,6 +60,8 @@ MUTATIONS = frozenset(
         "continue_after_report",
         "reject_becomes_failed",
         "kind_members",
+        "no_target_binding",
+        "bind_model_directed",
     }
 )
 TERMINAL = (
@@ -357,6 +362,11 @@ class ReferenceWorker:
             if episode.evaluation
             else None
         )
+        targets = bound_targets(episode) if "no_target_binding" not in self.mutations else {}
+        if "bind_model_directed" in self.mutations:
+            # The defect under test: a manager's review, whose target is the model's to choose,
+            # bound to the episode's own work as if it were self-targeted.
+            targets.setdefault("helm_work_review", "work:" + episode.work_item_id)
         deadline = episode.deadline.timestamp()
 
         def guard() -> None:
@@ -395,9 +405,19 @@ class ReferenceWorker:
             results = []
             for call in reply.calls:
                 guard()
-                self.status(record, "TASK_STATE_WORKING", f"Calling {call.name}.")
-                result = mcp.call(call.name, call.arguments)
-                observation = tracker.observe(call.name, call.arguments, result)
+                sent, refusal = bind_target(call.name, call.arguments, targets)
+                if refusal is None:
+                    self.status(record, "TASK_STATE_WORKING", f"Calling {call.name}.")
+                    result = mcp.call(call.name, sent)
+                else:
+                    self.status(
+                        record,
+                        "TASK_STATE_WORKING",
+                        f"{call.name} was not sent ({TARGET_REFUSAL_CODE}): it named a target "
+                        "other than the one this episode binds.",
+                    )
+                    result = refusal
+                observation = tracker.observe(call.name, sent, result)
                 if observation.proposal:
                     self.artifact(record, "helm.proposal", observation.proposal)
                 if observation.report:

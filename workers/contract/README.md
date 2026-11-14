@@ -8,7 +8,7 @@ The wire contract between the control plane (the A2A client) and a HELM agent wo
 | `schema/` | Canonical JSON Schemas and the AgentCard template. |
 | `ts/` | `@mindburn/helm-worker-contract`: TypeScript types, validators, outcome rules. |
 | `python/` | `helm-worker-contract`: the same for Python, plus the A2A server glue the Python adapters share. |
-| `fixtures/` | Test vectors both languages run: episodes, outcome rules, the golden prompt. |
+| `fixtures/` | Test vectors both languages run: episodes, outcome rules, target binding, the golden prompt. |
 
 `ts/schema/` and `python/helm_worker_contract/schema/` are copies of `schema/`.
 `make workers-contract-check` fails when they drift; `make workers-contract-sync` refreshes them.
@@ -106,6 +106,29 @@ result and stop their agent loop when it says so.
 Deploy matching CP support before adopting the evaluation status extension; enable
 agent evaluators only after the selected worker supports `evaluation`. An evaluator
 needs existing get/review grants. The extension never adds report or execution grants.
+
+### Bound targets
+
+Before the MCP call, every tool call passes `bind_target` / `bindTarget` with the episode's
+`bound_targets` / `boundTargets` (vectors: [`fixtures/binding.cases.json`](fixtures/binding.cases.json)).
+The episode, not the model, fixes the target of the self-targeted work tools:
+
+| Tool | Bound target |
+| --- | --- |
+| `helm_work_get`, `helm_work_report`, `helm_work_request_input` | `work:<work_item_id>` |
+| `helm_org_request_capability` | `org:<organization.id>` (when the episode names one) |
+| `helm_work_review`, in an episode with `evaluation` | `work:<evaluation.work_item_id>` |
+
+A target the model left out (absent, `null` or empty) is filled in. A target that differs is
+never sent: the model gets an ordinary tool error in the gateway's shape,
+`{"status": "invalid", "reason_code": "SCHEMA_VIOLATION", "message": ...}`, naming only the bound
+target, so it can call again; the episode goes on. The worker mirrors the refused call and posts
+a `WORKING` note naming the tool and `SCHEMA_VIOLATION`. Delegation, team reads, a manager's
+review of a delegated child and every other tool keep the model's target. Where an adapter lists
+the tool schemas to the model itself, `bound_input_schema` / `boundInputSchema` make a bound
+`target` optional and say what it is bound to (the Claude Agent SDK lists the gateway's schemas
+directly, so there it stays required). The binding is the worker's: native ACP clients that
+talk to the gateway directly are not covered by it.
 
 ## Choices where the contract text was open
 

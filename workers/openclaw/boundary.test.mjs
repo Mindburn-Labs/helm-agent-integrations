@@ -9,7 +9,8 @@ export function fixture() {
   return {api: "openai-responses", token: randomUUID(), model: "retained-model",
     base_url: "https://model.gateway.test", mcp_url: "https://mcp.gateway.test/mcp",
     max_output_tokens: 128, deadline_ms: Date.now() + 30000,
-    allowed: ["helm_work_report"], system: "Bounded test agent", user: "Perform the retained work"};
+    allowed: ["helm_work_report"], targets: {helm_work_report: "work:w-1"},
+    system: "Bounded test agent", user: "Perform the retained work"};
 }
 
 test("private JSON input preserves code points split across reads and rejects malformed or excessive bytes", async () => {
@@ -95,6 +96,14 @@ test("alternate profiles and non-origin model URLs are rejected", () => {
   for (const changes of [{api: "openai-chat-completions"}, {base_url: "https://model.gateway.test/v1"},
     {base_url: "https://caller@model.gateway.test"}, {deadline_ms: Date.now() - 1}]) {
     assert.throws(() => validateConfiguration({...fixture(), ...changes}));
+  }
+});
+
+test("bound targets are required and must name tools and non-empty targets", () => {
+  assert.deepEqual(validateConfiguration(fixture()).targets, {helm_work_report: "work:w-1"});
+  for (const targets of [undefined, null, [], "work:w-1", {helm_work_report: ""},
+    {helm_work_report: 7}, {"not a tool": "work:w-1"}, {helm_work_report: "w".repeat(513)}]) {
+    assert.throws(() => validateConfiguration({...fixture(), targets}), JSON.stringify(targets));
   }
 });
 

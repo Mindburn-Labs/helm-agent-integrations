@@ -166,6 +166,47 @@
       "extra_field_from_a_newer_control_plane": {
         "anything": true
       }
+    },
+    "evaluation": {
+      "schema": "helm.episode.v1",
+      "episode_id": "9a4e2b10-3c5d-4e6f-8a7b-1c2d3e4f5a60",
+      "work_item_id": "450c7298-ff7e-4a1b-9c3d-5e6f7a8b9c0d",
+      "evaluation": {
+        "work_item_id": "f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2a",
+        "episode_id": "5fc6970a-fb68-4817-bced-b2b8d7325b7f",
+        "report_attempt_id": "original-report"
+      },
+      "continuation": 0,
+      "organization": {
+        "id": "org-7a1",
+        "version_id": "ver-3"
+      },
+      "seat": {
+        "id": "seat-4d1",
+        "key": "reviewer_1",
+        "principal_id": "agt:seat-4d1",
+        "role": "Reviewer",
+        "team": "Maintenance",
+        "instructions": "Judge the original work against its acceptance criteria."
+      },
+      "goal": "Independently evaluate the original report.",
+      "tools": {
+        "mcp_url": "https://helm-gateway-worker.helm.svc:8443/mcp",
+        "allowed": [
+          "helm_work_get",
+          "helm_work_review"
+        ]
+      },
+      "model": {
+        "base_url": "https://helm-gateway-worker.helm.svc:8443",
+        "api": "anthropic-messages",
+        "model": "claude-sonnet-5-5",
+        "max_output_tokens": 8192
+      },
+      "deadline": "2026-10-01T12:00:00Z",
+      "credentials": {
+        "env": "HELM_EPISODE_TOKEN"
+      }
     }
   },
   "invalid": {

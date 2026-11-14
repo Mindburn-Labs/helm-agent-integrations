@@ -19,6 +19,9 @@ and installed on the native Agent. There are no built-in shell, filesystem,
 browser, channel or plugin tools. Sequential execution stops further calls after
 an escalated attempt, delegation, input request or successful report. Actual MCP
 error/status metadata is retained; a denied report cannot complete the episode.
+The self-targeted work tools are bound to the episode's targets: the Agent lists
+a bound `target` as optional, a missing one is filled in, and a differing one is
+answered as an ordinary tool error without an MCP call.
 
 The native OpenClaw Responses stream uses the supplied gateway origin plus `/v1`.
 The episode itself keeps the origin without `/v1`, as required by the shared

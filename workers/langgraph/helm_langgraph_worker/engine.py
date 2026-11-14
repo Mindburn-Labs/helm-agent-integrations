@@ -3,7 +3,12 @@
 import os
 from typing import Any
 
-from helm_worker_contract import ToolResult, build_prompts
+from helm_worker_contract import (
+    ToolResult,
+    bind_target,
+    bound_input_schema,
+    build_prompts,
+)
 from helm_worker_runtime import Session
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -13,6 +18,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.types import interrupt
+from mcp.types import CallToolResult, TextContent
 
 
 async def run(session: Session) -> None:
@@ -24,12 +30,22 @@ async def run(session: Session) -> None:
         session.guard()
         if request.name not in episode.tools.allowed or session.tracker.stopped:
             raise ValueError("Tool is not allowed")
+        # A target the episode fixes is never taken from the model: a differing one is
+        # answered here as a tool error and nothing reaches the gateway.
+        sent, refusal = bind_target(request.name, request.args, session.targets)
+        if refusal is not None:
+            session.observe(request.name, sent, refusal)
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=refusal.text or "")],
+                structuredContent=refusal.structured,
+            )
         session.progress(f"Calling {request.name}.")
-        result = await handler(request)
+        result = await handler(request.override(args=sent))
         text = "\n".join(c.text for c in result.content if c.type == "text")
         session.observe(
             request.name,
-            request.args,
+            sent,
             ToolResult(result.isError or False, result.structuredContent, text),
         )
         return result
@@ -51,6 +67,11 @@ async def run(session: Session) -> None:
         allowed = {
             tool.name: tool for tool in tools if tool.name in episode.tools.allowed
         }
+        for tool in allowed.values():
+            # The model sees a bound target as optional; the interceptor fills it in.
+            tool.args_schema = bound_input_schema(
+                tool.name, tool.args_schema, session.targets
+            )
         if episode.model.api == "anthropic-messages":
             # Auth token is a gateway workload token, never a provider API key.
             model: Any = ChatAnthropic(

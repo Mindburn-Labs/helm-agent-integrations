@@ -2,7 +2,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { OutcomeTracker } from "@mindburn/helm-worker-contract";
+import { OutcomeTracker, bindTarget } from "@mindburn/helm-worker-contract";
 import { normalizeToolResult } from "./result.mjs";
 
 let input = "";
@@ -14,8 +14,16 @@ const controller = new AbortController();
 const emit = (event) => process.stdout.write(JSON.stringify(event) + "\n");
 process.on("SIGTERM", () => controller.abort());
 const bare = (name) => name.startsWith("mcp__helm__") ? name.slice(11) : name;
+const denied = "Tool is not allowed in this HELM episode.";
 
 try {
+  // The targets the episode fixes. The SDK sends MCP calls itself, so its hooks are the only
+  // place to fill one the model left out and to refuse one that differs before it is sent.
+  const targets = config.targets;
+  if (targets === null || typeof targets !== "object" || Array.isArray(targets)
+      || Object.values(targets).some((value) => typeof value !== "string" || !value)) {
+    throw new Error("Invalid bound targets");
+  }
   // Discover the catalog through the actual MCP SDK so disallowedTools removes every
   // ungranted MCP tool from the model's context, as well as denying its execution.
   const client = new Client({ name: "helm-claude-worker", version: "0.1.0" });
@@ -47,24 +55,41 @@ try {
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_TELEMETRY: "1",
       DISABLE_ERROR_REPORTING: "1", DISABLE_AUTOUPDATER: "1",
     },
-    canUseTool: async (name, args) => allowed.has(bare(name)) && !tracker.stopped
-      ? { behavior: "allow", updatedInput: args }
-      : { behavior: "deny", message: "Tool is not allowed in this HELM episode." },
+    canUseTool: async (name, args) => {
+      if (!allowed.has(bare(name)) || tracker.stopped) return { behavior: "deny", message: denied };
+      // PreToolUse already bound this input; binding it again is a no-op unless it was skipped.
+      const { arguments: sent, refusal } = bindTarget(bare(name), args, targets);
+      return refusal ? { behavior: "deny", message: refusal.text } : { behavior: "allow", updatedInput: sent };
+    },
     hooks: {
       PreToolUse: [{ hooks: [async (event) => {
-        if (!allowed.has(bare(event.tool_name)) || tracker.stopped) return {
+        const name = bare(event.tool_name);
+        if (!allowed.has(name) || tracker.stopped) return {
           continue: false, stopReason: "HELM tool boundary",
           hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
-            permissionDecisionReason: "Tool is not allowed in this HELM episode." },
+            permissionDecisionReason: denied },
         };
-        return {};
+        const { arguments: sent, refusal } = bindTarget(name, event.tool_input, targets);
+        if (refusal) {
+          // An ordinary tool error the model can act on; the episode goes on.
+          tracker.observe(name, sent, refusal);
+          emit({ type: "tool", name, arguments: sent, is_error: true,
+            structured: refusal.structured, text: refusal.text });
+          return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+            permissionDecisionReason: refusal.text } };
+        }
+        // Unbound input passes as before; a filled-in target replaces the model's input.
+        return sent === event.tool_input ? {} : { hookSpecificOutput: { hookEventName: "PreToolUse",
+          permissionDecision: "allow", updatedInput: sent } };
       }] }],
       PostToolUse: [{ hooks: [async (event) => {
         const name = bare(event.tool_name);
         const response = event.tool_response;
         const result = normalizeToolResult(response);
-        const observation = tracker.observe(name, event.tool_input, result);
-        emit({ type: "tool", name, arguments: event.tool_input, is_error: result.isError,
+        // The input that was sent: PreToolUse bound it, so binding again only restates it.
+        const sent = bindTarget(name, event.tool_input, targets).arguments;
+        const observation = tracker.observe(name, sent, result);
+        emit({ type: "tool", name, arguments: sent, is_error: result.isError,
           structured: result.structured, text: result.text });
         return observation.stop ? { continue: false, stopReason: "HELM episode parked or reported" } : {};
       }] }],

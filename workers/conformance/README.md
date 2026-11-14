@@ -57,6 +57,7 @@ scenarios sweep.
 | `evaluation_accept`, `evaluation_reject`, `evaluation_accept_text_only` | The bound applied review completes without a report; later tools in the batch and later model turns never run. |
 | `escalated_parks` (+ `_text_only`) | An escalated tool result stops the loop and ends INPUT_REQUIRED with `waiting_on.attempts`; the trap turn after it is never requested; works with and without `structuredContent`. |
 | `reconciling_effect_stops`, `reconciling_text_only_stops`, `reconciling_report_stops` | An uncertain effect stops with `EFFECT_OUTCOME_PENDING`, retains the original attempt, emits no applied-report mirror and suppresses later calls in the batch and later model turns. |
+| `self_target_bound`, `evaluation_target_bound` | A model-typed self target (own work, organization, an evaluator's original work) that differs from the episode's binding never reaches the gateway; the model gets the `SCHEMA_VIOLATION` tool error and recovers; the refused call is mirrored and noted; an omitted target is sent as the bound one; a model-directed target (a manager's review of other work) is sent as typed. |
 | `delegate_parks_children`, `request_input_parks_input` | The other two parking rules. |
 | `no_report_fails` | Ending without a report is FAILED with `NO_REPORT`. |
 | `cancel_during_model_call`, `cancel_during_tool_call` | `CancelTask` is answered and the stream ends CANCELED within 10 seconds; nothing new starts afterwards; the held call is abandoned. |

@@ -8,6 +8,10 @@ import {
   EpisodeError,
   OutcomeTracker,
   STATUS_MEDIA_TYPE,
+  TARGET_REFUSAL_CODE,
+  bindTarget,
+  boundInputSchema,
+  boundTargets,
   buildPrompts,
   episodeFromMessage,
   findStatusPayload,
@@ -32,6 +36,17 @@ const outcomes = fixture("outcome.cases.json") as Array<{
   expect: { observations: unknown[]; outcome: { state: string; status?: unknown; code?: string } };
 }>;
 const promptGolden = fixture("prompt.golden.json") as { episode: string; system: string; user: string };
+const bindings = fixture("binding.cases.json") as {
+  episodes: Array<{ name: string; episode: string; targets: Record<string, string> }>;
+  calls: Array<{
+    name: string;
+    episode: string;
+    tool: string;
+    arguments: Record<string, unknown> | null;
+    expect: { arguments?: unknown; refused?: string; text?: string };
+  }>;
+  schemas: Array<{ name: string; episode: string; tool: string; schema: unknown; expect: unknown }>;
+};
 
 test("valid episodes parse", () => {
   for (const [name, raw] of Object.entries(cases.valid)) {
@@ -163,6 +178,75 @@ test("mirrors validate against their schemas", () => {
   );
   assert.deepEqual(reported.report?.outputs, [{ kind: "pr", ref: "7" }]);
   assert.deepEqual(schemaIssues("report.v1", reported.report), []);
+});
+
+test("bound targets come from the episode, as in Python", () => {
+  for (const testCase of bindings.episodes) {
+    assert.deepEqual(boundTargets(parseEpisode(cases.valid[testCase.episode])), testCase.targets, testCase.name);
+  }
+});
+
+test("binding vectors shared with Python", () => {
+  for (const testCase of bindings.calls) {
+    const targets = boundTargets(parseEpisode(cases.valid[testCase.episode]));
+    const original = structuredClone(testCase.arguments);
+    const { arguments: sent, refusal } = bindTarget(testCase.tool, testCase.arguments, targets);
+    assert.deepEqual(testCase.arguments, original, `${testCase.name}: the model's arguments are not mutated`);
+    if (testCase.expect.refused !== undefined) {
+      const structured = refusal?.structured as Record<string, string> | undefined;
+      assert.equal(refusal?.isError, true, testCase.name);
+      assert.equal(structured?.status, "invalid", testCase.name);
+      assert.equal(structured?.reason_code, TARGET_REFUSAL_CODE, testCase.name);
+      assert.ok(structured?.message.includes(testCase.expect.refused), testCase.name);
+      // Only the bound target is named; the mistyped one is not echoed back.
+      assert.ok(!structured?.message.includes(String(testCase.arguments?.target)), testCase.name);
+      assert.deepEqual(JSON.parse(refusal?.text ?? ""), structured, testCase.name);
+      if (testCase.expect.text !== undefined) assert.equal(refusal?.text, testCase.expect.text, testCase.name);
+      assert.deepEqual(sent, testCase.arguments ?? {}, testCase.name);
+    } else {
+      assert.equal(refusal, undefined, testCase.name);
+      assert.deepEqual(sent, testCase.expect.arguments, testCase.name);
+    }
+  }
+});
+
+test("schema vectors shared with Python", () => {
+  for (const testCase of bindings.schemas) {
+    const targets = boundTargets(parseEpisode(cases.valid[testCase.episode]));
+    const original = structuredClone(testCase.schema);
+    const listed = boundInputSchema(testCase.tool, testCase.schema, targets);
+    assert.deepEqual(testCase.schema, original, `${testCase.name}: the listed schema is not mutated`);
+    assert.deepEqual(listed, testCase.expect, testCase.name);
+  }
+});
+
+test("a refusal is an ordinary tool error that stops nothing", () => {
+  const targets = boundTargets(parseEpisode(cases.valid.full));
+  const tracker = new OutcomeTracker();
+  const wrong = { target: "work:0b7e3c1a-7ef7-4c6f-8a90-3e4f5a6b7c02", arguments: {} };
+  const { refusal } = bindTarget("helm_work_report", wrong, targets);
+  assert.ok(refusal);
+  const seen = tracker.observe("helm_work_report", wrong, refusal);
+  assert.deepEqual([seen.kind, seen.stop], ["error", false]);
+  assert.equal(tracker.stopped, false);
+  assert.equal(tracker.outcome().status.error?.code, "NO_REPORT");
+});
+
+test("an evaluator's omitted review target completes once bound", () => {
+  const episode = parseEpisode(cases.valid.evaluation);
+  const original = episode.evaluation?.work_item_id ?? "";
+  const tracker = new OutcomeTracker(`work:${original}`);
+  const { arguments: sent, refusal } = bindTarget(
+    "helm_work_review",
+    { arguments: { decision: "accept", reason: "Checked." } },
+    boundTargets(episode),
+  );
+  assert.equal(refusal, undefined);
+  const seen = tracker.observe("helm_work_review", sent, {
+    structured: { status: "succeeded", attempt_id: "att-1", result: { child_id: original } },
+  });
+  assert.equal(seen.reason, "reviewed");
+  assert.equal(tracker.outcome().state, "completed");
 });
 
 test("status payloads validate and round trip", () => {

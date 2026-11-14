@@ -25,6 +25,9 @@ export type ModelApi = (typeof MODEL_APIS)[number];
 export const REPORT_TOOL = "helm_work_report";
 export const DELEGATE_TOOL = "helm_work_delegate";
 export const REQUEST_INPUT_TOOL = "helm_work_request_input";
+export const GET_TOOL = "helm_work_get";
+export const REVIEW_TOOL = "helm_work_review";
+export const REQUEST_CAPABILITY_TOOL = "helm_org_request_capability";
 
 /** Terminal-state reason codes carried in helm.episode.status.v1 `error.code`. */
 export const REJECTED_CODES = ["INVALID_EPISODE", "MISSING_CREDENTIAL", "UNSUPPORTED_MODEL_API"] as const;

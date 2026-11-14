@@ -500,6 +500,7 @@ def make_handler(world: World) -> Handler:
             text=req.body.decode("utf-8", "replace")
             if not any(c.dialect != "other" for c in world.model_calls)
             else "",
+            body=req.body.decode("utf-8", "replace"),
         )
         world.record_model(call)
         step = world.script[call.turn] if call.turn < len(world.script) else DEFAULT_STEP

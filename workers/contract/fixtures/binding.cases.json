@@ -1,0 +1,595 @@
+{
+  "description": "Target binding vectors both languages run. episodes: the bound targets of a fixture episode from episode.cases.json. calls: what bind_target sends for a model's call, or the bound target its refusal names (text, when present, is the exact refusal). schemas: the input schema bound_input_schema lists to the model.",
+  "episodes": [
+    {
+      "name": "an ordinary episode binds its own work and organization",
+      "episode": "full",
+      "targets": {
+        "helm_work_get": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+        "helm_work_report": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+        "helm_work_request_input": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+        "helm_org_request_capability": "org:org-7a1"
+      }
+    },
+    {
+      "name": "an episode without an organization binds only its own work",
+      "episode": "minimal",
+      "targets": {
+        "helm_work_get": "work:w-min",
+        "helm_work_report": "work:w-min",
+        "helm_work_request_input": "work:w-min"
+      }
+    },
+    {
+      "name": "an evaluation episode also binds the original work it reviews",
+      "episode": "evaluation",
+      "targets": {
+        "helm_work_get": "work:450c7298-ff7e-4a1b-9c3d-5e6f7a8b9c0d",
+        "helm_work_report": "work:450c7298-ff7e-4a1b-9c3d-5e6f7a8b9c0d",
+        "helm_work_request_input": "work:450c7298-ff7e-4a1b-9c3d-5e6f7a8b9c0d",
+        "helm_org_request_capability": "org:org-7a1",
+        "helm_work_review": "work:f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2a"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "name": "an omitted self target is filled",
+      "episode": "full",
+      "tool": "helm_work_report",
+      "arguments": {
+        "arguments": {
+          "status": "done",
+          "summary": "Fixed."
+        }
+      },
+      "expect": {
+        "arguments": {
+          "arguments": {
+            "status": "done",
+            "summary": "Fixed."
+          },
+          "target": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02"
+        }
+      }
+    },
+    {
+      "name": "a null self target is filled",
+      "episode": "full",
+      "tool": "helm_work_request_input",
+      "arguments": {
+        "target": null,
+        "arguments": {
+          "question": "Which branch?"
+        }
+      },
+      "expect": {
+        "arguments": {
+          "target": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+          "arguments": {
+            "question": "Which branch?"
+          }
+        }
+      }
+    },
+    {
+      "name": "an empty self target is filled",
+      "episode": "full",
+      "tool": "helm_work_get",
+      "arguments": {
+        "target": "",
+        "arguments": {}
+      },
+      "expect": {
+        "arguments": {
+          "target": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+          "arguments": {}
+        }
+      }
+    },
+    {
+      "name": "helm_work_get without arguments gets its target",
+      "episode": "full",
+      "tool": "helm_work_get",
+      "arguments": null,
+      "expect": {
+        "arguments": {
+          "target": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02"
+        }
+      }
+    },
+    {
+      "name": "the bound self target passes unchanged",
+      "episode": "full",
+      "tool": "helm_work_report",
+      "arguments": {
+        "target": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+        "arguments": {
+          "status": "done",
+          "summary": "Fixed."
+        }
+      },
+      "expect": {
+        "arguments": {
+          "target": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+          "arguments": {
+            "status": "done",
+            "summary": "Fixed."
+          }
+        }
+      }
+    },
+    {
+      "name": "a mistyped own work id is refused (helm_work_get)",
+      "episode": "full",
+      "tool": "helm_work_get",
+      "arguments": {
+        "target": "work:0b7e3c1a-7ef7-4c6f-8a90-3e4f5a6b7c02",
+        "arguments": {}
+      },
+      "expect": {
+        "refused": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02"
+      }
+    },
+    {
+      "name": "a mistyped own work id is refused (helm_work_report)",
+      "episode": "full",
+      "tool": "helm_work_report",
+      "arguments": {
+        "target": "work:0b7e3c1a-7ef7-4c6f-8a90-3e4f5a6b7c02",
+        "arguments": {
+          "status": "done",
+          "summary": "Fixed."
+        }
+      },
+      "expect": {
+        "refused": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02",
+        "text": "{\"status\":\"invalid\",\"reason_code\":\"SCHEMA_VIOLATION\",\"message\":\"In this episode helm_work_report acts only on work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02. This call named another target and was not sent. Call helm_work_report again with target work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02, or leave target out.\"}"
+      }
+    },
+    {
+      "name": "a seat key instead of the work id is refused",
+      "episode": "full",
+      "tool": "helm_work_request_input",
+      "arguments": {
+        "target": "work:engineer_1",
+        "arguments": {
+          "question": "q"
+        }
+      },
+      "expect": {
+        "refused": "work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02"
+      }
+    },
+    {
+      "name": "another organization is refused for a capability request",
+      "episode": "full",
+      "tool": "helm_org_request_capability",
+      "arguments": {
+        "target": "org:org-other",
+        "arguments": {
+          "capability": "c"
+        }
+      },
+      "expect": {
+        "refused": "org:org-7a1"
+      }
+    },
+    {
+      "name": "a capability request without an organization in the episode is not bound",
+      "episode": "minimal",
+      "tool": "helm_org_request_capability",
+      "arguments": {
+        "target": "org:org-other",
+        "arguments": {
+          "capability": "c"
+        }
+      },
+      "expect": {
+        "arguments": {
+          "target": "org:org-other",
+          "arguments": {
+            "capability": "c"
+          }
+        }
+      }
+    },
+    {
+      "name": "delegation stays model-directed",
+      "episode": "full",
+      "tool": "helm_work_delegate",
+      "arguments": {
+        "target": "seat:reviewer",
+        "arguments": {
+          "goal": "Check it"
+        }
+      },
+      "expect": {
+        "arguments": {
+          "target": "seat:reviewer",
+          "arguments": {
+            "goal": "Check it"
+          }
+        }
+      }
+    },
+    {
+      "name": "a team read stays model-directed",
+      "episode": "full",
+      "tool": "helm_work_team",
+      "arguments": {
+        "target": "team:t-1",
+        "arguments": {}
+      },
+      "expect": {
+        "arguments": {
+          "target": "team:t-1",
+          "arguments": {}
+        }
+      }
+    },
+    {
+      "name": "a manager's review of a delegated child stays model-directed",
+      "episode": "full",
+      "tool": "helm_work_review",
+      "arguments": {
+        "target": "work:c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a",
+        "arguments": {
+          "decision": "accept",
+          "reason": "r"
+        }
+      },
+      "expect": {
+        "arguments": {
+          "target": "work:c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a",
+          "arguments": {
+            "decision": "accept",
+            "reason": "r"
+          }
+        }
+      }
+    },
+    {
+      "name": "an evaluator's review of another work item is refused",
+      "episode": "evaluation",
+      "tool": "helm_work_review",
+      "arguments": {
+        "target": "work:f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2b",
+        "arguments": {
+          "decision": "accept",
+          "reason": "r"
+        }
+      },
+      "expect": {
+        "refused": "work:f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2a"
+      }
+    },
+    {
+      "name": "an evaluator's review of its own work item is refused",
+      "episode": "evaluation",
+      "tool": "helm_work_review",
+      "arguments": {
+        "target": "work:450c7298-ff7e-4a1b-9c3d-5e6f7a8b9c0d",
+        "arguments": {
+          "decision": "reject",
+          "reason": "r"
+        }
+      },
+      "expect": {
+        "refused": "work:f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2a"
+      }
+    },
+    {
+      "name": "an evaluator's review without a target gets the original work",
+      "episode": "evaluation",
+      "tool": "helm_work_review",
+      "arguments": {
+        "arguments": {
+          "decision": "accept",
+          "reason": "r"
+        }
+      },
+      "expect": {
+        "arguments": {
+          "arguments": {
+            "decision": "accept",
+            "reason": "r"
+          },
+          "target": "work:f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2a"
+        }
+      }
+    },
+    {
+      "name": "an evaluator reads its own work, not the work it judges",
+      "episode": "evaluation",
+      "tool": "helm_work_get",
+      "arguments": {
+        "target": "work:f1662f93-2b4c-4d5e-8f6a-7b8c9d0e1f2a",
+        "arguments": {}
+      },
+      "expect": {
+        "refused": "work:450c7298-ff7e-4a1b-9c3d-5e6f7a8b9c0d"
+      }
+    },
+    {
+      "name": "a tool HELM does not bind keeps the model's arguments",
+      "episode": "full",
+      "tool": "github_pull_request_create_draft",
+      "arguments": {
+        "title": "t"
+      },
+      "expect": {
+        "arguments": {
+          "title": "t"
+        }
+      }
+    }
+  ],
+  "schemas": [
+    {
+      "name": "a bound tool's target is optional and described as bound",
+      "episode": "full",
+      "tool": "helm_work_report",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "arguments"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "What the effect acts on: work:<id>."
+          },
+          "arguments": {
+            "type": "object",
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "arguments"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Bound by HELM to work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02; may be left out."
+          },
+          "arguments": {
+            "type": "object",
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a schema without required keeps none",
+      "episode": "full",
+      "tool": "helm_work_get",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object"
+          }
+        }
+      },
+      "expect": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Bound by HELM to work:0b7e3c1a-55d2-4c6f-8a90-3e4f5a6b7c02; may be left out."
+          },
+          "arguments": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "a model-directed tool's schema is unchanged",
+      "episode": "full",
+      "tool": "helm_work_delegate",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "arguments"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "What the effect acts on: seat:<key>, role:<key> or team:<key>."
+          },
+          "arguments": {
+            "type": "object",
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "arguments"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "What the effect acts on: seat:<key>, role:<key> or team:<key>."
+          },
+          "arguments": {
+            "type": "object",
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a schema without a target property is unchanged",
+      "episode": "full",
+      "tool": "helm_work_get",
+      "schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "expect": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "review is model-directed outside an evaluation",
+      "episode": "full",
+      "tool": "helm_work_review",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "arguments"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "What the effect acts on: work:<id>."
+          },
+          "arguments": {
+            "type": "object",
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "arguments"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "What the effect acts on: work:<id>."
+          },
+          "arguments": {
+            "type": "object",
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

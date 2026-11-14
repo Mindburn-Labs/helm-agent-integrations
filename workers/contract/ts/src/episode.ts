@@ -1,6 +1,15 @@
 // The helm.episode.v1 payload: parsing, validation and the prompts derived from it.
 
-import { EPISODE_MEDIA_TYPE, type ErrorCode, type ModelApi } from "./constants.js";
+import {
+  EPISODE_MEDIA_TYPE,
+  GET_TOOL,
+  REPORT_TOOL,
+  REQUEST_CAPABILITY_TOOL,
+  REQUEST_INPUT_TOOL,
+  REVIEW_TOOL,
+  type ErrorCode,
+  type ModelApi,
+} from "./constants.js";
 import { schemaIssues } from "./schemas.js";
 
 export class EpisodeError extends Error {
@@ -128,6 +137,22 @@ export function requireSupportedApi(episode: Episode, supported: readonly string
       `this worker supports ${supported.join(", ")}; the episode asks for ${episode.model.api}`,
     );
   }
+}
+
+/**
+ * The target of each tool whose target the episode fixes, so the model never chooses it.
+ *
+ * The episode's own work for helm_work_get, helm_work_report and helm_work_request_input, its
+ * organization for helm_org_request_capability, and, in an evaluation episode, the original
+ * work it judges for helm_work_review. Every other target (a delegation, a team, a manager's
+ * review of a delegated child) stays the model's choice.
+ */
+export function boundTargets(episode: Episode): Record<string, string> {
+  const own = `work:${episode.workItemId}`;
+  const targets: Record<string, string> = { [GET_TOOL]: own, [REPORT_TOOL]: own, [REQUEST_INPUT_TOOL]: own };
+  if (episode.organizationId) targets[REQUEST_CAPABILITY_TOOL] = `org:${episode.organizationId}`;
+  if (episode.evaluation != null) targets[REVIEW_TOOL] = `work:${episode.evaluation.work_item_id}`;
+  return targets;
 }
 
 // Python's json.dumps(sort_keys=True, separators=(",", ":")), so both languages render alike.

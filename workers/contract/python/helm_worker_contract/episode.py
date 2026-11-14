@@ -9,7 +9,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from .constants import EPISODE_MEDIA_TYPE
+from .constants import (
+    EPISODE_MEDIA_TYPE,
+    GET_TOOL,
+    REPORT_TOOL,
+    REQUEST_CAPABILITY_TOOL,
+    REQUEST_INPUT_TOOL,
+    REVIEW_TOOL,
+)
 from .schemas import schema_issues
 
 
@@ -162,6 +169,23 @@ def require_supported_api(episode: Episode, supported: Sequence[str]) -> None:
         )
 
 
+def bound_targets(episode: Episode) -> dict[str, str]:
+    """The target of each tool whose target the episode fixes, so the model never chooses it.
+
+    The episode's own work for helm_work_get, helm_work_report and helm_work_request_input,
+    its organization for helm_org_request_capability, and, in an evaluation episode, the
+    original work it judges for helm_work_review. Every other target (a delegation, a team,
+    a manager's review of a delegated child) stays the model's choice.
+    """
+    own = "work:" + episode.work_item_id
+    targets = {GET_TOOL: own, REPORT_TOOL: own, REQUEST_INPUT_TOOL: own}
+    if episode.organization_id:
+        targets[REQUEST_CAPABILITY_TOOL] = "org:" + episode.organization_id
+    if episode.evaluation is not None:
+        targets[REVIEW_TOOL] = "work:" + episode.evaluation["work_item_id"]
+    return targets
+
+
 def build_prompts(episode: Episode) -> tuple[str, str]:
     """The system prompt and first user message every adapter gives its model."""
     who = f'seat "{episode.seat.key}"'
@@ -240,6 +264,7 @@ __all__ = [
     "Model",
     "Seat",
     "Tools",
+    "bound_targets",
     "build_prompts",
     "episode_from_message",
     "find_episode_part",
