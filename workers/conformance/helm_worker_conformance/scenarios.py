@@ -280,6 +280,8 @@ def drive_evaluation(run: Run) -> None:
 # random work id, so neither can be the bound one.
 WRONG_WORK = "work:450c7298-7ef7-4a1b-9c3d-5e6f7a8b9c0d"
 WRONG_ORG = "org:org-elsewhere"
+# Another work item a manager reviews: outside an evaluation the review target is the model's.
+CHILD_WORK = "work:c9ab331d-e3b0-4ca1-bf63-ecbc9b7cd81a"
 TARGET_REFUSAL_CODE = "SCHEMA_VIOLATION"
 
 
@@ -323,6 +325,25 @@ def drive_bound_targets(run: Run, *, sent: list[str]) -> None:
         if call.tool in bound and target != bound[call.tool]:
             problems.append(f"{call.tool} reached the gateway with target {target!r}")
     run.check("bound_targets_sent", not problems, "; ".join(problems))
+
+    # The other half of the binding: a target the episode does not fix (a manager's review of
+    # other work, a delegation, a team) stays the model's and reaches the gateway as typed.
+    # The last script step is the trap, so its calls are never expected.
+    directed = [
+        call
+        for step in run.world.script[:-1]
+        for call in step.get("tools", [])
+        if call["name"] not in bound and (call.get("arguments") or {}).get("target")
+    ]
+    if directed:
+        reached = [(c.tool, c.arguments.get("target")) for c in run.world.mcp_calls]
+        problems = [
+            f"{call['name']} with the model's target {call['arguments']['target']!r} did not "
+            f"reach the gateway as typed; reached {reached}"
+            for call in directed
+            if (call["name"], call["arguments"]["target"]) not in reached
+        ]
+        run.check("model_directed_targets_sent", not problems, "; ".join(problems))
 
     model_calls = [c for c in run.world.model_calls if c.dialect != "other"]
     problems = []
@@ -1085,6 +1106,7 @@ for _decision, _structured in (("accept", True), ("reject", True), ("accept", Fa
 # A model that types a wrong self target cannot make a mistargeted call leave the worker. Each
 # wrong call is followed by the same call with the target left out, which the worker fills in,
 # except helm_work_request_input: a sent question would park the episode, so it is only refused.
+# A manager's review of other work in between is model-directed and must be sent as typed.
 _REPORT = {
     "status": "done",
     "summary": "All finished.",
@@ -1102,6 +1124,17 @@ _add(
                 ]
             },
             {"tools": [{"name": "helm_work_get", "arguments": {"arguments": {}}}]},
+            {
+                "tools": [
+                    {
+                        "name": "helm_work_review",
+                        "arguments": {
+                            "target": CHILD_WORK,
+                            "arguments": {"decision": "accept", "reason": "Checked the child."},
+                        },
+                    }
+                ]
+            },
             {
                 "tools": [
                     {
@@ -1138,10 +1171,17 @@ _add(
             {"tools": [report_call()]},  # a trap: the applied report ended the loop
         ],
         lambda run: drive_bound_targets(
-            run, sent=["helm_work_get", "helm_org_request_capability", "helm_work_report"]
+            run,
+            sent=[
+                "helm_work_get",
+                "helm_work_review",
+                "helm_org_request_capability",
+                "helm_work_report",
+            ],
         ),
         allowed=[
             "helm_work_get",
+            "helm_work_review",
             "helm_org_request_capability",
             "helm_work_request_input",
             "helm_work_report",

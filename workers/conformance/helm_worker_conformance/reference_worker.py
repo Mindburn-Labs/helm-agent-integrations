@@ -61,6 +61,7 @@ MUTATIONS = frozenset(
         "reject_becomes_failed",
         "kind_members",
         "no_target_binding",
+        "bind_model_directed",
     }
 )
 TERMINAL = (
@@ -362,6 +363,10 @@ class ReferenceWorker:
             else None
         )
         targets = bound_targets(episode) if "no_target_binding" not in self.mutations else {}
+        if "bind_model_directed" in self.mutations:
+            # The defect under test: a manager's review, whose target is the model's to choose,
+            # bound to the episode's own work as if it were self-targeted.
+            targets.setdefault("helm_work_review", "work:" + episode.work_item_id)
         deadline = episode.deadline.timestamp()
 
         def guard() -> None:

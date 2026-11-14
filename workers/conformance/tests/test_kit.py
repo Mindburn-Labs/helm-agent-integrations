@@ -66,7 +66,7 @@ MANIFEST: dict[str, set[str]] = {
     | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
     "evaluation_accept_text_only": COMMON
     | {"completes_bound_review", "stops_after_review", "quiet_after_review"},
-    "self_target_bound": BOUND,
+    "self_target_bound": BOUND | {"model_directed_targets_sent"},
     "evaluation_target_bound": BOUND,
     "reconciling_effect_stops": PENDING,
     "reconciling_text_only_stops": PENDING,
@@ -219,6 +219,12 @@ MUTANTS: list[tuple[str, str, str, set[str]]] = [
         "evaluation_target_bound",
         "openai-responses",
         {"bound_targets_sent", "refusals_reach_the_model", "completes_on_bound_effect"},
+    ),
+    (
+        "bind_model_directed",
+        "self_target_bound",
+        "openai-chat-completions",
+        {"model_directed_targets_sent", "bound_targets_sent"},
     ),
 ]
 
