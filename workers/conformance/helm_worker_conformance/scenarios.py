@@ -327,8 +327,13 @@ def drive_bound_targets(run: Run, *, sent: list[str]) -> None:
     model_calls = [c for c in run.world.model_calls if c.dialect != "other"]
     problems = []
     for turn, call in refused:
+        # Each request resends the history, so an earlier refusal is already in it: the turn
+        # after this refusal must carry one more tool error than the turn that made the call.
+        before = max(
+            (c.body.count(TARGET_REFUSAL_CODE) for c in model_calls if c.turn == turn), default=0
+        )
         after = [c for c in model_calls if c.turn == turn + 1]
-        if not any(TARGET_REFUSAL_CODE in c.body for c in after):
+        if not any(c.body.count(TARGET_REFUSAL_CODE) > before for c in after):
             problems.append(
                 f"the model turn after the refused {call['name']} (turn {turn}) did not carry "
                 f"the {TARGET_REFUSAL_CODE} tool error"
@@ -1078,7 +1083,8 @@ for _decision, _structured in (("accept", True), ("reject", True), ("accept", Fa
 
 
 # A model that types a wrong self target cannot make a mistargeted call leave the worker. Each
-# wrong call is followed by the same call with the target left out, which the worker fills in.
+# wrong call is followed by the same call with the target left out, which the worker fills in,
+# except helm_work_request_input: a sent question would park the episode, so it is only refused.
 _REPORT = {
     "status": "done",
     "summary": "All finished.",
@@ -1112,6 +1118,17 @@ _add(
             {
                 "tools": [
                     {
+                        "name": "helm_work_request_input",
+                        "arguments": {
+                            "target": WRONG_WORK,
+                            "arguments": {"question": "Which branch?", "options": ["main"]},
+                        },
+                    }
+                ]
+            },
+            {
+                "tools": [
+                    {
                         "name": "helm_work_report",
                         "arguments": {"target": WRONG_WORK, "arguments": _REPORT},
                     }
@@ -1123,7 +1140,12 @@ _add(
         lambda run: drive_bound_targets(
             run, sent=["helm_work_get", "helm_org_request_capability", "helm_work_report"]
         ),
-        allowed=["helm_work_get", "helm_org_request_capability", "helm_work_report"],
+        allowed=[
+            "helm_work_get",
+            "helm_org_request_capability",
+            "helm_work_request_input",
+            "helm_work_report",
+        ],
     )
 )
 _add(
