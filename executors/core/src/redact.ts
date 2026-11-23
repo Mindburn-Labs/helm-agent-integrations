@@ -1,8 +1,8 @@
-// Best-effort secret redaction for stderr lines, control plane error text and observation summaries.
-// ponytail: pattern based, so a secret with no recognizable shape gets through. What keeps credentials out of an
-// observation is not this list: a Bash summary is the command's shape (shape.ts) and carries no argument at all, the
-// observation drops tool output entirely, and HELM_EXECUTOR_OBSERVE_SUMMARY=off drops the summary. Upgrade to a
-// vetted detector if a summary ever carries free text.
+// These patterns redact recognizable credential formats from stderr,
+// control plane errors and observation summaries. Bash summaries contain
+// only the command shape from shape.ts. Observations omit tool output,
+// and HELM_EXECUTOR_OBSERVE_SUMMARY=off disables summaries. Use a vetted
+// detector before letting a summary include free text.
 
 const REDACTED = "[redacted]";
 

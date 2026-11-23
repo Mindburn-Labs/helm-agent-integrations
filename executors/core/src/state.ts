@@ -1,7 +1,7 @@
-// Credentials and slot state on disk: a 0700 directory, 0600 files, atomic writes, and a lock file for the
-// steps that must not run twice at once (a rotating refresh token, an episode mint).
-// ponytail: no OS keychain. A 0600 file in a 0700 directory is what CONTRACT.md promises. A keychain backend
-// would replace load/save for credentials only; add it when an executor runs on a machine that other users share.
+// Credentials and slot state use 0600 files in a 0700 directory.
+// Writes are atomic. A lock serializes token refresh and episode minting.
+// A keychain backend for shared machines would replace only credential
+// storage. See CONTRACT.md for the on-disk contract.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -350,7 +350,8 @@ export function loadObserveRecord(ctx: Ctx): ObserveRecord {
   }
 }
 
-// ponytail: no lock. Concurrent observers can lose a counter increment; the record is a hint for `status`.
+// Writes to this advisory status record are unlocked. Concurrent observers
+// can lose a counter increment.
 export function saveObserveRecord(ctx: Ctx, record: ObserveRecord): void {
   ensureSlots(ctx);
   writeJsonAtomic(observePath(ctx), record);

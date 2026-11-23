@@ -38,8 +38,8 @@ function clientName(name: string | undefined): string {
   return label === "" ? "helm-executor" : label;
 }
 
-// ponytail: HELM_EXECUTOR_TEST_POLL_MS exists so the end-to-end tests do not wait the control plane's one second
-// minimum interval. It only shortens the wait between polls.
+// HELM_EXECUTOR_TEST_POLL_MS overrides the wait between polls for end-to-end
+// tests. The normal control plane interval is at least one second.
 function pollInterval(ctx: Ctx, seconds: number): number {
   const override = Number(ctx.env.HELM_EXECUTOR_TEST_POLL_MS);
   if (Number.isFinite(override) && override > 0) return override;
