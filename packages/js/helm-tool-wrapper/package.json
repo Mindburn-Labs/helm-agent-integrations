@@ -18,6 +18,12 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/boundary.js",
+    "dist/boundary.d.ts",
+    "dist/framework-adapters.js",
+    "dist/framework-adapters.d.ts",
+    "dist/intent.js",
+    "dist/intent.d.ts",
     "dist/framework_helpers_example.js",
     "dist/framework_helpers_example.d.ts",
     "README.md"

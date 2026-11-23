@@ -13,26 +13,22 @@ Agent / framework
 
 ## Kernel Surface
 
-Use the source-owned MCP surface from `helm-ai-kernel`:
+From the root of a `helm-ai-kernel` checkout, run the maintained MCP demo.
 
 ```bash
-cd ../../helm-ai-kernel
-make build
-./bin/helm-ai-kernel mcp serve
-./scripts/launch/demo-mcp.sh
+make demo-mcp
 ```
 
 The maintained kernel demo asserts that unknown servers, unknown tools, and
 missing schema pins return `DENY` or `ESCALATE` before dispatch.
 
-For the receipt-backed competitive proof pack, run the kernel command:
+From the same checkout, generate the receipt-backed proof pack.
 
 ```bash
 ./bin/helm-ai-kernel mcp proof \
   --scenario all \
   --out /tmp/helm-mcp-proof \
   --run-id public-mcp-proof \
-  --at 2026-06-09T00:00:00Z \
   --json
 ```
 
@@ -43,7 +39,8 @@ summary.
 
 ## Integration Scenario
 
-Generated sample:
+Return to the root of the `helm-agent-integrations` checkout to generate and
+verify the integration fixtures.
 
 ```bash
 python3 scripts/generate_samples.py

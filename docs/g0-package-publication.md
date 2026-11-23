@@ -18,9 +18,7 @@ the repository/workflow trusted publisher to be configured for each package;
 it never falls back to a human npm token. CLI minimum follows the
 [npm trusted publisher documentation](https://docs.npmjs.com/trusted-publishers/).
 
-Current core and Claude package manifests are private; the Codex package has
-no manifest at the source baseline. This gate does not alter those product
-decisions. It refuses private or absent packages until their owners release
-them. It also cannot grant production authority while any G0 scenario remains
-uncovered. A broker for private IH reads and hosted canary readbacks remain
-external prerequisites.
+The core, Claude Code, and Codex executor manifests all set
+`"private": true`. The publication gate rejects private or absent packages
+and requires coverage for every G0 scenario. A broker for private IH reads
+and hosted canary readbacks remain external prerequisites.
