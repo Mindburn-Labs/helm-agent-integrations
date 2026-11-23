@@ -1,211 +1,53 @@
 # HELM Agent Integrations
 
-HELM Agent Integrations is a public adapter and demo repository for routing
-agent-framework side effects through HELM AI Kernel.
-
-The positioning is deliberately narrow:
-
-```text
-Agent frameworks propose and orchestrate work.
-HELM governs execution and produces evidence.
-```
-
-This repository does not define HELM conformance. `helm-ai-kernel` remains the
-source of truth for verdicts, receipts, MCP quarantine, OpenAI-compatible proxy
-behavior, and EvidencePack verification.
-
-## RLM Demo Boundary
-
-RLM examples may appear here only as optional demos that route proposed side
-effects through HELM wrappers. Demo artifacts, generated samples, and RLM
-handoffs are not official RLM certification, HELM conformance, connector
-certification, or production trust anchors.
-
-## First Slice
-
-This repo currently ships:
-
-- TypeScript `withHelmBoundary(...)` wrapper around `POST /api/v1/evaluate`
-- TypeScript `@mindburn/helm-acp-connector` — governed ACP connector for
-  embedded coding engines (Claude Code, Codex): kernel-verdict permissions,
-  allowlisted fs handlers, signed+receipted engine provisioning
-- Python `with_helm_boundary(...)` wrapper around `POST /api/v1/evaluate`
-- framework intent normalizers for Hermes, OpenClaw, Mastra, Codex, Claude
-  Code, Browser Use, E2B, Daytona, Composio, and TinyFish governed web
-  capability
-- twelve package-root runnable normalizer examples (one per framework helper),
-  including an in-process `/api/v1/evaluate` contract double and a default-deny
-  no-dispatch check, executed in CI without provider credentials or side effects
-- universal demo docs for MCP boundary, OpenAI-compatible proxy, and generic
-  tool wrappers
-- routed-action receipt example showing verdict, receipt ref, and EvidencePack
-  verification handoff
-- high-risk MCP and shell demo fixtures for shell, VM, container, mobile,
-  browser-admin, Claude Code hook, and OpenAI Agents tool-call surfaces
-- sample-only loop adapter fixtures for Claude Code `/goal`, Claude Code
-  `/loop`, Codex cloud task, LangGraph evaluator-optimizer, and GitHub PR bot
-- PATH-level kubectl shim demo (`helm-kubectl-ai-guard-demo`) that routes
-  kubectl-ai-proposed cluster operations through the boundary before dispatch
-- Hermes and OpenClaw example integration bundles
-- sample policies and policy-pack templates for common agent-side-effect classes
-- generated sample receipts and EvidencePack archives
-- a sample-only `99_EXT/helm-formal-proof/` EvidencePack extension fixture
-- maintainer issue/PR copy for upstream example submissions
-- CI checks that rebuild and verify the generated samples
+Use these adapters and examples to check an agent’s proposed tool call with
+[HELM AI Kernel](https://github.com/Mindburn-Labs/helm-ai-kernel) before dispatch.
 
 ## Quickstart
 
-Start a local HELM boundary from `helm-ai-kernel`:
+Run the TypeScript and Python wrapper examples from a clean checkout. The
+commands below use Node.js 22 and Python 3.12.
 
-```bash
-cd ../helm-ai-kernel
-make build
-HELM_ADMIN_API_KEY=local-admin-key \
-HELM_RUNTIME_TENANT_ID=local-demo \
-HELM_RUNTIME_PRINCIPAL_ID=demo-agent \
-  ./bin/helm-ai-kernel serve \
-  --policy examples/launch/policies/agent_tool_call_boundary.toml
-```
-
-Use the TypeScript wrapper:
-
-```ts
-import { withHelmBoundary } from "@mindburn/helm-tool-wrapper";
-
-const sendEmail = withHelmBoundary({
-  helmUrl: "http://127.0.0.1:7714",
-  apiKey: process.env.HELM_ADMIN_API_KEY ?? "",
-  tenantId: "local-demo",
-  principal: "demo-agent",
-  sessionId: "demo-session-1",
-  actionUrn: "tool.gmail.send_email",
-  riskClass: "T2",
-  effectClass: "E4",
-  tool: async (input: { to: string; subject: string; body: string }) => {
-    return { provider_id: "msg_123", ...input };
-  },
-});
-
-const result = await sendEmail({
-  to: "investor@example.com",
-  subject: "Follow-up",
-  body: "Drafted by agent.",
-});
-
-if (!result.allowed) {
-  console.log(result.verdict, result.decision.reason);
-}
-```
-
-Use the Python wrapper:
-
-```python
-import os
-
-from helm_tool_wrapper import with_helm_boundary
-
-@with_helm_boundary(
-    helm_url="http://127.0.0.1:7714",
-    api_key=os.environ["HELM_ADMIN_API_KEY"],
-    tenant_id="local-demo",
-    principal="demo-agent",
-    session_id="demo-session-1",
-    action_urn="tool.sql.execute",
-    risk_class="T2",
-    effect_class="E4",
-)
-def execute_sql(query: str):
-    return {"rows": 1, "query": query}
-
-result = execute_sql("DROP TABLE customers")
-if not result.allowed:
-    print(result.verdict, result.decision.reason)
-```
-
-The served Kernel evaluate route is tenant-scoped. Both wrappers send the
-admin API key as a bearer credential and bind `tenant_id`/`principal` through
-the required `X-Helm-Tenant-ID` and `X-Helm-Principal-ID` headers. A
-`serviceToken`/`service_token` is rejected on this route because
-`HELM_SERVICE_API_KEY` is reserved for Kernel service-internal endpoints.
-
-## Repository Layout
-
-```text
-packages/js/helm-tool-wrapper/       TypeScript direct preflight wrapper
-packages/python/helm_tool_wrapper/   Python direct preflight wrapper
-packages/js/eval-harness/            specialist qualification harness and earned-autonomy rules
-demos/                               universal boundary/proxy/wrapper demos
-integrations/                        framework-specific examples
-policies/                            sample integration policy profiles
-receipts/samples/                    generated sample receipt JSON
-evidencepacks/samples/               generated sample EvidencePack archives
-docs/campaign/                       maintainer-ready issue and PR copy
-```
-
-## Run every framework helper example
-
-The helpers are thin payload normalizers, not provider SDK replacements. Each
-example is deterministic: it verifies the produced intent and its conservative
-risk/effect classification, sends that intent through an in-process
-`/api/v1/evaluate` contract double, and proves a denied unknown-tool attempt
-does not dispatch. It does not contact a provider, a live Kernel, or an
-external system.
-
-```bash
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install ./packages/python/helm_tool_wrapper
+npm ci --prefix packages/js/helm-tool-wrapper
 make examples
 ```
 
-The TypeScript package exposes the example at
-`@mindburn/helm-tool-wrapper/examples/framework-helpers`. The Python package
-ships it as `python -m helm_tool_wrapper.examples.framework_helpers`. CI runs
-both source examples plus isolated consumers installed from the packed npm
-tarball and Python wheel on every pull request and `main` push.
+The examples normalize fixture calls and send them to an in-process double
+for `POST /api/v1/evaluate`. Each checks that a denied unknown-tool call
+skips dispatch.
 
-TinyFish-style web capability examples live under `integrations/tinyfish/`.
-They are HELM-governed external web capability fixtures, not TinyFish
-certification or partnership claims.
+To get and verify receipts from a running local Kernel, follow the
+[Kernel HTTP walkthrough](https://github.com/Mindburn-Labs/helm-ai-kernel/tree/main/examples/first-use).
+Use the Kernel’s URL and tenant and principal bindings in the wrapper you choose.
 
-## Generate And Verify Samples
+## Choose an integration
 
-Sample receipts and EvidencePack archives are generated from
-`scripts/generate_samples.py`.
+| If you want to | Start here |
+| --- | --- |
+| Check a tool call from your own code | [TypeScript wrapper](packages/js/helm-tool-wrapper/README.md) or [Python wrapper](packages/python/helm_tool_wrapper/README.md) |
+| Try a framework or inspect a receipt | [Framework examples](integrations/) and [routed-action demo](demos/routed-action-receipt/README.md) |
+| Route calls through MCP or an OpenAI-compatible proxy | [MCP boundary demo](demos/mcp-boundary/README.md) or [proxy demo](demos/openai-proxy/README.md) |
+| Connect an agent client to a HELM control plane | [Executor core](executors/core/README.md), [Claude Code](executors/claude-code/README.md), or [Codex](executors/codex/README.md) |
+| Embed a coding engine over ACP | [ACP connector](packages/js/acp-connector/README.md) |
+| Run an agent framework as a container worker | [Worker contract, adapters, and conformance kit](workers/README.md) |
 
-```bash
-python3 scripts/generate_samples.py
-python3 scripts/generate_samples.py --check
-python3 scripts/verify_samples.py
-```
+Refer to the Kernel’s [HTTP API](https://github.com/Mindburn-Labs/helm-ai-kernel/blob/main/docs/reference/http-api.md)
+and [verification guide](https://github.com/Mindburn-Labs/helm-ai-kernel/blob/main/docs/VERIFICATION.md)
+for verdicts, receipt formats, and EvidencePack verification.
 
-The samples are deterministic local proof fixtures for demos. Formal-proof
-entries, when present, live under `99_EXT/helm-formal-proof/` and are declared
-in `00_INDEX.json`. They are not customer trust anchors and do not replace
-native `helm-ai-kernel verify`; `helm-ai-kernel` remains source truth for proof
-contracts and conformance.
+## Check changes
 
-## Validation
+Run `make check` for builds, tests, package install checks, fixture checks,
+and Markdown links. The required CI gate also runs `make workers-conformance`
+against the worker images on an isolated Docker network.
 
-```bash
-make check
-```
+Run `python3 scripts/generate_samples.py` to regenerate the checked-in
+sample receipts and EvidencePacks. `make samples verify-samples` checks
+byte-for-byte regeneration and sample integrity. These artifacts are demo fixtures.
 
-`make check` runs TypeScript build/tests, Python tests plus strict
-Python 3.9-targeted type/lint checks, both packaged helper examples, sample
-regeneration checks, sample integrity checks, a packaging round trip that
-installs the npm tarball and the wheel into clean consumers, and relative
-Markdown link checks. CI runs it as the required check `ci / gate`, and reruns
-the Python gates on Python 3.9.
-
-## Source Truth
-
-- HELM Kernel repo: https://github.com/Mindburn-Labs/helm-ai-kernel
-- MCP integration docs: `helm-ai-kernel/docs/INTEGRATIONS/mcp.md`
-- OpenAI-compatible proxy docs:
-  `helm-ai-kernel/docs/INTEGRATIONS/openai_baseurl.md`
-- HTTP API docs: `helm-ai-kernel/docs/reference/http-api.md`
-- Verification docs: `helm-ai-kernel/docs/VERIFICATION.md`
-
-## Maintainer Copy
-
-Use `docs/campaign/maintainer-issue.md` and
-`docs/campaign/maintainer-pr.md` when opening upstream examples. Keep upstream
-submissions small, optional, and example-only.
+For upstream example submissions, see the [maintainer issue template](docs/campaign/maintainer-issue.md)
+and [pull request template](docs/campaign/maintainer-pr.md).

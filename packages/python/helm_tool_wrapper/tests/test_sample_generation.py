@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-_SPEC = importlib.util.spec_from_file_location(
-    "generate_samples", REPO_ROOT / "scripts" / "generate_samples.py"
-)
-assert _SPEC is not None and _SPEC.loader is not None
-generate_samples = importlib.util.module_from_spec(_SPEC)
-sys.modules["generate_samples"] = generate_samples
-_SPEC.loader.exec_module(generate_samples)
+with patch.object(sys, "path", [str(REPO_ROOT / "scripts"), *sys.path]):
+    import generate_samples
+    import sample_scenarios
 
 
 class SampleGenerationAssertionTests(unittest.TestCase):
@@ -26,13 +22,13 @@ class SampleGenerationAssertionTests(unittest.TestCase):
     }
 
     def _scenario(self, scenario_id: str):
-        for scenario in generate_samples.SCENARIOS:
+        for scenario in sample_scenarios.SCENARIOS:
             if scenario.scenario_id == scenario_id:
                 return scenario
         raise AssertionError(f"missing scenario {scenario_id}")
 
     def test_every_scenario_reason_code_is_backed_by_reference_policy(self) -> None:
-        for scenario in generate_samples.SCENARIOS:
+        for scenario in sample_scenarios.SCENARIOS:
             facts = generate_samples.assert_reason_code_backed(scenario)
             self.assertIsInstance(facts, dict)
 
@@ -68,13 +64,13 @@ class SampleGenerationAssertionTests(unittest.TestCase):
             generate_samples.assert_reason_code_backed(scenario)
 
     def test_normalize_e2b_network_fails_closed(self) -> None:
-        self.assertEqual(generate_samples.normalize_e2b_network(None), "external")
-        self.assertEqual(generate_samples.normalize_e2b_network(True), "external")
-        self.assertEqual(generate_samples.normalize_e2b_network("internet"), "external")
-        self.assertEqual(generate_samples.normalize_e2b_network({"internet_access": True}), "external")
-        self.assertEqual(generate_samples.normalize_e2b_network(False), "isolated")
-        self.assertEqual(generate_samples.normalize_e2b_network("none"), "isolated")
-        self.assertEqual(generate_samples.normalize_e2b_network("ISOLATED"), "isolated")
+        self.assertEqual(sample_scenarios.normalize_e2b_network(None), "external")
+        self.assertEqual(sample_scenarios.normalize_e2b_network(True), "external")
+        self.assertEqual(sample_scenarios.normalize_e2b_network("internet"), "external")
+        self.assertEqual(sample_scenarios.normalize_e2b_network({"internet_access": True}), "external")
+        self.assertEqual(sample_scenarios.normalize_e2b_network(False), "isolated")
+        self.assertEqual(sample_scenarios.normalize_e2b_network("none"), "isolated")
+        self.assertEqual(sample_scenarios.normalize_e2b_network("ISOLATED"), "isolated")
 
     def test_loop_adapter_samples_emit_v2_loop_metadata(self) -> None:
         for scenario_id in self.LOOP_SCENARIOS:
