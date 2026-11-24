@@ -1,14 +1,14 @@
 # Maintainer PR Template
 
-Title:
+## Pull request title
 
 ```text
 examples: add optional HELM boundary for high-risk tool calls
 ```
 
-Body:
+## Pull request body
 
-```markdown
+````markdown
 This PR adds an optional HELM AI Kernel example for {{PROJECT}}.
 
 It does not change default behavior.
@@ -22,21 +22,17 @@ HELM boundary before execution:
 4. return decision and receipt metadata
 5. verify the sample EvidencePack
 
-Why this is useful:
-
-- safer persistent or autonomous agents
-- auditable side-effect execution
-- optional MCP quarantine path
-- receipt-bearing demos for security review
+The demo includes a refused or escalated call and shows how to inspect the
+returned receipt metadata without dispatching that call.
 
 Validation:
 
 ```bash
 {{VALIDATION_COMMAND}}
 ```
-```
+````
 
-Rules:
+## Submission checks
 
 - Example only.
 - No core rewrite.

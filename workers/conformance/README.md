@@ -83,5 +83,6 @@ against the reference worker image, so the isolation itself is exercised.
 
 ## Adding a scenario or a check
 
-Scenarios live in `scenarios.py` (`SCENARIOS`), checks in `checks.py`. Add the scenario to
-`MANIFEST` in `tests/test_kit.py`, and a mutant to `MUTANTS` when the rule can be broken.
+Register the scenario in `scenarios.py` (`SCENARIOS`) and add its worker interaction to
+`scenario_drivers.py`. Reusable assertions live in `checks.py`. Add the scenario to
+`MANIFEST` in `tests/test_kit.py` and add a mutant to `MUTANTS` when the rule can be broken.

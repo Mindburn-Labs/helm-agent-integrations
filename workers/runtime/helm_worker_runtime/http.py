@@ -99,7 +99,7 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def handle_error(self, request: Any, client_address: Any) -> None:
-        # Workers drop connections on purpose (cancel, disconnect); that is not a stub fault.
+        # A client can disconnect while the worker is writing a response.
         if isinstance(sys.exc_info()[1], ConnectionError):
             return
         super().handle_error(request, client_address)
@@ -133,7 +133,7 @@ def serve(handle: Handler, host: str, port: int) -> ThreadingHTTPServer:
             return
 
     server = _Server((host, port), BoundHandler)
-    threading.Thread(target=server.serve_forever, name=f"stub-{port}", daemon=True).start()
+    threading.Thread(target=server.serve_forever, name=f"worker-http-{port}", daemon=True).start()
     return server
 
 
