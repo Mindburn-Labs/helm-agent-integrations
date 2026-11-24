@@ -10,6 +10,8 @@
     "dist/index.d.ts",
     "dist/bridge.js",
     "dist/bridge.d.ts",
+    "dist/turn-events.js",
+    "dist/turn-events.d.ts",
     "dist/evaluator.js",
     "dist/evaluator.d.ts",
     "dist/telegram.js",
